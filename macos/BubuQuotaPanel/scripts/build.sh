@@ -19,7 +19,7 @@ for ARCH in arm64 x86_64; do
   /usr/bin/swiftc \
     -swift-version 5 \
     -O \
-    -target "$ARCH-apple-macos12.6" \
+    -target "$ARCH-apple-macos12.3" \
     -sdk "$SDK" \
     -framework AppKit \
     -framework CoreGraphics \
