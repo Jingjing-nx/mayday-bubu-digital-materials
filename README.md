@@ -21,7 +21,7 @@
 
 请在项目右侧的 **Releases** 中选择对应系统：
 
-- `Mayday-Bubu-macOS-Universal-v1.0.0.zip`：macOS 13+，Apple 芯片与 Intel Mac。
+- `Mayday-Bubu-macOS-Universal-v1.0.1.zip`：macOS 12.6+，Apple 芯片与 Intel Mac。
 - `Mayday-Bubu-Windows-10-11-v1.0.0.zip`：Windows 10/11，x64 与 ARM64。
 
 两个压缩包的名称、根目录和安装入口都明确标注了系统，不能混用。
@@ -30,7 +30,7 @@
 
 ### macOS
 
-1. 完整解压 `Mayday-Bubu-macOS-Universal-v1.0.0.zip`。
+1. 完整解压 `Mayday-Bubu-macOS-Universal-v1.0.1.zip`。
 2. 双击 `安装卜卜-macOS.command`。
 3. 如果系统拦截，请右键安装文件并选择“打开”。
 4. 退出并重新打开 Codex。

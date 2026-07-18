@@ -18,6 +18,11 @@ jobs:
       - run: ./macos/BubuQuotaPanel/scripts/build.sh
       - run: file macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel
       - run: lipo macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel -verify_arch arm64 x86_64
+      - name: Verify macOS 12.6 deployment target
+        run: |
+          APP="macos/BubuQuotaPanel/build/卜卜额度面板.app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist")" = "12.6"
+          test "$(vtool -show-build "$APP/Contents/MacOS/BubuQuotaPanel" | grep -c 'minos 12.6')" -eq 2
       - run: codesign --verify --deep --strict macos/BubuQuotaPanel/build/卜卜额度面板.app
       - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh
 

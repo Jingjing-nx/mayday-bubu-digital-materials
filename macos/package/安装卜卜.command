@@ -85,10 +85,15 @@ select_bubu_in_codex() {
   /bin/mv "$tmp_config" "$CONFIG"
 }
 
-echo "正在安装卜卜（macOS Universal 开源版 1.0.0）…"
+echo "正在安装卜卜（macOS Universal 开源版 1.0.1）…"
 
-[[ "$(/usr/bin/sw_vers -productVersion | /usr/bin/cut -d. -f1)" -ge 13 ]] \
-  || fail "需要 macOS 13 或更高版本。"
+MACOS_VERSION="$(/usr/bin/sw_vers -productVersion)"
+MACOS_MAJOR="${MACOS_VERSION%%.*}"
+MACOS_REMAINDER="${MACOS_VERSION#*.}"
+MACOS_MINOR="${MACOS_REMAINDER%%.*}"
+if (( MACOS_MAJOR < 12 || (MACOS_MAJOR == 12 && MACOS_MINOR < 6) )); then
+  fail "需要 macOS 12.6 或更高版本，当前版本为 $MACOS_VERSION。"
+fi
 [[ -f "$PET_SOURCE/pet.json" && -f "$PET_SOURCE/spritesheet.webp" ]] \
   || fail "宠物文件不完整，请重新解压整个分享包。"
 [[ -d "$APP_SOURCE" && -f "$PLIST_SOURCE" ]] \
