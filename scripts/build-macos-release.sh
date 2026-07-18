@@ -5,7 +5,7 @@ ROOT="${0:A:h:h}"
 VERSION="1.0.0"
 STAGE_ROOT="$ROOT/build/release"
 STAGE="$STAGE_ROOT/卜卜-macOS"
-OUT="$ROOT/dist/卜卜-macOS-Universal-v$VERSION.zip"
+OUT="$ROOT/dist/Mayday-Bubu-macOS-Universal-v$VERSION.zip"
 APP_PROJECT="$ROOT/macos/BubuQuotaPanel"
 LABEL="io.github.mayday-materials.bubu-quota-panel"
 

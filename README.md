@@ -8,8 +8,8 @@
 
 请在项目右侧的 **Releases** 中选择对应系统：
 
-- `卜卜-macOS-Universal-v1.0.0.zip`：macOS 13+，Apple 芯片与 Intel Mac。
-- `卜卜-Windows-10-11-v1.0.0.zip`：Windows 10/11，x64 与 ARM64。
+- `Mayday-Bubu-macOS-Universal-v1.0.0.zip`：macOS 13+，Apple 芯片与 Intel Mac。
+- `Mayday-Bubu-Windows-10-11-v1.0.0.zip`：Windows 10/11，x64 与 ARM64。
 
 两个压缩包的名称、根目录和安装入口都明确标注了系统，不能混用。
 
@@ -17,14 +17,14 @@
 
 ### macOS
 
-1. 完整解压 `卜卜-macOS-Universal-v1.0.0.zip`。
+1. 完整解压 `Mayday-Bubu-macOS-Universal-v1.0.0.zip`。
 2. 双击 `安装卜卜-macOS.command`。
 3. 如果系统拦截，请右键安装文件并选择“打开”。
 4. 退出并重新打开 Codex。
 
 ### Windows
 
-1. 完整解压 `卜卜-Windows-10-11-v1.0.0.zip`，不要在压缩包预览窗口中运行。
+1. 完整解压 `Mayday-Bubu-Windows-10-11-v1.0.0.zip`，不要在压缩包预览窗口中运行。
 2. 双击 `安装卜卜-Windows.cmd`。
 3. 完全退出并重新打开 Codex。
 4. 公司电脑限制 PowerShell 时，可运行 `兼容安装-只装宠物.cmd`；宠物仍可使用，但不会安装额度面板。

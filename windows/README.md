@@ -2,7 +2,7 @@
 
 ## 安装
 
-1. 完整解压 `卜卜-Windows-10-11-v1.0.0.zip`。
+1. 完整解压 `Mayday-Bubu-Windows-10-11-v1.0.0.zip`。
 2. 双击 `安装卜卜-Windows.cmd`。
 3. 完全退出并重新打开 Codex。
 

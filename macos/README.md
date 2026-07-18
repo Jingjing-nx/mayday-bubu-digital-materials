@@ -2,7 +2,7 @@
 
 ## 安装
 
-1. 完整解压 `卜卜-macOS-Universal-v1.0.0.zip`。
+1. 完整解压 `Mayday-Bubu-macOS-Universal-v1.0.0.zip`。
 2. 双击 `安装卜卜-macOS.command`。
 3. macOS 拦截时，右键安装文件并选择“打开”。
 4. 重新打开 Codex；安装器会优先自动选中卜卜。

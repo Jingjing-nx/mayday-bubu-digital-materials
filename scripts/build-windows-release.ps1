@@ -5,7 +5,7 @@ $Root = Split-Path -Parent $PSScriptRoot
 $Version = "1.0.0"
 $StageRoot = Join-Path $Root "build\release"
 $Stage = Join-Path $StageRoot "卜卜-Windows"
-$Output = Join-Path $Root "dist\卜卜-Windows-10-11-v$Version.zip"
+$Output = Join-Path $Root "dist\Mayday-Bubu-Windows-10-11-v$Version.zip"
 
 Remove-Item -LiteralPath $Stage -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $Output -Force -ErrorAction SilentlyContinue
