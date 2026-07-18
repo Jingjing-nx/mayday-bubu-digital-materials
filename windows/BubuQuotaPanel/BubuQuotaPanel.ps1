@@ -37,7 +37,7 @@ trap {
     Write-PanelLog ("FATAL " + $_.Exception.ToString())
     try {
         [Windows.MessageBox]::Show(
-            "卜卜看板启动失败。请运行分享包里的“检查安装环境.cmd”，并发送生成的报告。",
+            "卜卜看板启动失败。请运行分享包里的【检查安装环境.cmd】，并发送生成的报告。",
             "卜卜看板",
             [Windows.MessageBoxButton]::OK,
             [Windows.MessageBoxImage]::Warning
