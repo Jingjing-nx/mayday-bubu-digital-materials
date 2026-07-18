@@ -1,0 +1,20 @@
+* text=auto
+
+# Windows PowerShell 5.1 and command scripts need Windows line endings.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.vbs text eol=crlf
+
+# Keep macOS and repository scripts on Unix line endings.
+*.sh text eol=lf
+*.command text eol=lf
+*.swift text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+
+*.png binary
+*.gif binary
+*.webp binary
+*.zip binary

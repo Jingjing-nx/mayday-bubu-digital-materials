@@ -1,0 +1,4 @@
+Package: Bubu macOS
+Version: 1.0.0
+System: macOS 13+
+Architecture: Universal 2 (arm64 + x86_64)

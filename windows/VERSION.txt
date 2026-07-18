@@ -1,0 +1,4 @@
+Package: Bubu Windows
+Version: 1.0.0
+System: Windows 10/11
+Architecture: x64 + ARM64
