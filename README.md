@@ -1,3 +1,15 @@
+<p align="center">
+  <img src="shared/community/bubu-wechat-group.jpg" alt="卜卜电子物料交流群二维码" width="420">
+</p>
+
+<p align="center">
+  老师们可以加群<br>
+  突然好多人找我要，我估计会有 bug<br>
+  有问题在群里问我就行，如果有版本更新我也会在群里说<br>
+  我无限 token，随便改<br>
+  下周抽空再做个 MaydayLand Codex 看板皮肤
+</p>
+
 # mayday卜卜电子物料
 
 一个非官方、非商业的五月天歌迷桌面项目。目前包含 Codex 动态宠物“卜卜”、Codex 剩余额度面板，以及 BTC/USDT、ETH/USDT 实时价格。
