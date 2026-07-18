@@ -24,6 +24,26 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist")" = "12.3"
           test "$(vtool -show-build "$APP/Contents/MacOS/BubuQuotaPanel" | grep -c 'minos 12.3')" -eq 2
       - run: codesign --verify --deep --strict macos/BubuQuotaPanel/build/卜卜额度面板.app
+      - name: Verify saved-position fallback
+        run: |
+          STATE="$(mktemp)"
+          printf '%s\n' '{"electron-avatar-overlay-open":true,"electron-avatar-overlay-bounds":{"x":100,"y":100,"width":356,"height":320,"mascot":{"left":165,"top":70,"width":163,"height":177}}}' > "$STATE"
+          BUBU_CODEX_STATE_FILE="$STATE" macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --print-saved-panel-location | grep 'source=saved-state'
+          rm -f "$STATE"
+      - name: Verify panel runtime health
+        run: |
+          HEALTH="$(mktemp)"
+          rm -f "$HEALTH"
+          BUBU_PANEL_HEALTH_FILE="$HEALTH" macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel &
+          PID=$!
+          trap 'kill "$PID" 2>/dev/null || true; rm -f "$HEALTH"' EXIT
+          for _ in {1..50}; do
+            test -s "$HEALTH" && break
+            sleep 0.1
+          done
+          grep '"version":"1.0.4"' "$HEALTH"
+          kill "$PID" 2>/dev/null || true
+          wait "$PID" 2>/dev/null || true
       - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh
 
   windows-syntax:

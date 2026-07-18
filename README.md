@@ -21,7 +21,7 @@
 
 请在项目右侧的 **Releases** 中选择对应系统：
 
-- `Mayday-Bubu-macOS-Universal-v1.0.3.zip`：macOS 12.3+，Apple 芯片与 Intel Mac。
+- `Mayday-Bubu-macOS-Universal-v1.0.4.zip`：macOS 12.3+，Apple 芯片与 Intel Mac。
 - `Mayday-Bubu-Windows-10-11-v1.0.0.zip`：Windows 10/11，x64 与 ARM64。
 
 两个压缩包的名称、根目录和安装入口都明确标注了系统，不能混用。
@@ -30,7 +30,7 @@
 
 ### macOS
 
-1. 完整解压 `Mayday-Bubu-macOS-Universal-v1.0.3.zip`。
+1. 完整解压 `Mayday-Bubu-macOS-Universal-v1.0.4.zip`。
 2. 双击 `安装卜卜-macOS.command`。
 3. 如果出现“Apple 无法验证”提示，点“完成”，不要点“移到废纸篓”。
 4. 双击包内的 `安装被拦截-打开安全设置.webloc`，在打开的安全设置中点击“仍要打开”或“Open Anyway”。
@@ -55,7 +55,7 @@
 ## 性能与兼容性
 
 - 宠物图集固定为 Codex v2 的 8×11、1536×2288 WebP；Mac 与 Windows 使用同一份已验证图集，避免跨平台动作变形。
-- macOS 面板使用原生 AppKit，30 ms 跟随，并读取 Codex 保存的可见宠物尺寸。
+- macOS 面板使用原生 AppKit，30 ms 跟随，并读取 Codex 保存的可见宠物尺寸和位置；窗口定位失败时有可见的安全回退，安装器也会验证面板进程确实启动。
 - Windows 面板使用 WPF 与桌面合成器逐帧事件跟随；拖动时暂停额度、行情和诊断刷新，减少跟随延迟。
 - 两个平台都不需要管理员权限，也不需要 API Key。
 

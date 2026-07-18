@@ -7,15 +7,17 @@ DEST_APP="$HOME/Applications/卜卜额度面板.app"
 LABEL="io.github.mayday-materials.bubu-quota-panel"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/卜卜额度面板.log"
+HEALTH="$HOME/Library/Caches/io.github.mayday-materials.bubu-quota-panel/panel-health.json"
 DOMAIN="gui/$(id -u)"
 
 "$ROOT/scripts/build.sh" >/dev/null
-mkdir -p "$HOME/Applications" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+mkdir -p "$HOME/Applications" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" "${HEALTH:h}"
 rm -rf "$DEST_APP"
 /usr/bin/ditto "$SOURCE_APP" "$DEST_APP"
 
 /usr/bin/sed \
   -e "s|__EXECUTABLE__|$DEST_APP/Contents/MacOS/BubuQuotaPanel|g" \
+  -e "s|__HEALTH_PATH__|$HEALTH|g" \
   -e "s|__LOG_PATH__|$LOG|g" \
   "$ROOT/Resources/$LABEL.plist.in" > "$PLIST"
 

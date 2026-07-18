@@ -8,12 +8,21 @@
   <array>
     <string>__EXECUTABLE__</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>BUBU_PANEL_HEALTH_FILE</key>
+    <string>__HEALTH_PATH__</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>ProcessType</key>
   <string>Interactive</string>
+  <key>LimitLoadToSessionType</key>
+  <string>Aqua</string>
+  <key>ThrottleInterval</key>
+  <integer>2</integer>
   <key>StandardOutPath</key>
   <string>__LOG_PATH__</string>
   <key>StandardErrorPath</key>

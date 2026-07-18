@@ -13,8 +13,11 @@ LABEL="io.github.mayday-materials.bubu-quota-panel"
 PLIST_SOURCE="$ROOT/quota-panel/$LABEL.plist.in"
 PLIST_DEST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG_PATH="$HOME/Library/Logs/卜卜额度面板.log"
+HEALTH_DIR="$HOME/Library/Caches/io.github.mayday-materials.bubu-quota-panel"
+HEALTH_PATH="$HEALTH_DIR/panel-health.json"
 CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
 DOMAIN="gui/$(id -u)"
+PANEL_VERSION="1.0.4"
 EXPECTED_ATLAS_SHA256="df3c6f95784ae109f12df57c438afaa88c3e4a786145066c3d93fbf32000b3a0"
 
 pause_before_exit() {
@@ -28,8 +31,34 @@ pause_before_exit() {
 fail() {
   echo ""
   echo "安装失败：$1"
+  if [[ -s "$LOG_PATH" ]]; then
+    echo ""
+    echo "面板日志最后 12 行："
+    /usr/bin/tail -n 12 "$LOG_PATH" 2>/dev/null || true
+  fi
   pause_before_exit
   exit 1
+}
+
+panel_service_has_pid() {
+  /bin/launchctl print "$DOMAIN/$LABEL" 2>/dev/null \
+    | /usr/bin/grep -Eq '^[[:space:]]*pid = [0-9]+'
+}
+
+panel_health_is_current() {
+  [[ -s "$HEALTH_PATH" ]] \
+    && /usr/bin/grep -q '"version":"'"$PANEL_VERSION"'"' "$HEALTH_PATH" 2>/dev/null
+}
+
+wait_for_panel_health() {
+  local attempt
+  for attempt in {1..80}; do
+    if panel_service_has_pid && panel_health_is_current; then
+      return 0
+    fi
+    /bin/sleep 0.1
+  done
+  return 1
 }
 
 select_bubu_in_codex() {
@@ -85,7 +114,7 @@ select_bubu_in_codex() {
   /bin/mv "$tmp_config" "$CONFIG"
 }
 
-echo "正在安装卜卜（macOS Universal 开源版 1.0.3）…"
+echo "正在安装卜卜（macOS Universal 开源版 $PANEL_VERSION）…"
 
 MACOS_VERSION="$(/usr/bin/sw_vers -productVersion)"
 MACOS_MAJOR="${MACOS_VERSION%%.*}"
@@ -111,7 +140,7 @@ ARCH="$(/usr/bin/uname -m)"
 /usr/bin/codesign --verify --deep --strict "$APP_SOURCE" \
   || fail "额度面板签名校验失败，请重新下载分享包。"
 
-mkdir -p "${PET_DEST:h}" "$HOME/Applications" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+mkdir -p "${PET_DEST:h}" "$HOME/Applications" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" "$HEALTH_DIR"
 
 if [[ -e "$PET_DEST" ]]; then
   PET_BACKUP="$PET_DEST.backup-$(date +%Y%m%d-%H%M%S)"
@@ -136,9 +165,11 @@ done
 /usr/bin/ditto "$APP_SOURCE" "$APP_DEST"
 /usr/bin/xattr -dr com.apple.quarantine "$APP_DEST" 2>/dev/null || true
 /usr/bin/codesign --force --deep --sign - "$APP_DEST" >/dev/null
+/bin/rm -f "$HEALTH_PATH"
 
 /bin/cp "$PLIST_SOURCE" "$PLIST_DEST"
 /usr/bin/plutil -replace ProgramArguments.0 -string "$APP_BINARY" "$PLIST_DEST"
+/usr/bin/plutil -replace EnvironmentVariables.BUBU_PANEL_HEALTH_FILE -string "$HEALTH_PATH" "$PLIST_DEST"
 /usr/bin/plutil -replace StandardErrorPath -string "$LOG_PATH" "$PLIST_DEST"
 /usr/bin/plutil -replace StandardOutPath -string "$LOG_PATH" "$PLIST_DEST"
 /usr/bin/plutil -lint "$PLIST_DEST" >/dev/null
@@ -148,9 +179,20 @@ if ! /bin/launchctl bootstrap "$DOMAIN" "$PLIST_DEST"; then
   /bin/launchctl bootstrap "$DOMAIN" "$PLIST_DEST" \
     || fail "无法注册额度面板登录启动项。"
 fi
-/bin/launchctl kickstart -k "$DOMAIN/$LABEL"
-/bin/launchctl print "$DOMAIN/$LABEL" >/dev/null \
-  || fail "额度面板未能启动。"
+/bin/launchctl kickstart -k "$DOMAIN/$LABEL" \
+  || fail "额度面板启动请求失败。"
+
+if ! wait_for_panel_health; then
+  echo "首次启动未通过自检，正在自动重试…"
+  /bin/launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+  /bin/sleep 0.5
+  /bin/launchctl bootstrap "$DOMAIN" "$PLIST_DEST" \
+    || fail "额度面板重试注册失败。"
+  /bin/launchctl kickstart -k "$DOMAIN/$LABEL" \
+    || fail "额度面板重试启动失败。"
+  wait_for_panel_health \
+    || fail "额度面板进程没有保持运行。请把上面的日志发到群里。"
+fi
 
 select_bubu_in_codex
 

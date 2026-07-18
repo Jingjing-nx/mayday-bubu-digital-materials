@@ -4,6 +4,7 @@ import Foundation
 
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
+private let panelVersion = "1.0.4"
 // Track fast enough that the panel preserves its 14 px visual gap while the
 // pet window is moving between animation positions.
 private let followInterval: TimeInterval = 0.03
@@ -19,6 +20,48 @@ private let defaultPetTopVisualInset: CGFloat = 12
 // The v2 sprite has a small transparent top padding inside Codex's stored
 // mascot anchor. Add it so the panel measures from Bubu's visible top tuft.
 private let petSpriteTopPaddingInsideAnchor: CGFloat = 7
+
+private final class RuntimeHealthWriter {
+    private let fileURL: URL = {
+        if let override = ProcessInfo.processInfo.environment["BUBU_PANEL_HEALTH_FILE"],
+           !override.isEmpty
+        {
+            return URL(fileURLWithPath: override)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/io.github.mayday-materials.bubu-quota-panel/panel-health.json")
+    }()
+    private var lastSignature = ""
+    private var lastWriteAt: CFAbsoluteTime = 0
+
+    func write(status: String, panelVisible: Bool, locationSource: String?, force: Bool = false) {
+        let now = CFAbsoluteTimeGetCurrent()
+        let signature = "\(status)|\(panelVisible)|\(locationSource ?? "none")"
+        guard force || signature != lastSignature || now - lastWriteAt >= 15 else { return }
+
+        let payload: [String: Any] = [
+            "version": panelVersion,
+            "pid": ProcessInfo.processInfo.processIdentifier,
+            "status": status,
+            "panelVisible": panelVisible,
+            "locationSource": locationSource ?? NSNull(),
+            "updatedAt": ISO8601DateFormatter().string(from: Date()),
+        ]
+
+        do {
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+            try data.write(to: fileURL, options: .atomic)
+            lastSignature = signature
+            lastWriteAt = now
+        } catch {
+            // The panel must remain usable even if a managed Mac blocks cache writes.
+        }
+    }
+}
 
 private struct RateLimitWindow: Decodable {
     let usedPercent: Int
@@ -141,7 +184,7 @@ private final class CodexQuotaClient {
         }
 
         writeLines([
-            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"bubu-quota-panel","version":"1.0.3"},"capabilities":{"experimentalApi":true}}}"#,
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"bubu-quota-panel\",\"version\":\"\(panelVersion)\"},\"capabilities\":{\"experimentalApi\":true}}}",
         ])
 
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 15) {
@@ -752,30 +795,48 @@ private final class PetWindowLocator {
         let width: CGFloat
     }
 
+    private struct StoredOverlayLocation {
+        let rect: CGRect
+        let displayID: CGDirectDisplayID?
+        let mascot: StoredMascotMetrics?
+    }
+
     private var cachedWindowID: CGWindowID?
     private var cachedTopVisualInset = defaultPetTopVisualInset
     private var lastVisualProbeAt: CFAbsoluteTime = 0
     private var lastOverlayStateReadAt: CFAbsoluteTime = 0
     private var storedMascotMetrics: [CGDirectDisplayID: StoredMascotMetrics] = [:]
+    private var storedOverlayLocations: [StoredOverlayLocation] = []
+    private(set) var overlayOpen: Bool?
 
     func locate() -> (
         rect: NSRect,
         screen: NSScreen,
         topVisualInset: CGFloat,
-        visualCenterX: CGFloat?
+        visualCenterX: CGFloat?,
+        source: String
     )? {
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - lastOverlayStateReadAt >= 0.25 {
+            lastOverlayStateReadAt = now
+            refreshStoredOverlayState()
+        }
+
         if let cachedWindowID,
            let windows = CGWindowListCopyWindowInfo(.optionIncludingWindow, cachedWindowID) as? [[String: Any]],
            let window = windows.first,
            let candidate = candidate(from: window)
         {
-            return makeLocation(from: candidate.rect, windowID: cachedWindowID)
+            if let location = makeLocation(from: candidate.rect, windowID: cachedWindowID) {
+                return location
+            }
+            self.cachedWindowID = nil
         }
 
         cachedWindowID = nil
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         guard let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
-            return nil
+            return storedOverlayLocation()
         }
 
         let candidates: [(id: CGWindowID, rect: CGRect, score: Double)] = windows.compactMap { window in
@@ -786,10 +847,21 @@ private final class PetWindowLocator {
         }
 
         guard let best = candidates.min(by: { $0.score < $1.score }) else {
-            return nil
+            return storedOverlayLocation()
         }
         cachedWindowID = best.id
-        return makeLocation(from: best.rect, windowID: best.id)
+        return makeLocation(from: best.rect, windowID: best.id) ?? storedOverlayLocation()
+    }
+
+    func locateSavedState() -> (
+        rect: NSRect,
+        screen: NSScreen,
+        topVisualInset: CGFloat,
+        visualCenterX: CGFloat?,
+        source: String
+    )? {
+        refreshStoredOverlayState()
+        return storedOverlayLocation()
     }
 
     private func makeLocation(
@@ -799,16 +871,12 @@ private final class PetWindowLocator {
         rect: NSRect,
         screen: NSScreen,
         topVisualInset: CGFloat,
-        visualCenterX: CGFloat?
+        visualCenterX: CGFloat?,
+        source: String
     )? {
         guard let converted = convertToAppKit(quartzRect) else { return nil }
 
         let now = CFAbsoluteTimeGetCurrent()
-        if now - lastOverlayStateReadAt >= 0.25 {
-            lastOverlayStateReadAt = now
-            refreshStoredMascotMetrics()
-        }
-
         let displayID = converted.1.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
             .flatMap { $0 as? NSNumber }
             .map { CGDirectDisplayID($0.uint32Value) }
@@ -829,47 +897,109 @@ private final class PetWindowLocator {
         let visualCenterX = storedMetrics.map {
             converted.0.minX + $0.left + $0.width / 2
         }
-        return (converted.0, converted.1, cachedTopVisualInset, visualCenterX)
+        return (converted.0, converted.1, cachedTopVisualInset, visualCenterX, "window")
     }
 
-    private func refreshStoredMascotMetrics() {
-        let stateURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".codex/.codex-global-state.json")
+    private func refreshStoredOverlayState() {
+        let stateURL: URL
+        if let override = ProcessInfo.processInfo.environment["BUBU_CODEX_STATE_FILE"],
+           !override.isEmpty
+        {
+            stateURL = URL(fileURLWithPath: override)
+        } else {
+            stateURL = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".codex/.codex-global-state.json")
+        }
         guard let data = try? Data(contentsOf: stateURL),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let overlay = root["electron-avatar-overlay-bounds"] as? [String: Any]
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return }
 
-        var updated: [CGDirectDisplayID: StoredMascotMetrics] = [:]
+        overlayOpen = root["electron-avatar-overlay-open"] as? Bool
+        guard let overlay = root["electron-avatar-overlay-bounds"] as? [String: Any] else {
+            storedMascotMetrics = [:]
+            storedOverlayLocations = []
+            return
+        }
 
-        func addMetrics(from entry: [String: Any]) {
-            guard let displayNumber = entry["displayId"] as? NSNumber,
-                  let mascot = entry["mascot"] as? [String: Any],
+        var updated: [CGDirectDisplayID: StoredMascotMetrics] = [:]
+        var locations: [StoredOverlayLocation] = []
+
+        func mascotMetrics(from entry: [String: Any]) -> StoredMascotMetrics? {
+            guard let mascot = entry["mascot"] as? [String: Any],
                   let left = mascot["left"] as? NSNumber,
                   let top = mascot["top"] as? NSNumber,
                   let width = mascot["width"] as? NSNumber,
                   width.doubleValue > 0
-            else { return }
+            else { return nil }
 
-            updated[CGDirectDisplayID(displayNumber.uint32Value)] = StoredMascotMetrics(
+            return StoredMascotMetrics(
                 left: CGFloat(left.doubleValue),
                 top: CGFloat(top.doubleValue),
                 width: CGFloat(width.doubleValue)
             )
         }
 
+        func addEntry(_ entry: [String: Any]) {
+            let displayID = (entry["displayId"] as? NSNumber)
+                .map { CGDirectDisplayID($0.uint32Value) }
+            let mascot = mascotMetrics(from: entry)
+
+            if let displayID, let mascot {
+                updated[displayID] = mascot
+            }
+
+            guard let x = entry["x"] as? NSNumber,
+                  let y = entry["y"] as? NSNumber,
+                  let width = entry["width"] as? NSNumber,
+                  let height = entry["height"] as? NSNumber,
+                  width.doubleValue > 0,
+                  height.doubleValue > 0
+            else { return }
+
+            locations.append(StoredOverlayLocation(
+                rect: CGRect(
+                    x: x.doubleValue,
+                    y: y.doubleValue,
+                    width: width.doubleValue,
+                    height: height.doubleValue
+                ),
+                displayID: displayID,
+                mascot: mascot
+            ))
+        }
+
+        // The root entry is the most recently active display and is the best fallback.
+        addEntry(overlay)
         if let byDisplayID = overlay["byDisplayId"] as? [String: Any] {
             for value in byDisplayID.values {
                 if let entry = value as? [String: Any] {
-                    addMetrics(from: entry)
+                    addEntry(entry)
                 }
             }
         }
-        addMetrics(from: overlay)
 
-        if !updated.isEmpty {
-            storedMascotMetrics = updated
+        storedMascotMetrics = updated
+        storedOverlayLocations = locations
+    }
+
+    private func storedOverlayLocation() -> (
+        rect: NSRect,
+        screen: NSScreen,
+        topVisualInset: CGFloat,
+        visualCenterX: CGFloat?,
+        source: String
+    )? {
+        guard overlayOpen != false else { return nil }
+
+        for stored in storedOverlayLocations {
+            guard let converted = convertToAppKit(stored.rect) else { continue }
+            let mascot = stored.mascot ?? stored.displayID.flatMap { storedMascotMetrics[$0] }
+            let topInset = mascot.map { $0.top + petSpriteTopPaddingInsideAnchor }
+                ?? defaultPetTopVisualInset
+            let centerX = mascot.map { converted.0.minX + $0.left + $0.width / 2 }
+            return (converted.0, converted.1, topInset, centerX, "saved-state")
         }
+        return nil
     }
 
     private func probeTopVisualInset(windowID: CGWindowID) -> CGFloat? {
@@ -914,24 +1044,33 @@ private final class PetWindowLocator {
 
     private func candidate(from window: [String: Any]) -> (rect: CGRect, score: Double)? {
         guard let ownerName = window[kCGWindowOwnerName as String] as? String,
-              ownerName == "ChatGPT" || ownerName == "Codex",
               let layer = (window[kCGWindowLayer as String] as? NSNumber)?.intValue,
-              layer > 0,
-              layer < 20,
+              layer >= 0,
+              layer < 50,
               let alpha = (window[kCGWindowAlpha as String] as? NSNumber)?.doubleValue,
               alpha > 0.05,
               let rawBounds = window[kCGWindowBounds as String] as? NSDictionary,
               let bounds = CGRect(dictionaryRepresentation: rawBounds),
-              bounds.width >= 250,
-              bounds.width <= 650,
-              bounds.height >= 170,
-              bounds.height <= 850
+              bounds.width >= 160,
+              bounds.width <= 900,
+              bounds.height >= 120,
+              bounds.height <= 1_000
         else { return nil }
 
+        let normalizedOwner = ownerName.lowercased()
+        guard normalizedOwner.contains("codex") || normalizedOwner.contains("chatgpt") else {
+            return nil
+        }
+
         let name = window[kCGWindowName as String] as? String ?? ""
-        var score = Double(abs(bounds.width - 356) + abs(bounds.height - 255) * 0.35)
+        var score = Double(abs(bounds.width - 356) + abs(bounds.height - 320) * 0.35)
         score += Double(abs(layer - 3) * 50)
         if name == "ChatGPT" || name == "Codex" { score -= 80 }
+
+        if let saved = storedOverlayLocations.first {
+            score += Double(abs(bounds.midX - saved.rect.midX) * 0.08)
+            score += Double(abs(bounds.midY - saved.rect.midY) * 0.08)
+        }
         return (bounds, score)
     }
 
@@ -960,6 +1099,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let btcPriceClient = MarketPriceClient(symbol: "BTCUSDT")
     private let ethPriceClient = MarketPriceClient(symbol: "ETHUSDT")
     private let locator = PetWindowLocator()
+    private let healthWriter = RuntimeHealthWriter()
     private let quotaView = QuotaPanelView(frame: NSRect(origin: .zero, size: expandedPanelSize))
     private var panel: NSPanel!
     private var refreshTimer: Timer?
@@ -974,6 +1114,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         makePanel()
+        healthWriter.write(status: "started", panelVisible: false, locationSource: nil, force: true)
         followPet()
         refreshQuota()
         refreshBTCPrice()
@@ -995,6 +1136,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTimer?.invalidate()
         btcRefreshTimer?.invalidate()
         followTimer?.invalidate()
+        healthWriter.write(status: "terminated", panelVisible: false, locationSource: nil, force: true)
     }
 
     private func makePanel() {
@@ -1012,6 +1154,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hidesOnDeactivate = false
         panel.ignoresMouseEvents = false
         panel.isMovable = false
+        panel.isReleasedWhenClosed = false
+        panel.isFloatingPanel = true
+        panel.becomesKeyOnlyIfNeeded = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         quotaView.onToggleCollapsed = { [weak self] in
             self?.toggleCollapsed()
@@ -1026,7 +1171,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func followPet() {
         guard let pet = locator.locate() else {
-            panel.orderOut(nil)
+            if shouldShowStandalonePanel() {
+                showStandalonePanel()
+                healthWriter.write(
+                    status: "fallback-visible",
+                    panelVisible: true,
+                    locationSource: "screen-fallback"
+                )
+            } else {
+                panel.orderOut(nil)
+                healthWriter.write(status: "waiting-for-codex", panelVisible: false, locationSource: nil)
+            }
             return
         }
 
@@ -1045,6 +1200,41 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let targetOrigin = NSPoint(x: x.rounded(), y: y.rounded())
         if panel.frame.origin != targetOrigin {
             panel.setFrameOrigin(targetOrigin)
+        }
+        if !panel.isVisible {
+            panel.orderFrontRegardless()
+        }
+        healthWriter.write(status: "following-pet", panelVisible: true, locationSource: pet.source)
+    }
+
+    private func shouldShowStandalonePanel() -> Bool {
+        if let overlayOpen = locator.overlayOpen { return overlayOpen }
+
+        return NSWorkspace.shared.runningApplications.contains { application in
+            let name = application.localizedName?.lowercased() ?? ""
+            let bundleID = application.bundleIdentifier?.lowercased() ?? ""
+            return name == "codex"
+                || name == "chatgpt"
+                || bundleID.contains("openai.codex")
+                || bundleID.contains("openai.chat")
+        }
+    }
+
+    private func showStandalonePanel() {
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        guard let screen else { return }
+
+        let visible = screen.visibleFrame
+        let currentPanelSize = quotaView.isCollapsed ? collapsedPanelSize : expandedPanelSize
+        let origin = NSPoint(
+            x: (visible.maxX - currentPanelSize.width - 24).rounded(),
+            y: (visible.maxY - currentPanelSize.height - 24).rounded()
+        )
+        quotaView.pointerSide = .bottom
+        if panel.frame.origin != origin {
+            panel.setFrameOrigin(origin)
         }
         if !panel.isVisible {
             panel.orderFrontRegardless()
@@ -1202,6 +1392,24 @@ private func printMarketPriceOnce(symbol: String, label: String) -> Never {
     exit(exitCode)
 }
 
+private func printPanelPlacementOnce(savedStateOnly: Bool = false) -> Never {
+    let locator = PetWindowLocator()
+    let result = savedStateOnly ? locator.locateSavedState() : locator.locate()
+    guard let location = result else {
+        fputs("没有找到已打开的卜卜窗口或已保存的位置\n", stderr)
+        exit(1)
+    }
+
+    print(
+        "panel-location: source=\(location.source) "
+            + "x=\(Int(location.rect.minX.rounded())) "
+            + "y=\(Int(location.rect.minY.rounded())) "
+            + "width=\(Int(location.rect.width.rounded())) "
+            + "height=\(Int(location.rect.height.rounded()))"
+    )
+    exit(0)
+}
+
 private func renderPreviewOnce(to outputPath: String) -> Never {
     _ = NSApplication.shared
     let view = QuotaPanelView(frame: NSRect(origin: .zero, size: expandedPanelSize))
@@ -1265,6 +1473,14 @@ if CommandLine.arguments.contains("--print-btc") {
 
 if CommandLine.arguments.contains("--print-eth") {
     printMarketPriceOnce(symbol: "ETHUSDT", label: "ETH/USDT")
+}
+
+if CommandLine.arguments.contains("--print-panel-location") {
+    printPanelPlacementOnce()
+}
+
+if CommandLine.arguments.contains("--print-saved-panel-location") {
+    printPanelPlacementOnce(savedStateOnly: true)
 }
 
 if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-preview"),
