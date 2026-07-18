@@ -7,7 +7,8 @@
   突然好多人找我要，我估计会有 bug<br>
   有问题在群里问我就行，如果有版本更新我也会在群里说<br>
   我无限 token，随便改<br>
-  下周抽空再做个 MaydayLand Codex 看板皮肤
+  下周抽空再做个 MaydayLand Codex 看板皮肤<br>
+  想要什么也都可以跟我说 有空我就可以做
 </p>
 
 # mayday卜卜电子物料
