@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-VERSION="1.0.2"
+VERSION="1.0.3"
 STAGE_ROOT="$ROOT/build/release"
 STAGE="$STAGE_ROOT/卜卜-macOS"
 OUT="$ROOT/dist/Mayday-Bubu-macOS-Universal-v$VERSION.zip"
@@ -23,6 +23,7 @@ mkdir -p "$STAGE/pet" "$STAGE/quota-panel" "$STAGE/preview"
 /bin/cp "$ROOT/macos/package/安装卜卜.command" "$STAGE/安装卜卜-macOS.command"
 /bin/cp "$ROOT/macos/package/卸载卜卜.command" "$STAGE/卸载卜卜-macOS.command"
 /bin/cp "$ROOT/macos/package/检查卜卜.command" "$STAGE/检查卜卜-macOS.command"
+/bin/cp "$ROOT/macos/package/安装被拦截-打开安全设置.webloc" "$STAGE/安装被拦截-打开安全设置.webloc"
 /bin/chmod +x "$STAGE"/*.command
 
 (

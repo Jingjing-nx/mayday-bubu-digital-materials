@@ -141,7 +141,7 @@ private final class CodexQuotaClient {
         }
 
         writeLines([
-            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"bubu-quota-panel","version":"1.0.2"},"capabilities":{"experimentalApi":true}}}"#,
+            #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"bubu-quota-panel","version":"1.0.3"},"capabilities":{"experimentalApi":true}}}"#,
         ])
 
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 15) {

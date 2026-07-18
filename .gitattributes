@@ -8,6 +8,7 @@
 # Keep macOS and repository scripts on Unix line endings.
 *.sh text eol=lf
 *.command text eol=lf
+*.webloc text eol=lf
 *.swift text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf

@@ -85,7 +85,7 @@ select_bubu_in_codex() {
   /bin/mv "$tmp_config" "$CONFIG"
 }
 
-echo "正在安装卜卜（macOS Universal 开源版 1.0.2）…"
+echo "正在安装卜卜（macOS Universal 开源版 1.0.3）…"
 
 MACOS_VERSION="$(/usr/bin/sw_vers -productVersion)"
 MACOS_MAJOR="${MACOS_VERSION%%.*}"
