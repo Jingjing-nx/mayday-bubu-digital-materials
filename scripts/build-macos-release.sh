@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-VERSION="1.0.4"
+VERSION="1.0.5"
 STAGE_ROOT="$ROOT/build/release"
 STAGE="$STAGE_ROOT/卜卜-macOS"
 OUT="$ROOT/dist/Mayday-Bubu-macOS-Universal-v$VERSION.zip"
@@ -28,7 +28,8 @@ mkdir -p "$STAGE/pet" "$STAGE/quota-panel" "$STAGE/preview"
 
 (
   cd "$STAGE"
-  LC_ALL=C find . -type f ! -name CHECKSUMS-SHA256.txt -print | LC_ALL=C sort |
+  export LC_ALL=C
+  find . -type f ! -name CHECKSUMS-SHA256.txt -print | sort |
     while IFS= read -r file; do /usr/bin/shasum -a 256 "$file"; done > CHECKSUMS-SHA256.txt
 )
 

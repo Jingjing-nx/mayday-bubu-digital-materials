@@ -4,22 +4,62 @@ import Foundation
 
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
-private let panelVersion = "1.0.4"
+private let panelVersion = "1.0.5"
 // Track fast enough that the panel preserves its 14 px visual gap while the
 // pet window is moving between animation positions.
 private let followInterval: TimeInterval = 0.03
 private let expandedPanelSize = NSSize(width: 224, height: 160)
 private let collapsedPanelSize = NSSize(width: 64, height: 44)
-
-// The pet window intentionally contains a large transparent animation canvas.
-// These insets describe the current visible character inside that canvas, so
-// the quota panel follows Bubu's body instead of the invisible window edge.
-private let petLeftVisualInset: CGFloat = 193
-private let petRightVisualInset: CGFloat = 56
-private let defaultPetTopVisualInset: CGFloat = 12
+private let panelPetGap: CGFloat = 14
+private let panelScreenMargin: CGFloat = 8
+private let pointerTipBottomInset: CGFloat = 1
+private let pointerHorizontalSafeInset: CGFloat = 18
 // The v2 sprite has a small transparent top padding inside Codex's stored
 // mascot anchor. Add it so the panel measures from Bubu's visible top tuft.
 private let petSpriteTopPaddingInsideAnchor: CGFloat = 7
+
+private struct PanelPlacement {
+    let origin: NSPoint
+    let pointerCenterX: CGFloat
+    let actualGap: CGFloat
+    let centerError: CGFloat
+}
+
+/// Places the pointer tip on Bubu's visible horizontal center and keeps its
+/// tip exactly 14 logical points above the visible top tuft. All calculations
+/// use AppKit points, so Retina and scaled displays preserve the same spacing.
+private func panelPlacement(
+    petVisibleRect: NSRect,
+    panelSize: NSSize,
+    screenVisibleFrame: NSRect
+) -> PanelPlacement {
+    let minX = screenVisibleFrame.minX + panelScreenMargin
+    let maxX = max(minX, screenVisibleFrame.maxX - panelSize.width - panelScreenMargin)
+    let desiredX = petVisibleRect.midX - panelSize.width / 2
+    let x = min(max(desiredX, minX), maxX)
+
+    let minY = screenVisibleFrame.minY + panelScreenMargin
+    let maxY = max(minY, screenVisibleFrame.maxY - panelSize.height - panelScreenMargin)
+    let desiredTipY = petVisibleRect.maxY + panelPetGap
+    let desiredY = desiredTipY - pointerTipBottomInset
+    let y = min(max(desiredY, minY), maxY)
+
+    let originX = x
+    let originY = y
+    let rawPointerCenterX = petVisibleRect.midX - originX
+    let safeMinX = min(pointerHorizontalSafeInset, panelSize.width / 2)
+    let safeMaxX = max(safeMinX, panelSize.width - safeMinX)
+    let pointerCenterX = min(max(rawPointerCenterX, safeMinX), safeMaxX)
+    let actualPointerX = originX + pointerCenterX
+    let actualPointerTipY = originY + pointerTipBottomInset
+
+    return PanelPlacement(
+        origin: NSPoint(x: originX, y: originY),
+        pointerCenterX: pointerCenterX,
+        actualGap: actualPointerTipY - petVisibleRect.maxY,
+        centerError: actualPointerX - petVisibleRect.midX
+    )
+}
 
 private final class RuntimeHealthWriter {
     private let fileURL: URL = {
@@ -34,12 +74,19 @@ private final class RuntimeHealthWriter {
     private var lastSignature = ""
     private var lastWriteAt: CFAbsoluteTime = 0
 
-    func write(status: String, panelVisible: Bool, locationSource: String?, force: Bool = false) {
+    func write(
+        status: String,
+        panelVisible: Bool,
+        locationSource: String?,
+        gap: CGFloat? = nil,
+        centerError: CGFloat? = nil,
+        force: Bool = false
+    ) {
         let now = CFAbsoluteTimeGetCurrent()
         let signature = "\(status)|\(panelVisible)|\(locationSource ?? "none")"
         guard force || signature != lastSignature || now - lastWriteAt >= 15 else { return }
 
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "version": panelVersion,
             "pid": ProcessInfo.processInfo.processIdentifier,
             "status": status,
@@ -47,6 +94,8 @@ private final class RuntimeHealthWriter {
             "locationSource": locationSource ?? NSNull(),
             "updatedAt": ISO8601DateFormatter().string(from: Date()),
         ]
+        if let gap { payload["petGapPoints"] = gap }
+        if let centerError { payload["pointerCenterErrorPoints"] = centerError }
 
         do {
             try FileManager.default.createDirectory(
@@ -345,6 +394,12 @@ private final class QuotaPanelView: NSView {
             window?.invalidateCursorRects(for: self)
         }
     }
+    var pointerCenterX: CGFloat? {
+        didSet {
+            guard pointerCenterX != oldValue else { return }
+            needsDisplay = true
+        }
+    }
     var isCollapsed = false {
         didSet {
             needsDisplay = true
@@ -408,7 +463,11 @@ private final class QuotaPanelView: NSView {
             arrow.line(to: NSPoint(x: bounds.maxX - 1, y: centerY))
             arrow.line(to: NSPoint(x: bodyRect.maxX - 1, y: centerY + 8))
         case .bottom:
-            let centerX = bodyRect.midX
+            let requestedCenterX = pointerCenterX ?? bodyRect.midX
+            let centerX = min(
+                max(requestedCenterX, bodyRect.minX + 12),
+                bodyRect.maxX - 12
+            )
             arrow.move(to: NSPoint(x: centerX - 8, y: bodyRect.maxY - 1))
             arrow.line(to: NSPoint(x: centerX, y: bounds.maxY - 1))
             arrow.line(to: NSPoint(x: centerX + 8, y: bodyRect.maxY - 1))
@@ -788,36 +847,38 @@ private final class QuotaPanelView: NSView {
     }()
 }
 
+private struct LocatedPet {
+    let overlayRect: NSRect
+    let visibleRect: NSRect
+    let screen: NSScreen
+    let source: String
+}
+
 private final class PetWindowLocator {
     private struct StoredMascotMetrics {
         let left: CGFloat
         let top: CGFloat
         let width: CGFloat
+        let height: CGFloat
+        let source: String
     }
 
     private struct StoredOverlayLocation {
         let rect: CGRect
-        let displayID: CGDirectDisplayID?
         let mascot: StoredMascotMetrics?
+        let isPrimary: Bool
     }
 
     private var cachedWindowID: CGWindowID?
-    private var cachedTopVisualInset = defaultPetTopVisualInset
+    private var cachedMascotMetrics: StoredMascotMetrics?
     private var lastVisualProbeAt: CFAbsoluteTime = 0
     private var lastOverlayStateReadAt: CFAbsoluteTime = 0
-    private var storedMascotMetrics: [CGDirectDisplayID: StoredMascotMetrics] = [:]
     private var storedOverlayLocations: [StoredOverlayLocation] = []
     private(set) var overlayOpen: Bool?
 
-    func locate() -> (
-        rect: NSRect,
-        screen: NSScreen,
-        topVisualInset: CGFloat,
-        visualCenterX: CGFloat?,
-        source: String
-    )? {
+    func locate() -> LocatedPet? {
         let now = CFAbsoluteTimeGetCurrent()
-        if now - lastOverlayStateReadAt >= 0.25 {
+        if now - lastOverlayStateReadAt >= 0.10 {
             lastOverlayStateReadAt = now
             refreshStoredOverlayState()
         }
@@ -825,12 +886,10 @@ private final class PetWindowLocator {
         if let cachedWindowID,
            let windows = CGWindowListCopyWindowInfo(.optionIncludingWindow, cachedWindowID) as? [[String: Any]],
            let window = windows.first,
-           let candidate = candidate(from: window)
+           let candidate = candidate(from: window),
+           let location = makeLocation(from: candidate.rect, windowID: cachedWindowID)
         {
-            if let location = makeLocation(from: candidate.rect, windowID: cachedWindowID) {
-                return location
-            }
-            self.cachedWindowID = nil
+            return location
         }
 
         cachedWindowID = nil
@@ -853,51 +912,64 @@ private final class PetWindowLocator {
         return makeLocation(from: best.rect, windowID: best.id) ?? storedOverlayLocation()
     }
 
-    func locateSavedState() -> (
-        rect: NSRect,
-        screen: NSScreen,
-        topVisualInset: CGFloat,
-        visualCenterX: CGFloat?,
-        source: String
-    )? {
+    func locateSavedState() -> LocatedPet? {
         refreshStoredOverlayState()
         return storedOverlayLocation()
     }
 
-    private func makeLocation(
-        from quartzRect: CGRect,
-        windowID: CGWindowID
-    ) -> (
-        rect: NSRect,
-        screen: NSScreen,
-        topVisualInset: CGFloat,
-        visualCenterX: CGFloat?,
-        source: String
-    )? {
+    private func makeLocation(from quartzRect: CGRect, windowID: CGWindowID) -> LocatedPet? {
         guard let converted = convertToAppKit(quartzRect) else { return nil }
 
-        let now = CFAbsoluteTimeGetCurrent()
-        let displayID = converted.1.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
-            .flatMap { $0 as? NSNumber }
-            .map { CGDirectDisplayID($0.uint32Value) }
-        let storedMetrics = displayID.flatMap { storedMascotMetrics[$0] }
+        if let matched = bestStoredMetrics(matching: quartzRect) {
+            cachedMascotMetrics = matched
+            return LocatedPet(
+                overlayRect: converted.0,
+                visibleRect: visibleRect(in: converted.0, metrics: matched),
+                screen: converted.1,
+                source: "window-\(matched.source)"
+            )
+        }
 
-        if let storedMetrics,
-           storedMetrics.top >= 0,
-           storedMetrics.top < converted.0.height - 20
+        // Keep the last verified relative anchor during the few milliseconds
+        // between the live window moving and Codex persisting its new bounds.
+        if let cachedMascotMetrics,
+           metricsAreValid(cachedMascotMetrics, for: quartzRect.size)
         {
-            cachedTopVisualInset = storedMetrics.top + petSpriteTopPaddingInsideAnchor
-        } else if now - lastVisualProbeAt >= 0.12 {
+            return LocatedPet(
+                overlayRect: converted.0,
+                visibleRect: visibleRect(in: converted.0, metrics: cachedMascotMetrics),
+                screen: converted.1,
+                source: "window-cached-anchor"
+            )
+        }
+
+        // This is only a last resort for state files from unknown Codex builds.
+        // Screen capture can be unavailable without Screen Recording permission,
+        // so an unverified hard-coded transparent-window inset is never used.
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - lastVisualProbeAt >= 0.12 {
             lastVisualProbeAt = now
             if let probedInset = probeTopVisualInset(windowID: windowID) {
-                cachedTopVisualInset = probedInset
+                let width = min(224, max(80, quartzRect.width * 163 / 356))
+                let height = width * 177 / 163
+                let metrics = StoredMascotMetrics(
+                    left: max(0, (quartzRect.width - width) / 2),
+                    top: max(0, probedInset - petSpriteTopPaddingInsideAnchor),
+                    width: width,
+                    height: height,
+                    source: "image-probe"
+                )
+                cachedMascotMetrics = metrics
+                return LocatedPet(
+                    overlayRect: converted.0,
+                    visibleRect: visibleRect(in: converted.0, metrics: metrics),
+                    screen: converted.1,
+                    source: "window-image-probe"
+                )
             }
         }
 
-        let visualCenterX = storedMetrics.map {
-            converted.0.minX + $0.left + $0.width / 2
-        }
-        return (converted.0, converted.1, cachedTopVisualInset, visualCenterX, "window")
+        return nil
     }
 
     private func refreshStoredOverlayState() {
@@ -916,38 +988,13 @@ private final class PetWindowLocator {
 
         overlayOpen = root["electron-avatar-overlay-open"] as? Bool
         guard let overlay = root["electron-avatar-overlay-bounds"] as? [String: Any] else {
-            storedMascotMetrics = [:]
             storedOverlayLocations = []
             return
         }
 
-        var updated: [CGDirectDisplayID: StoredMascotMetrics] = [:]
         var locations: [StoredOverlayLocation] = []
 
-        func mascotMetrics(from entry: [String: Any]) -> StoredMascotMetrics? {
-            guard let mascot = entry["mascot"] as? [String: Any],
-                  let left = mascot["left"] as? NSNumber,
-                  let top = mascot["top"] as? NSNumber,
-                  let width = mascot["width"] as? NSNumber,
-                  width.doubleValue > 0
-            else { return nil }
-
-            return StoredMascotMetrics(
-                left: CGFloat(left.doubleValue),
-                top: CGFloat(top.doubleValue),
-                width: CGFloat(width.doubleValue)
-            )
-        }
-
-        func addEntry(_ entry: [String: Any]) {
-            let displayID = (entry["displayId"] as? NSNumber)
-                .map { CGDirectDisplayID($0.uint32Value) }
-            let mascot = mascotMetrics(from: entry)
-
-            if let displayID, let mascot {
-                updated[displayID] = mascot
-            }
-
+        func addEntry(_ entry: [String: Any], isPrimary: Bool = false) {
             guard let x = entry["x"] as? NSNumber,
                   let y = entry["y"] as? NSNumber,
                   let width = entry["width"] as? NSNumber,
@@ -956,20 +1003,18 @@ private final class PetWindowLocator {
                   height.doubleValue > 0
             else { return }
 
-            locations.append(StoredOverlayLocation(
-                rect: CGRect(
-                    x: x.doubleValue,
-                    y: y.doubleValue,
-                    width: width.doubleValue,
-                    height: height.doubleValue
-                ),
-                displayID: displayID,
-                mascot: mascot
-            ))
+            let rect = CGRect(
+                x: x.doubleValue,
+                y: y.doubleValue,
+                width: width.doubleValue,
+                height: height.doubleValue
+            )
+            let mascot = mascotMetrics(from: entry, overlayRect: rect)
+            locations.append(StoredOverlayLocation(rect: rect, mascot: mascot, isPrimary: isPrimary))
         }
 
         // The root entry is the most recently active display and is the best fallback.
-        addEntry(overlay)
+        addEntry(overlay, isPrimary: true)
         if let byDisplayID = overlay["byDisplayId"] as? [String: Any] {
             for value in byDisplayID.values {
                 if let entry = value as? [String: Any] {
@@ -977,27 +1022,111 @@ private final class PetWindowLocator {
                 }
             }
         }
+        // Older Codex releases sometimes only retain a resolution-keyed copy.
+        if let byResolution = overlay["byResolution"] as? [String: Any] {
+            for value in byResolution.values {
+                if let entry = value as? [String: Any] {
+                    addEntry(entry)
+                }
+            }
+        }
 
-        storedMascotMetrics = updated
         storedOverlayLocations = locations
     }
 
-    private func storedOverlayLocation() -> (
-        rect: NSRect,
-        screen: NSScreen,
-        topVisualInset: CGFloat,
-        visualCenterX: CGFloat?,
-        source: String
-    )? {
+    private func mascotMetrics(
+        from entry: [String: Any],
+        overlayRect: CGRect
+    ) -> StoredMascotMetrics? {
+        if let mascot = entry["mascot"] as? [String: Any],
+           let left = mascot["left"] as? NSNumber,
+           let top = mascot["top"] as? NSNumber,
+           let width = mascot["width"] as? NSNumber
+        {
+            let derivedHeight = width.doubleValue * 177 / 163
+            let height = (mascot["height"] as? NSNumber)?.doubleValue ?? derivedHeight
+            let metrics = StoredMascotMetrics(
+                left: CGFloat(left.doubleValue),
+                top: CGFloat(top.doubleValue),
+                width: CGFloat(width.doubleValue),
+                height: CGFloat(height),
+                source: "state-mascot"
+            )
+            if metricsAreValid(metrics, for: overlayRect.size) { return metrics }
+        }
+
+        // Compatibility with Codex builds that persisted only an absolute
+        // anchor rectangle instead of relative `mascot` metrics.
+        if let anchor = entry["anchor"] as? [String: Any],
+           let x = anchor["x"] as? NSNumber,
+           let y = anchor["y"] as? NSNumber,
+           let width = anchor["width"] as? NSNumber,
+           let height = anchor["height"] as? NSNumber
+        {
+            let metrics = StoredMascotMetrics(
+                left: CGFloat(x.doubleValue - overlayRect.minX),
+                top: CGFloat(y.doubleValue - overlayRect.minY),
+                width: CGFloat(width.doubleValue),
+                height: CGFloat(height.doubleValue),
+                source: "state-anchor"
+            )
+            if metricsAreValid(metrics, for: overlayRect.size) { return metrics }
+        }
+        return nil
+    }
+
+    private func metricsAreValid(_ metrics: StoredMascotMetrics, for size: CGSize) -> Bool {
+        metrics.width >= 40
+            && metrics.height >= 40
+            && metrics.left >= -2
+            && metrics.top >= -2
+            && metrics.left + metrics.width <= size.width + 2
+            && metrics.top + metrics.height <= size.height + 2
+    }
+
+    private func bestStoredMetrics(matching liveRect: CGRect) -> StoredMascotMetrics? {
+        let matches = storedOverlayLocations.compactMap { stored -> (StoredMascotMetrics, Double)? in
+            guard let metrics = stored.mascot else { return nil }
+            let widthDelta = abs(stored.rect.width - liveRect.width)
+            let heightDelta = abs(stored.rect.height - liveRect.height)
+            guard widthDelta <= max(24, liveRect.width * 0.15),
+                  heightDelta <= max(24, liveRect.height * 0.15)
+            else { return nil }
+
+            // Electron display IDs are not guaranteed to equal CGDirectDisplayID.
+            // Match the live Quartz rectangle to the nearest persisted rectangle
+            // instead; this remains stable across Retina scale and monitor order.
+            let centerDistance = hypot(stored.rect.midX - liveRect.midX, stored.rect.midY - liveRect.midY)
+            let primaryBonus = stored.isPrimary ? -1.0 : 0.0
+            let score = Double(widthDelta * 5 + heightDelta * 5 + centerDistance * 0.08) + primaryBonus
+            return (metrics, score)
+        }
+        return matches.min(by: { $0.1 < $1.1 })?.0
+    }
+
+    private func visibleRect(in overlayRect: NSRect, metrics: StoredMascotMetrics) -> NSRect {
+        let visibleHeight = max(1, metrics.height - petSpriteTopPaddingInsideAnchor)
+        return NSRect(
+            x: overlayRect.minX + metrics.left,
+            y: overlayRect.maxY - metrics.top - metrics.height,
+            width: metrics.width,
+            height: visibleHeight
+        )
+    }
+
+    private func storedOverlayLocation() -> LocatedPet? {
         guard overlayOpen != false else { return nil }
 
-        for stored in storedOverlayLocations {
+        for stored in storedOverlayLocations.sorted(by: { $0.isPrimary && !$1.isPrimary }) {
+            guard let mascot = stored.mascot else { continue }
             guard let converted = convertToAppKit(stored.rect) else { continue }
-            let mascot = stored.mascot ?? stored.displayID.flatMap { storedMascotMetrics[$0] }
-            let topInset = mascot.map { $0.top + petSpriteTopPaddingInsideAnchor }
-                ?? defaultPetTopVisualInset
-            let centerX = mascot.map { converted.0.minX + $0.left + $0.width / 2 }
-            return (converted.0, converted.1, topInset, centerX, "saved-state")
+            cachedMascotMetrics = mascot
+            return LocatedPet(
+                overlayRect: converted.0,
+                visibleRect: visibleRect(in: converted.0, metrics: mascot),
+                screen: converted.1,
+                source: "saved-\(mascot.source)"
+            )
         }
         return nil
     }
@@ -1067,9 +1196,10 @@ private final class PetWindowLocator {
         score += Double(abs(layer - 3) * 50)
         if name == "ChatGPT" || name == "Codex" { score -= 80 }
 
-        if let saved = storedOverlayLocations.first {
-            score += Double(abs(bounds.midX - saved.rect.midX) * 0.08)
-            score += Double(abs(bounds.midY - saved.rect.midY) * 0.08)
+        if let distance = storedOverlayLocations.map({ stored in
+            hypot(bounds.midX - stored.rect.midX, bounds.midY - stored.rect.midY)
+        }).min() {
+            score += Double(distance * 0.08)
         }
         return (bounds, score)
     }
@@ -1185,26 +1315,29 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let visible = pet.screen.visibleFrame
         let currentPanelSize = quotaView.isCollapsed ? collapsedPanelSize : expandedPanelSize
-        let gap: CGFloat = 14
-        let petVisualMinX = pet.rect.minX + petLeftVisualInset
-        let petVisualMaxX = pet.rect.maxX - petRightVisualInset
-        let fallbackCenterX = (petVisualMinX + petVisualMaxX) / 2
-        let desiredX = (pet.visualCenterX ?? fallbackCenterX) - currentPanelSize.width / 2
-        let x = min(max(desiredX, visible.minX + 8), visible.maxX - currentPanelSize.width - 8)
-        let unclampedY = pet.rect.maxY - pet.topVisualInset + gap
-        let y = min(max(unclampedY, visible.minY + 8), visible.maxY - currentPanelSize.height - 8)
+        let placement = panelPlacement(
+            petVisibleRect: pet.visibleRect,
+            panelSize: currentPanelSize,
+            screenVisibleFrame: pet.screen.visibleFrame
+        )
 
         quotaView.pointerSide = .bottom
-        let targetOrigin = NSPoint(x: x.rounded(), y: y.rounded())
+        quotaView.pointerCenterX = placement.pointerCenterX
+        let targetOrigin = placement.origin
         if panel.frame.origin != targetOrigin {
             panel.setFrameOrigin(targetOrigin)
         }
         if !panel.isVisible {
             panel.orderFrontRegardless()
         }
-        healthWriter.write(status: "following-pet", panelVisible: true, locationSource: pet.source)
+        healthWriter.write(
+            status: "following-pet",
+            panelVisible: true,
+            locationSource: pet.source,
+            gap: placement.actualGap,
+            centerError: placement.centerError
+        )
     }
 
     private func shouldShowStandalonePanel() -> Bool {
@@ -1233,6 +1366,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             y: (visible.maxY - currentPanelSize.height - 24).rounded()
         )
         quotaView.pointerSide = .bottom
+        quotaView.pointerCenterX = currentPanelSize.width / 2
         if panel.frame.origin != origin {
             panel.setFrameOrigin(origin)
         }
@@ -1400,13 +1534,89 @@ private func printPanelPlacementOnce(savedStateOnly: Bool = false) -> Never {
         exit(1)
     }
 
+    let placement = panelPlacement(
+        petVisibleRect: location.visibleRect,
+        panelSize: expandedPanelSize,
+        screenVisibleFrame: location.screen.visibleFrame
+    )
     print(
         "panel-location: source=\(location.source) "
-            + "x=\(Int(location.rect.minX.rounded())) "
-            + "y=\(Int(location.rect.minY.rounded())) "
-            + "width=\(Int(location.rect.width.rounded())) "
-            + "height=\(Int(location.rect.height.rounded()))"
+            + "overlayX=\(Int(location.overlayRect.minX.rounded())) "
+            + "overlayY=\(Int(location.overlayRect.minY.rounded())) "
+            + "petCenterX=\(Int(location.visibleRect.midX.rounded())) "
+            + "petTop=\(Int(location.visibleRect.maxY.rounded())) "
+            + "panelX=\(Int(placement.origin.x)) "
+            + "panelY=\(Int(placement.origin.y)) "
+            + "gap=\(String(format: "%.1f", placement.actualGap)) "
+            + "centerError=\(String(format: "%.1f", placement.centerError))"
     )
+    exit(0)
+}
+
+private func runPlacementSelfTest() -> Never {
+    struct TestCase {
+        let name: String
+        let petRect: NSRect
+        let panelSize: NSSize
+        let screenRect: NSRect
+    }
+
+    let cases = [
+        TestCase(
+            name: "built-in-display",
+            petRect: NSRect(x: 1_110, y: 318, width: 163, height: 170),
+            panelSize: expandedPanelSize,
+            screenRect: NSRect(x: 0, y: 0, width: 1_512, height: 982)
+        ),
+        TestCase(
+            name: "external-negative-origin",
+            petRect: NSRect(x: -554, y: 500, width: 163, height: 170),
+            panelSize: expandedPanelSize,
+            screenRect: NSRect(x: -1_920, y: -98, width: 1_920, height: 1_080)
+        ),
+        TestCase(
+            name: "scaled-pet",
+            petRect: NSRect(x: 420, y: 260, width: 204, height: 213),
+            panelSize: expandedPanelSize,
+            screenRect: NSRect(x: 0, y: 0, width: 1_920, height: 1_080)
+        ),
+        TestCase(
+            name: "collapsed-panel",
+            petRect: NSRect(x: 280, y: 210, width: 120, height: 125),
+            panelSize: collapsedPanelSize,
+            screenRect: NSRect(x: 0, y: 0, width: 1_280, height: 720)
+        ),
+        TestCase(
+            name: "left-screen-edge",
+            petRect: NSRect(x: 8, y: 180, width: 80, height: 100),
+            panelSize: expandedPanelSize,
+            screenRect: NSRect(x: 0, y: 0, width: 1_280, height: 720)
+        ),
+        TestCase(
+            name: "right-screen-edge",
+            petRect: NSRect(x: 1_192, y: 180, width: 80, height: 100),
+            panelSize: expandedPanelSize,
+            screenRect: NSRect(x: 0, y: 0, width: 1_280, height: 720)
+        ),
+    ]
+
+    for test in cases {
+        let placement = panelPlacement(
+            petVisibleRect: test.petRect,
+            panelSize: test.panelSize,
+            screenVisibleFrame: test.screenRect
+        )
+        guard abs(placement.actualGap - panelPetGap) <= 0.01 else {
+            fputs("\(test.name): gap=\(placement.actualGap), expected=\(panelPetGap)\n", stderr)
+            exit(1)
+        }
+        guard abs(placement.centerError) <= 0.01 else {
+            fputs("\(test.name): centerError=\(placement.centerError)\n", stderr)
+            exit(1)
+        }
+    }
+
+    print("placement-self-test: 6/6 passed; gap=14.0; centerError=0.0")
     exit(0)
 }
 
@@ -1481,6 +1691,10 @@ if CommandLine.arguments.contains("--print-panel-location") {
 
 if CommandLine.arguments.contains("--print-saved-panel-location") {
     printPanelPlacementOnce(savedStateOnly: true)
+}
+
+if CommandLine.arguments.contains("--self-test-placement") {
+    runPlacementSelfTest()
 }
 
 if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-preview"),

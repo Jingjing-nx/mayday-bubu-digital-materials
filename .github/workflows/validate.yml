@@ -27,9 +27,13 @@ jobs:
       - name: Verify saved-position fallback
         run: |
           STATE="$(mktemp)"
-          printf '%s\n' '{"electron-avatar-overlay-open":true,"electron-avatar-overlay-bounds":{"x":100,"y":100,"width":356,"height":320,"mascot":{"left":165,"top":70,"width":163,"height":177}}}' > "$STATE"
-          BUBU_CODEX_STATE_FILE="$STATE" macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --print-saved-panel-location | grep 'source=saved-state'
+          printf '%s\n' '{"electron-avatar-overlay-open":true,"electron-avatar-overlay-bounds":{"x":100,"y":300,"width":356,"height":320,"mascot":{"left":165,"top":70,"width":163}}}' > "$STATE"
+          BUBU_CODEX_STATE_FILE="$STATE" macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --print-saved-panel-location | grep 'source=saved-state-mascot.*gap=14.0 centerError=0.0'
+          printf '%s\n' '{"electron-avatar-overlay-open":true,"electron-avatar-overlay-bounds":{"x":100,"y":300,"width":356,"height":320,"anchor":{"x":265,"y":435,"width":163,"height":177}}}' > "$STATE"
+          BUBU_CODEX_STATE_FILE="$STATE" macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --print-saved-panel-location | grep 'source=saved-state-anchor.*gap=14.0 centerError=0.0'
           rm -f "$STATE"
+      - name: Verify panel/pet geometry
+        run: macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --self-test-placement
       - name: Verify panel runtime health
         run: |
           HEALTH="$(mktemp)"
@@ -41,7 +45,7 @@ jobs:
             test -s "$HEALTH" && break
             sleep 0.1
           done
-          grep '"version":"1.0.4"' "$HEALTH"
+          grep '"version":"1.0.5"' "$HEALTH"
           kill "$PID" 2>/dev/null || true
           wait "$PID" 2>/dev/null || true
       - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh
