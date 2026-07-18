@@ -1,4 +1,4 @@
-# mayday电子物料
+# mayday卜卜电子物料
 
 一个非官方、非商业的五月天歌迷桌面项目。目前包含 Codex 动态宠物“卜卜”、Codex 剩余额度面板，以及 BTC/USDT、ETH/USDT 实时价格。
 
