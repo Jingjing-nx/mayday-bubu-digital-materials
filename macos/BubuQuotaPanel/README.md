@@ -7,6 +7,7 @@
 - 只显示 Codex 额度的剩余百分比和重置时间。
 - 启动时立即读取，之后每 5 分钟自动更新。
 - 面板底部显示 BTC/USDT 和 ETH/USDT 现货价格，每 5 秒更新；价格上涨时显绿、下跌时显红。
+- 设置环境变量 `BUBU_SHOW_MARKET_PRICES=false` 后，面板会缩短为仅 Codex 额度版，并停止自动请求 BTC/ETH。
 - 高频跟随宠物窗口，箭头对齐可见宠物中心，尖端到头顶固定 14 个逻辑像素；真实窗口不可读时使用 Codex 保存的位置，宠物隐藏时面板也隐藏。
 - 启动后写入不含个人数据的运行状态文件，供安装器确认进程确实已启动。
 - 通过本机 `codex app-server` 的 `account/rateLimits/read` 读取数据，不需要 API Key，也不读取浏览器 Cookie。

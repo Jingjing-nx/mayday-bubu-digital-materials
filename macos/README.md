@@ -2,7 +2,7 @@
 
 ## 安装
 
-1. 完整解压 `Mayday-Bubu-macOS-Universal-v1.0.6.zip`。
+1. 完整解压 `Mayday-Bubu-macOS-Universal-v1.0.7.zip` 或 `Mayday-Bubu-macOS-Universal-Codex-Only-v1.0.7.zip`。
 2. 双击 `安装卜卜-macOS.command`。
 3. 如果出现“Apple 无法验证”提示，点“完成”，不要点“移到废纸篓”。
 4. 双击 `安装被拦截-打开隐私与安全.html`；页面会尝试自动跳转，如果没跳转就点蓝色按钮。
@@ -27,10 +27,11 @@
 - 找不到宠物窗口时会读取 Codex 保存的位置；仍无法定位时会先显示在当前屏幕右上角，不再无提示消失。
 - 安装结束前会检查面板进程和运行状态文件，首次启动失败会自动重试。
 - Codex 额度每 5 分钟更新。
-- BTC/USDT、ETH/USDT 每 5 秒更新。
+- 完整版的 BTC/USDT、ETH/USDT 每 5 秒更新。
+- `Codex-Only` 版只保留额度，面板会自动缩短，并且不会请求 BTC/ETH 行情。
 - 不需要管理员权限或 API Key。
 
 ## 检查与卸载
 
-- `检查卜卜-macOS.command`：检查宠物、Universal 2 架构、签名、面板进程、运行状态、跟随定位、额度和行情。
+- `检查卜卜-macOS.command`：检查宠物、Universal 2 架构、签名、面板进程、运行状态、跟随定位和额度；完整版本还会检查行情。
 - `卸载卜卜-macOS.command`：只移除卜卜和本项目面板。

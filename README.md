@@ -13,7 +13,7 @@
 
 # mayday卜卜电子物料
 
-一个非官方、非商业的五月天歌迷桌面项目。目前包含 Codex 动态宠物“卜卜”、Codex 剩余额度面板，以及 BTC/USDT、ETH/USDT 实时价格。
+一个非官方、非商业的五月天歌迷桌面项目。目前包含 Codex 动态宠物“卜卜”和 Codex 剩余额度面板；macOS 可选择带或不带 BTC/ETH 行情的版本。
 
 ![卜卜动作总览](shared/preview/卜卜动作总览.png)
 
@@ -21,16 +21,17 @@
 
 请在项目右侧的 **Releases** 中选择对应系统：
 
-- `Mayday-Bubu-macOS-Universal-v1.0.6.zip`：macOS 12.3+，Apple 芯片与 Intel Mac。
+- `Mayday-Bubu-macOS-Universal-v1.0.7.zip`：macOS 12.3+ 完整版，含 Codex 额度与 BTC/ETH 行情，支持 Apple 芯片与 Intel Mac。
+- `Mayday-Bubu-macOS-Universal-Codex-Only-v1.0.7.zip`：macOS 12.3+ 仅 Codex 额度版，不显示、也不请求 BTC/ETH 行情。
 - `Mayday-Bubu-Windows-10-11-v1.0.0.zip`：Windows 10/11，x64 与 ARM64。
 
-两个压缩包的名称、根目录和安装入口都明确标注了系统，不能混用。
+三个压缩包的名称、根目录和安装入口都明确标注了系统或版本，不能混用。
 
 ## 使用方法
 
 ### macOS
 
-1. 完整解压 `Mayday-Bubu-macOS-Universal-v1.0.6.zip`。
+1. 按需要下载并完整解压 macOS 完整版或 `Codex-Only` 版。
 2. 双击 `安装卜卜-macOS.command`。
 3. 如果出现“Apple 无法验证”提示，点“完成”，不要点“移到废纸篓”。
 4. 双击包内的 `安装被拦截-打开隐私与安全.html`；页面会尝试自动跳转，如果没跳转就点蓝色按钮。
@@ -51,7 +52,7 @@
 - 鼠标悬停：卜卜拿起咖啡杯喝咖啡。
 - 向左拖动：保留头顶三瓣装饰，变成无手脚圆球，在立式麦克风前唱歌。
 - 向右拖动：变成无手脚圆球，弹奏深蓝色电吉他。
-- 额度面板：跟随在卜卜头顶约 14 px；额度每 5 分钟更新，BTC/ETH 每 5 秒更新，可隐藏和显示。
+- 额度面板：跟随在卜卜头顶约 14 px，额度每 5 分钟更新，可隐藏和显示。完整版另含每 5 秒更新的 BTC/ETH；`Codex-Only` 版会缩短面板并完全关闭行情请求。
 
 ## 性能与兼容性
 
@@ -75,6 +76,8 @@ macOS 需要 Xcode Command Line Tools：
 ```bash
 ./scripts/build-macos-release.sh
 ```
+
+该命令会同时生成完整版和 `Codex-Only` 版两个 macOS 压缩包。
 
 Windows 10/11 使用 Windows PowerShell 5.1：
 

@@ -12,6 +12,8 @@
   <dict>
     <key>BUBU_PANEL_HEALTH_FILE</key>
     <string>__HEALTH_PATH__</string>
+    <key>BUBU_SHOW_MARKET_PRICES</key>
+    <string>true</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

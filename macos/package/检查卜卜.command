@@ -10,6 +10,7 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 DOMAIN="gui/$(id -u)"
 HEALTH="$HOME/Library/Caches/io.github.mayday-materials.bubu-quota-panel/panel-health.json"
 FAILED=0
+MARKET_PRICES_ENABLED="$(/usr/bin/plutil -extract EnvironmentVariables.BUBU_SHOW_MARKET_PRICES raw "$PLIST" 2>/dev/null || echo true)"
 
 check() {
   if eval "$2"; then
@@ -44,10 +45,15 @@ if [[ -x "$BIN" ]]; then
   echo ""
   echo "Codex 额度读取："
   "$BIN" --print-quota || FAILED=1
-  echo "BTC 价格读取："
-  "$BIN" --print-btc || FAILED=1
-  echo "ETH 价格读取："
-  "$BIN" --print-eth || FAILED=1
+  if [[ "$MARKET_PRICES_ENABLED" == "false" ]]; then
+    echo "行情读取：已按“仅 Codex 额度版”关闭。"
+    BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config || FAILED=1
+  else
+    echo "BTC 价格读取："
+    "$BIN" --print-btc || FAILED=1
+    echo "ETH 价格读取："
+    "$BIN" --print-eth || FAILED=1
+  fi
 fi
 
 echo ""

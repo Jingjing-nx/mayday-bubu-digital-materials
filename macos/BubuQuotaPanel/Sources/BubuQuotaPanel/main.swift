@@ -4,11 +4,17 @@ import Foundation
 
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
-private let panelVersion = "1.0.6"
+private let panelVersion = "1.0.7"
+private let marketPricesEnabled: Bool = {
+    guard let rawValue = ProcessInfo.processInfo.environment["BUBU_SHOW_MARKET_PRICES"] else {
+        return true
+    }
+    return !["0", "false", "no", "off"].contains(rawValue.lowercased())
+}()
 // Track fast enough that the panel preserves its 14 px visual gap while the
 // pet window is moving between animation positions.
 private let followInterval: TimeInterval = 0.03
-private let expandedPanelSize = NSSize(width: 224, height: 160)
+private let expandedPanelSize = NSSize(width: 224, height: marketPricesEnabled ? 160 : 116)
 private let collapsedPanelSize = NSSize(width: 64, height: 44)
 private let panelPetGap: CGFloat = 14
 private let panelScreenMargin: CGFloat = 8
@@ -91,6 +97,8 @@ private final class RuntimeHealthWriter {
             "pid": ProcessInfo.processInfo.processIdentifier,
             "status": status,
             "panelVisible": panelVisible,
+            "marketPricesEnabled": marketPricesEnabled,
+            "panelHeightPoints": expandedPanelSize.height,
             "locationSource": locationSource ?? NSNull(),
             "updatedAt": ISO8601DateFormatter().string(from: Date()),
         ]
@@ -542,30 +550,32 @@ private final class QuotaPanelView: NSView {
             alignment: .right
         )
 
-        drawMarketPriceRow(
-            symbol: "BTC/USDT",
-            iconText: "₿",
-            iconColor: NSColor(calibratedRed: 0.97, green: 0.58, blue: 0.11, alpha: 1),
-            price: btcPrice,
-            direction: btcPriceDirection,
-            statusText: btcStatusText,
-            y: 103,
-            separatorY: 96,
-            contentX: contentX,
-            contentWidth: contentWidth
-        )
-        drawMarketPriceRow(
-            symbol: "ETH/USDT",
-            iconText: "Ξ",
-            iconColor: NSColor(calibratedRed: 0.38, green: 0.45, blue: 0.95, alpha: 1),
-            price: ethPrice,
-            direction: ethPriceDirection,
-            statusText: ethStatusText,
-            y: 126,
-            separatorY: 122,
-            contentX: contentX,
-            contentWidth: contentWidth
-        )
+        if marketPricesEnabled {
+            drawMarketPriceRow(
+                symbol: "BTC/USDT",
+                iconText: "₿",
+                iconColor: NSColor(calibratedRed: 0.97, green: 0.58, blue: 0.11, alpha: 1),
+                price: btcPrice,
+                direction: btcPriceDirection,
+                statusText: btcStatusText,
+                y: 103,
+                separatorY: 96,
+                contentX: contentX,
+                contentWidth: contentWidth
+            )
+            drawMarketPriceRow(
+                symbol: "ETH/USDT",
+                iconText: "Ξ",
+                iconColor: NSColor(calibratedRed: 0.38, green: 0.45, blue: 0.95, alpha: 1),
+                price: ethPrice,
+                direction: ethPriceDirection,
+                statusText: ethStatusText,
+                y: 126,
+                separatorY: 122,
+                contentX: contentX,
+                contentWidth: contentWidth
+            )
+        }
     }
 
     override func updateTrackingAreas() {
@@ -1247,8 +1257,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         healthWriter.write(status: "started", panelVisible: false, locationSource: nil, force: true)
         followPet()
         refreshQuota()
-        refreshBTCPrice()
-        refreshETHPrice()
+        if marketPricesEnabled {
+            refreshBTCPrice()
+            refreshETHPrice()
+        }
 
         followTimer = Timer.scheduledTimer(withTimeInterval: followInterval, repeats: true) { [weak self] _ in
             self?.followPet()
@@ -1256,9 +1268,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             self?.refreshQuota()
         }
-        btcRefreshTimer = Timer.scheduledTimer(withTimeInterval: btcRefreshInterval, repeats: true) { [weak self] _ in
-            self?.refreshBTCPrice()
-            self?.refreshETHPrice()
+        if marketPricesEnabled {
+            btcRefreshTimer = Timer.scheduledTimer(withTimeInterval: btcRefreshInterval, repeats: true) { [weak self] _ in
+                self?.refreshBTCPrice()
+                self?.refreshETHPrice()
+            }
         }
     }
 
@@ -1526,6 +1540,16 @@ private func printMarketPriceOnce(symbol: String, label: String) -> Never {
     exit(exitCode)
 }
 
+private func printPanelConfiguration() -> Never {
+    print(
+        "panel-config: version=\(panelVersion) "
+            + "marketPricesEnabled=\(marketPricesEnabled) "
+            + "width=\(Int(expandedPanelSize.width)) "
+            + "height=\(Int(expandedPanelSize.height))"
+    )
+    exit(0)
+}
+
 private func printPanelPlacementOnce(savedStateOnly: Bool = false) -> Never {
     let locator = PetWindowLocator()
     let result = savedStateOnly ? locator.locateSavedState() : locator.locate()
@@ -1695,6 +1719,10 @@ if CommandLine.arguments.contains("--print-saved-panel-location") {
 
 if CommandLine.arguments.contains("--self-test-placement") {
     runPlacementSelfTest()
+}
+
+if CommandLine.arguments.contains("--print-panel-config") {
+    printPanelConfiguration()
 }
 
 if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-preview"),

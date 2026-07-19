@@ -17,8 +17,15 @@ HEALTH_DIR="$HOME/Library/Caches/io.github.mayday-materials.bubu-quota-panel"
 HEALTH_PATH="$HEALTH_DIR/panel-health.json"
 CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
 DOMAIN="gui/$(id -u)"
-PANEL_VERSION="1.0.6"
+PANEL_VERSION="1.0.7"
 EXPECTED_ATLAS_SHA256="df3c6f95784ae109f12df57c438afaa88c3e4a786145066c3d93fbf32000b3a0"
+CODEX_ONLY_MARKER="$ROOT/CODEX-ONLY.txt"
+MARKET_PRICES_ENABLED="true"
+PANEL_FEATURE_NAME="Codex 额度 + BTC/ETH 面板"
+if [[ -f "$CODEX_ONLY_MARKER" ]]; then
+  MARKET_PRICES_ENABLED="false"
+  PANEL_FEATURE_NAME="仅 Codex 额度面板（无 BTC/ETH）"
+fi
 
 pause_before_exit() {
   if [[ -t 0 ]]; then
@@ -47,7 +54,8 @@ panel_service_has_pid() {
 
 panel_health_is_current() {
   [[ -s "$HEALTH_PATH" ]] \
-    && /usr/bin/grep -q '"version":"'"$PANEL_VERSION"'"' "$HEALTH_PATH" 2>/dev/null
+    && /usr/bin/grep -q '"version":"'"$PANEL_VERSION"'"' "$HEALTH_PATH" 2>/dev/null \
+    && /usr/bin/grep -q '"marketPricesEnabled":'"$MARKET_PRICES_ENABLED" "$HEALTH_PATH" 2>/dev/null
 }
 
 wait_for_panel_health() {
@@ -115,6 +123,7 @@ select_bubu_in_codex() {
 }
 
 echo "正在安装卜卜（macOS Universal 开源版 $PANEL_VERSION）…"
+echo "面板版本：$PANEL_FEATURE_NAME"
 
 MACOS_VERSION="$(/usr/bin/sw_vers -productVersion)"
 MACOS_MAJOR="${MACOS_VERSION%%.*}"
@@ -170,6 +179,9 @@ done
 /bin/cp "$PLIST_SOURCE" "$PLIST_DEST"
 /usr/bin/plutil -replace ProgramArguments.0 -string "$APP_BINARY" "$PLIST_DEST"
 /usr/bin/plutil -replace EnvironmentVariables.BUBU_PANEL_HEALTH_FILE -string "$HEALTH_PATH" "$PLIST_DEST"
+if [[ "$MARKET_PRICES_ENABLED" == "false" ]]; then
+  /usr/bin/plutil -replace EnvironmentVariables.BUBU_SHOW_MARKET_PRICES -string false "$PLIST_DEST"
+fi
 /usr/bin/plutil -replace StandardErrorPath -string "$LOG_PATH" "$PLIST_DEST"
 /usr/bin/plutil -replace StandardOutPath -string "$LOG_PATH" "$PLIST_DEST"
 /usr/bin/plutil -lint "$PLIST_DEST" >/dev/null
@@ -199,7 +211,7 @@ select_bubu_in_codex
 echo ""
 echo "安装完成："
 echo "  ✓ 卜卜宠物"
-echo "  ✓ Codex 额度 + BTC/ETH 面板"
+echo "  ✓ $PANEL_FEATURE_NAME"
 echo "  ✓ 自动选中卜卜"
 echo "  ✓ 随登录自动启动"
 echo ""
