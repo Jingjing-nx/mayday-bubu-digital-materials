@@ -59,6 +59,8 @@ foreach ($name in @("BubuQuotaPanel.ps1", "StartBubuPanel.vbs", "StartBubuPanel.
     $path = Join-Path $installDirectory $name
     Add-Report ($name + ": " + $(if (Test-Path -LiteralPath $path) { "OK" } else { "MISSING" }))
 }
+$codexOnlyMarker = Join-Path $installDirectory "CODEX-ONLY.txt"
+Add-Report ("Panel variant: " + $(if (Test-Path -LiteralPath $codexOnlyMarker) { "CODEX-ONLY" } else { "FULL" }))
 
 Add-Report ""
 Add-Report "=== Startup ==="

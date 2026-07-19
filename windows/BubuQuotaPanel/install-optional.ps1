@@ -69,6 +69,9 @@ try {
     $rootPath = [IO.Path]::GetFullPath($Root)
     $panelSource = Join-Path $rootPath "windows"
     $installDirectory = Join-Path $env:LOCALAPPDATA "BubuPet"
+    $codexOnlySource = Join-Path $rootPath "CODEX-ONLY.txt"
+    $marketPricesEnabled = -not (Test-Path -LiteralPath $codexOnlySource)
+    $expectedPanelHeight = if ($marketPricesEnabled) { 160 } else { 116 }
     $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
     $configPath = Join-Path $codexHome "config.toml"
 
@@ -108,6 +111,12 @@ try {
     Copy-Item -LiteralPath (Join-Path $panelSource "StartBubuPanel.vbs") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "StartBubuPanel.cmd") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "quota-panel-background.png") -Destination $installDirectory -Force
+    $installedCodexOnlyMarker = Join-Path $installDirectory "CODEX-ONLY.txt"
+    if ($marketPricesEnabled) {
+        Remove-Item -LiteralPath $installedCodexOnlyMarker -Force -ErrorAction SilentlyContinue
+    } else {
+        Copy-Item -LiteralPath $codexOnlySource -Destination $installedCodexOnlyMarker -Force
+    }
 
     try {
         New-Item -ItemType Directory -Force -Path $codexHome | Out-Null
@@ -163,7 +172,10 @@ try {
                 $health = [IO.File]::ReadAllText($oldHealthPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
                 $healthProcess = Get-Process -Id ([int]$health.processId) -ErrorAction SilentlyContinue
                 $healthAge = [DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($oldHealthPath)
-                if ($health.version -eq "1.0.0" -and $healthProcess -and
+                if ($health.version -eq "1.0.1" -and
+                    [bool]$health.marketPricesEnabled -eq $marketPricesEnabled -and
+                    [int]$health.panelHeightPoints -eq $expectedPanelHeight -and
+                    $healthProcess -and
                     $healthProcess.ProcessName -match "powershell|pwsh" -and
                     $healthAge.TotalSeconds -lt 10) {
                     $healthySamples++

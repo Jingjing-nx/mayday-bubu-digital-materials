@@ -99,5 +99,41 @@ jobs:
             }
           }
           if ($failed) { exit 1 }
-      - shell: powershell
-        run: .\scripts\build-windows-release.ps1
+      - name: Verify full and Codex-only Windows panels
+        shell: powershell
+        run: |
+          $panel = ".\windows\BubuQuotaPanel\BubuQuotaPanel.ps1"
+          $fullConfig = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
+          if ($LASTEXITCODE -ne 0 -or $fullConfig -notmatch "version=1.0.1 marketPricesEnabled=true width=224 height=160") {
+            throw "Unexpected full panel configuration: $fullConfig"
+          }
+          $fullXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
+          if ($LASTEXITCODE -ne 0 -or $fullXaml -notmatch "height=160 marketRows=Visible") {
+            throw "Full panel XAML validation failed: $fullXaml"
+          }
+
+          $env:BUBU_SHOW_MARKET_PRICES = "false"
+          $onlyConfig = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
+          if ($LASTEXITCODE -ne 0 -or $onlyConfig -notmatch "version=1.0.1 marketPricesEnabled=false width=224 height=116") {
+            throw "Unexpected Codex-only panel configuration: $onlyConfig"
+          }
+          $onlyXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
+          if ($LASTEXITCODE -ne 0 -or $onlyXaml -notmatch "height=116 marketRows=Collapsed") {
+            throw "Codex-only panel XAML validation failed: $onlyXaml"
+          }
+          Remove-Item Env:BUBU_SHOW_MARKET_PRICES
+      - name: Build both Windows release variants
+        shell: powershell
+        run: |
+          .\scripts\build-windows-release.ps1
+          if (-not (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-v1.0.1.zip")) { throw "Full ZIP missing" }
+          if (-not (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-Codex-Only-v1.0.1.zip")) { throw "Codex-only ZIP missing" }
+          if (Test-Path -LiteralPath "build\release\卜卜-Windows\CODEX-ONLY.txt") { throw "Full package contains Codex-only marker" }
+          if (-not (Test-Path -LiteralPath "build\release\卜卜-Windows-仅Codex额度\CODEX-ONLY.txt")) { throw "Codex-only marker missing" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-v1.0.1
+          if-no-files-found: error
+          path: |
+            dist/Mayday-Bubu-Windows-10-11-v1.0.1.zip
+            dist/Mayday-Bubu-Windows-10-11-Codex-Only-v1.0.1.zip

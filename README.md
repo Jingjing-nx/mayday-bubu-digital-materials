@@ -13,7 +13,7 @@
 
 # mayday卜卜电子物料
 
-一个非官方、非商业的五月天歌迷桌面项目。目前包含 Codex 动态宠物“卜卜”和 Codex 剩余额度面板；macOS 可选择带或不带 BTC/ETH 行情的版本。
+一个非官方、非商业的五月天歌迷桌面项目。目前包含 Codex 动态宠物“卜卜”和 Codex 剩余额度面板；macOS、Windows 都可选择带或不带 BTC/ETH 行情的版本。
 
 ![卜卜动作总览](shared/preview/卜卜动作总览.png)
 
@@ -23,9 +23,10 @@
 
 - `Mayday-Bubu-macOS-Universal-v1.0.7.zip`：macOS 12.3+ 完整版，含 Codex 额度与 BTC/ETH 行情，支持 Apple 芯片与 Intel Mac。
 - `Mayday-Bubu-macOS-Universal-Codex-Only-v1.0.7.zip`：macOS 12.3+ 仅 Codex 额度版，不显示、也不请求 BTC/ETH 行情。
-- `Mayday-Bubu-Windows-10-11-v1.0.0.zip`：Windows 10/11，x64 与 ARM64。
+- `Mayday-Bubu-Windows-10-11-v1.0.1.zip`：Windows 10/11 完整版，含 Codex 额度与 BTC/ETH 行情，支持 x64 与 ARM64。
+- `Mayday-Bubu-Windows-10-11-Codex-Only-v1.0.1.zip`：Windows 10/11 仅 Codex 额度版，不显示、也不请求 BTC/ETH 行情。
 
-三个压缩包的名称、根目录和安装入口都明确标注了系统或版本，不能混用。
+四个压缩包的名称、根目录和安装入口都明确标注了系统或版本，不能混用。
 
 ## 使用方法
 
@@ -41,7 +42,7 @@
 
 ### Windows
 
-1. 完整解压 `Mayday-Bubu-Windows-10-11-v1.0.0.zip`，不要在压缩包预览窗口中运行。
+1. 按需要下载并完整解压 Windows 完整版或 `Codex-Only` 版，不要在压缩包预览窗口中运行。
 2. 双击 `安装卜卜-Windows.cmd`。
 3. 完全退出并重新打开 Codex。
 4. 公司电脑限制 PowerShell 时，可运行 `兼容安装-只装宠物.cmd`；宠物仍可使用，但不会安装额度面板。
@@ -84,6 +85,8 @@ Windows 10/11 使用 Windows PowerShell 5.1：
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build-windows-release.ps1
 ```
+
+该命令会同时生成完整版和 `Codex-Only` 版两个 Windows 压缩包。
 
 ## 许可与声明
 

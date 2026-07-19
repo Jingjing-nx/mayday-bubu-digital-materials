@@ -5,7 +5,7 @@ chcp 65001 >nul 2>&1
 set "REPORT=%USERPROFILE%\Desktop\Bubu-Windows-Check.txt"
 set "ROOT=%~dp0"
 
->"%REPORT%" echo Bubu Windows compatibility check V1.0
+>"%REPORT%" echo Bubu Windows compatibility check V1.0.1
 >>"%REPORT%" echo Date: %DATE% %TIME%
 >>"%REPORT%" echo Windows: %OS%
 >>"%REPORT%" echo Architecture: %PROCESSOR_ARCHITECTURE%

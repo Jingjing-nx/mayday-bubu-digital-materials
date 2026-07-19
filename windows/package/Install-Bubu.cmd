@@ -14,7 +14,7 @@ if defined CODEX_HOME (
 )
 set "PET_DEST=%CODEX_DIR%\pets\bubu-office"
 
->"%LOG%" echo Bubu Windows installer open-source V1.0
+>"%LOG%" echo Bubu Windows installer open-source V1.0.1
 >>"%LOG%" echo Started: %DATE% %TIME%
 >>"%LOG%" echo OS: %OS%
 >>"%LOG%" echo Architecture: %PROCESSOR_ARCHITECTURE%
@@ -22,8 +22,13 @@ set "PET_DEST=%CODEX_DIR%\pets\bubu-office"
 >>"%LOG%" echo Codex home: configured for current user
 
 echo.
-echo Bubu Windows installer V1.0
+echo Bubu Windows installer V1.0.1
 echo ----------------------
+if exist "%ROOT%\CODEX-ONLY.txt" (
+  echo Panel: Codex quota only ^(no BTC/ETH^)
+) else (
+  echo Panel: Codex quota + BTC/ETH
+)
 
 if not defined USERPROFILE goto :no_profile
 if not exist "%PET_SOURCE%\pet.json" goto :missing_files

@@ -1,8 +1,32 @@
-﻿$ErrorActionPreference = "Stop"
+﻿param(
+    [switch]$PrintConfiguration,
+    [switch]$ValidateXaml
+)
 
-$script:PanelVersion = "1.0.0"
+$ErrorActionPreference = "Stop"
+
+$script:PanelVersion = "1.0.1"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
+$script:MarketPricesEnabled = $true
+$marketSetting = [string]$env:BUBU_SHOW_MARKET_PRICES
+if (-not [string]::IsNullOrWhiteSpace($marketSetting)) {
+    $script:MarketPricesEnabled = $marketSetting.Trim().ToLowerInvariant() -notmatch '^(0|false|no|off)$'
+} elseif (Test-Path -LiteralPath (Join-Path $PSScriptRoot "CODEX-ONLY.txt")) {
+    $script:MarketPricesEnabled = $false
+}
+$script:ExpandedHeight = if ($script:MarketPricesEnabled) { 160 } else { 116 }
+$script:ExpandedBodyHeight = $script:ExpandedHeight - 13
+$script:ExpandedPointerTipY = $script:ExpandedHeight - 1
+
+if ($PrintConfiguration) {
+    Write-Output (
+        "panel-config: version=" + $script:PanelVersion +
+        " marketPricesEnabled=" + $script:MarketPricesEnabled.ToString().ToLowerInvariant() +
+        " width=224 height=" + $script:ExpandedHeight
+    )
+    exit 0
+}
 
 function Write-PanelLog([string]$message) {
     try {
@@ -212,7 +236,7 @@ $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="卜卜额度面板"
-        Width="224" Height="160"
+        Width="224" Height="$($script:ExpandedHeight)"
         WindowStyle="None" ResizeMode="NoResize"
         AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ShowActivated="False"
@@ -255,15 +279,15 @@ $xaml = @"
     </Window.Resources>
 
     <Grid>
-        <Canvas x:Name="ExpandedRoot" Width="224" Height="160">
-            <Polygon Points="104,147 112,159 120,147"
+        <Canvas x:Name="ExpandedRoot" Width="224" Height="$($script:ExpandedHeight)">
+            <Polygon Points="104,$($script:ExpandedBodyHeight) 112,$($script:ExpandedPointerTipY) 120,$($script:ExpandedBodyHeight)"
                      Fill="#F7080B17" Stroke="#38FFFFFF" StrokeThickness="1"/>
-            <Border Canvas.Left="3" Canvas.Top="3" Width="218" Height="147"
+            <Border Canvas.Left="3" Canvas.Top="3" Width="218" Height="$($script:ExpandedBodyHeight)"
                     CornerRadius="17" Background="#F7080B17"
                     BorderBrush="#38FFFFFF" BorderThickness="1">
                 <Grid ClipToBounds="True">
                     <Rectangle x:Name="BackgroundBand" Height="93" VerticalAlignment="Top"/>
-                    <Canvas Width="218" Height="147">
+                    <Canvas Width="218" Height="$($script:ExpandedBodyHeight)">
                         <TextBlock x:Name="CodexName" Canvas.Left="14" Canvas.Top="11"
                                    Width="62" Height="18" Text="Codex"
                                    FontFamily="Microsoft YaHei UI" FontSize="11" FontWeight="SemiBold"
@@ -290,6 +314,7 @@ $xaml = @"
                                    TextAlignment="Right" FontFamily="Microsoft YaHei UI" FontSize="9.2"
                                    Foreground="#B8FFFFFF"/>
 
+                        <Canvas x:Name="MarketRows" Width="218" Height="147">
                         <Border Canvas.Left="14" Canvas.Top="93" Width="190" Height="1"
                                 Background="#21FFFFFF"/>
                         <Ellipse Canvas.Left="14" Canvas.Top="100" Width="15" Height="15"
@@ -327,6 +352,7 @@ $xaml = @"
                                    Width="28" Height="14" Text="读取中"
                                    TextAlignment="Right" FontFamily="Microsoft YaHei UI"
                                    FontSize="8.2" Foreground="#8AFFFFFF"/>
+                        </Canvas>
                     </Canvas>
                 </Grid>
             </Border>
@@ -370,6 +396,8 @@ function Write-PanelHealth([bool]$force) {
             positionMode = $script:LastPositionMode
             trackingMode = if ($script:TrackingMode) { $script:TrackingMode } else { "starting" }
             followEngine = "composition-rendering"
+            marketPricesEnabled = $script:MarketPricesEnabled
+            panelHeightPoints = $script:ExpandedHeight
             lastPetMotionAt = if (-not $script:LastPetMotionAt -or
                 $script:LastPetMotionAt -eq [DateTime]::MinValue) { $null } else { $script:LastPetMotionAt.ToString("o") }
             quotaStatus = $script:LastQuotaStatus
@@ -394,12 +422,28 @@ $script:RemainingText = Get-Control "RemainingText"
 $script:QuotaProgressFill = Get-Control "QuotaProgressFill"
 $script:ResetText = Get-Control "ResetText"
 $script:QuotaStatusText = Get-Control "QuotaStatusText"
+$script:MarketRows = Get-Control "MarketRows"
 $script:BTCPriceText = Get-Control "BTCPriceText"
 $script:BTCStatusText = Get-Control "BTCStatusText"
 $script:ETHPriceText = Get-Control "ETHPriceText"
 $script:ETHStatusText = Get-Control "ETHStatusText"
 $script:HideButton = Get-Control "HideButton"
 $script:ShowButton = Get-Control "ShowButton"
+
+if (-not $script:MarketPricesEnabled) {
+    $script:MarketRows.Visibility = [Windows.Visibility]::Collapsed
+}
+
+if ($ValidateXaml) {
+    Write-Output (
+        "xaml-valid: version=" + $script:PanelVersion +
+        " marketPricesEnabled=" + $script:MarketPricesEnabled.ToString().ToLowerInvariant() +
+        " width=" + [int]($script:Window.Width) +
+        " height=" + [int]($script:Window.Height) +
+        " marketRows=" + $script:MarketRows.Visibility
+    )
+    exit 0
+}
 
 $backgroundPath = Join-Path $PSScriptRoot "quota-panel-background.png"
 if (Test-Path -LiteralPath $backgroundPath) {
@@ -647,7 +691,7 @@ function Start-QuotaRequest {
         $process.StartInfo = $info
         if (-not $process.Start()) { throw "Codex 本机服务启动失败" }
 
-        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"1.0.0"},"capabilities":{"experimentalApi":true}}}'
+        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"1.0.1"},"capabilities":{"experimentalApi":true}}}'
         $initialized = '{"method":"initialized","params":{}}'
         $readLimits = '{"method":"account/rateLimits/read","id":2}'
         $process.StandardInput.WriteLine($initialize)
@@ -759,15 +803,19 @@ function Poll-QuotaRequest {
     }
 }
 
-$httpHandler = New-Object Net.Http.HttpClientHandler
-$script:HttpClient = [Net.Http.HttpClient]::new($httpHandler)
-$script:HttpClient.Timeout = [TimeSpan]::FromSeconds(8)
+$script:HttpClient = $null
+if ($script:MarketPricesEnabled) {
+    $httpHandler = New-Object Net.Http.HttpClientHandler
+    $script:HttpClient = [Net.Http.HttpClient]::new($httpHandler)
+    $script:HttpClient.Timeout = [TimeSpan]::FromSeconds(8)
+}
 $script:BTCTask = $null
 $script:BTCStartedAt = [DateTime]::MinValue
 $script:NextBTCAt = [DateTime]::UtcNow
 $script:LastBTCPrice = $null
 
 function Start-BTCRequest {
+    if (-not $script:MarketPricesEnabled) { return }
     if ($script:BTCTask) { return }
     try {
         $url = "https://data-api.binance.vision/api/v3/ticker/price?symbol=BTCUSDT"
@@ -819,6 +867,7 @@ $script:NextETHAt = [DateTime]::UtcNow
 $script:LastETHPrice = $null
 
 function Start-ETHRequest {
+    if (-not $script:MarketPricesEnabled) { return }
     if ($script:ETHTask) { return }
     try {
         $url = "https://data-api.binance.vision/api/v3/ticker/price?symbol=ETHUSDT"
@@ -1284,7 +1333,7 @@ function Set-Collapsed([bool]$collapsed) {
         $script:CollapsedRoot.Visibility = [Windows.Visibility]::Collapsed
         $script:ExpandedRoot.Visibility = [Windows.Visibility]::Visible
         $script:Window.Width = 224
-        $script:Window.Height = 160
+        $script:Window.Height = $script:ExpandedHeight
     }
     Update-PetPosition
 }
@@ -1347,14 +1396,16 @@ $script:ServiceTimer.Add_Tick({
         Start-QuotaRequest
     }
 
-    Poll-BTCRequest
-    if (-not $petIsMoving -and -not $script:BTCTask -and $now -ge $script:NextBTCAt) {
-        Start-BTCRequest
-    }
+    if ($script:MarketPricesEnabled) {
+        Poll-BTCRequest
+        if (-not $petIsMoving -and -not $script:BTCTask -and $now -ge $script:NextBTCAt) {
+            Start-BTCRequest
+        }
 
-    Poll-ETHRequest
-    if (-not $petIsMoving -and -not $script:ETHTask -and $now -ge $script:NextETHAt) {
-        Start-ETHRequest
+        Poll-ETHRequest
+        if (-not $petIsMoving -and -not $script:ETHTask -and $now -ge $script:NextETHAt) {
+            Start-ETHRequest
+        }
     }
 
     if (-not $petIsMoving) { Write-PanelHealth $false }
