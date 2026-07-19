@@ -42,6 +42,7 @@ taskkill.exe /F /T /IM ChatGPT.exe >>"%LOG%" 2>&1
 taskkill.exe /F /T /IM Codex.exe >>"%LOG%" 2>&1
 taskkill.exe /F /T /IM OpenAI.exe >>"%LOG%" 2>&1
 timeout.exe /T 2 /NOBREAK >nul 2>&1
+cmd.exe /d /c exit 0
 
 if not exist "%CODEX_DIR%\pets" mkdir "%CODEX_DIR%\pets" >>"%LOG%" 2>&1
 if errorlevel 1 goto :copy_failed
