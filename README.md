@@ -21,7 +21,7 @@
 
 请在项目右侧的 **Releases** 中选择对应系统：
 
-- `Mayday-Bubu-macOS-Universal-v1.0.5.zip`：macOS 12.3+，Apple 芯片与 Intel Mac。
+- `Mayday-Bubu-macOS-Universal-v1.0.6.zip`：macOS 12.3+，Apple 芯片与 Intel Mac。
 - `Mayday-Bubu-Windows-10-11-v1.0.0.zip`：Windows 10/11，x64 与 ARM64。
 
 两个压缩包的名称、根目录和安装入口都明确标注了系统，不能混用。
@@ -30,12 +30,13 @@
 
 ### macOS
 
-1. 完整解压 `Mayday-Bubu-macOS-Universal-v1.0.5.zip`。
+1. 完整解压 `Mayday-Bubu-macOS-Universal-v1.0.6.zip`。
 2. 双击 `安装卜卜-macOS.command`。
 3. 如果出现“Apple 无法验证”提示，点“完成”，不要点“移到废纸篓”。
-4. 双击包内的 `安装被拦截-打开安全设置.webloc`，在打开的安全设置中点击“仍要打开”或“Open Anyway”。
-5. 输入 Mac 登录密码确认，再重新双击安装文件。
-6. 退出并重新打开 Codex。
+4. 双击包内的 `安装被拦截-打开隐私与安全.html`；页面会尝试自动跳转，如果没跳转就点蓝色按钮。
+5. 在“隐私与安全”中点击“仍要打开”或“Open Anyway”，输入 Mac 登录密码，再重新双击安装文件。
+6. 如果跳转仍有问题，双击 `如果仍无法打开-Apple官方步骤.webloc`。
+7. 退出并重新打开 Codex。
 
 ### Windows
 

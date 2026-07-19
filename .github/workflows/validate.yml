@@ -34,6 +34,12 @@ jobs:
           rm -f "$STATE"
       - name: Verify panel/pet geometry
         run: macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --self-test-placement
+      - name: Verify Gatekeeper help entries
+        run: |
+          plutil -lint 'macos/package/如果仍无法打开-Apple官方步骤.webloc'
+          test "$(plutil -extract URL raw 'macos/package/如果仍无法打开-Apple官方步骤.webloc')" = 'https://support.apple.com/guide/mac-help/mh40616/mac'
+          grep -Fq 'x-apple.systempreferences:com.apple.preference.security?General' 'macos/package/安装被拦截-打开隐私与安全.html'
+          ! grep -R 'x-apple.systempreferences:' macos/package --include='*.webloc'
       - name: Verify panel runtime health
         run: |
           HEALTH="$(mktemp)"
@@ -45,7 +51,7 @@ jobs:
             test -s "$HEALTH" && break
             sleep 0.1
           done
-          grep '"version":"1.0.5"' "$HEALTH"
+          grep '"version":"1.0.6"' "$HEALTH"
           kill "$PID" 2>/dev/null || true
           wait "$PID" 2>/dev/null || true
       - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh

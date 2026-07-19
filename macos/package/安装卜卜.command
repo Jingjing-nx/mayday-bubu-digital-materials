@@ -17,7 +17,7 @@ HEALTH_DIR="$HOME/Library/Caches/io.github.mayday-materials.bubu-quota-panel"
 HEALTH_PATH="$HEALTH_DIR/panel-health.json"
 CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
 DOMAIN="gui/$(id -u)"
-PANEL_VERSION="1.0.5"
+PANEL_VERSION="1.0.6"
 EXPECTED_ATLAS_SHA256="df3c6f95784ae109f12df57c438afaa88c3e4a786145066c3d93fbf32000b3a0"
 
 pause_before_exit() {

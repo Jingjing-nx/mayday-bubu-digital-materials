@@ -2,12 +2,13 @@
 
 ## 安装
 
-1. 完整解压 `Mayday-Bubu-macOS-Universal-v1.0.5.zip`。
+1. 完整解压 `Mayday-Bubu-macOS-Universal-v1.0.6.zip`。
 2. 双击 `安装卜卜-macOS.command`。
 3. 如果出现“Apple 无法验证”提示，点“完成”，不要点“移到废纸篓”。
-4. 双击 `安装被拦截-打开安全设置.webloc`，会直接打开“安全性与隐私”的“通用”页面。
-5. 点击“仍要打开”或“Open Anyway”，输入 Mac 登录密码确认，再重新双击安装文件。
-6. 重新打开 Codex；安装器会优先自动选中卜卜。
+4. 双击 `安装被拦截-打开隐私与安全.html`；页面会尝试自动跳转，如果没跳转就点蓝色按钮。
+5. 在“隐私与安全”中点击“仍要打开”或“Open Anyway”，输入 Mac 登录密码确认，再重新双击安装文件。
+6. 如果跳转仍有问题，双击 `如果仍无法打开-Apple官方步骤.webloc`。
+7. 重新打开 Codex；安装器会优先自动选中卜卜。
 
 “仍要打开”按钮只会在尝试启动安装文件后出现，并会保留约一小时。
 [查看 Apple 官方的允许步骤](https://support.apple.com/guide/mac-help/mh40616/mac)。

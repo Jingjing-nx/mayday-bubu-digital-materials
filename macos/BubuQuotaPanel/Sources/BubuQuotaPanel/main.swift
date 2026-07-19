@@ -4,7 +4,7 @@ import Foundation
 
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
-private let panelVersion = "1.0.5"
+private let panelVersion = "1.0.6"
 // Track fast enough that the panel preserves its 14 px visual gap while the
 // pet window is moving between animation positions.
 private let followInterval: TimeInterval = 0.03

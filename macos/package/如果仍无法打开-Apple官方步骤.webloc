@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
   <key>URL</key>
-  <string>x-apple.systempreferences:com.apple.preference.security?General</string>
+  <string>https://support.apple.com/guide/mac-help/mh40616/mac</string>
 </dict>
 </plist>
