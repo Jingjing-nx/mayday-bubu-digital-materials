@@ -5,7 +5,7 @@ chcp 65001 >nul 2>&1
 set "REPORT=%USERPROFILE%\Desktop\Bubu-Windows-Check.txt"
 set "ROOT=%~dp0"
 
->"%REPORT%" echo Bubu Windows compatibility check V1.0.1
+>"%REPORT%" echo Bubu Windows compatibility check V1.0.2
 >>"%REPORT%" echo Date: %DATE% %TIME%
 >>"%REPORT%" echo Windows: %OS%
 >>"%REPORT%" echo Architecture: %PROCESSOR_ARCHITECTURE%
@@ -17,10 +17,10 @@ if exist "%ROOT%pet\bubu-office\pet.json" (
 ) else (
   >>"%REPORT%" echo Package pet.json: MISSING
 )
-if exist "%ROOT%pet\bubu-office\spritesheet.webp" (
-  >>"%REPORT%" echo Package spritesheet.webp: OK
+if exist "%ROOT%pet\bubu-office\spritesheet-win-v1.0.2.webp" (
+  >>"%REPORT%" echo Package versioned spritesheet: OK
 ) else (
-  >>"%REPORT%" echo Package spritesheet.webp: MISSING
+  >>"%REPORT%" echo Package versioned spritesheet: MISSING
 )
 
 where powershell.exe >>"%REPORT%" 2>&1

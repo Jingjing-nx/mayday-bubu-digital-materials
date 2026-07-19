@@ -99,12 +99,12 @@ jobs:
             }
           }
           if ($failed) { exit 1 }
-      - name: Verify full and Codex-only Windows panels
+      - name: Verify Windows panel modes and tracking filters
         shell: powershell
         run: |
           $panel = ".\windows\BubuQuotaPanel\BubuQuotaPanel.ps1"
           $fullConfig = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
-          if ($LASTEXITCODE -ne 0 -or $fullConfig -notmatch "version=1.0.1 marketPricesEnabled=true width=224 height=160") {
+          if ($LASTEXITCODE -ne 0 -or $fullConfig -notmatch "version=1.0.2 marketPricesEnabled=true width=224 height=160") {
             throw "Unexpected full panel configuration: $fullConfig"
           }
           $fullXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
@@ -114,26 +114,57 @@ jobs:
 
           $env:BUBU_SHOW_MARKET_PRICES = "false"
           $onlyConfig = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
-          if ($LASTEXITCODE -ne 0 -or $onlyConfig -notmatch "version=1.0.1 marketPricesEnabled=false width=224 height=116") {
+          if ($LASTEXITCODE -ne 0 -or $onlyConfig -notmatch "version=1.0.2 marketPricesEnabled=false width=224 height=116") {
             throw "Unexpected Codex-only panel configuration: $onlyConfig"
           }
           $onlyXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
           if ($LASTEXITCODE -ne 0 -or $onlyXaml -notmatch "height=116 marketRows=Collapsed") {
             throw "Codex-only panel XAML validation failed: $onlyXaml"
           }
+          $trackingFilters = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateTrackingFilters
+          if ($LASTEXITCODE -ne 0 -or $trackingFilters -notmatch "pet=True ime-size=True ime-class=True no-activate=True") {
+            throw "Tracking-filter validation failed: $trackingFilters"
+          }
           Remove-Item Env:BUBU_SHOW_MARKET_PRICES
-      - name: Build both Windows release variants
+      - name: Build and install-test Codex-only Windows release
         shell: powershell
         run: |
-          .\scripts\build-windows-release.ps1
-          if (-not (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-v1.0.1.zip")) { throw "Full ZIP missing" }
-          if (-not (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-Codex-Only-v1.0.1.zip")) { throw "Codex-only ZIP missing" }
-          if (Test-Path -LiteralPath "build\release\卜卜-Windows\CODEX-ONLY.txt") { throw "Full package contains Codex-only marker" }
-          if (-not (Test-Path -LiteralPath "build\release\卜卜-Windows-仅Codex额度\CODEX-ONLY.txt")) { throw "Codex-only marker missing" }
+          .\scripts\build-windows-release.ps1 -CodexOnlyRelease
+          $zip = "dist\Mayday-Bubu-Windows-10-11-Codex-Only-v1.0.2.zip"
+          $stage = "build\release\卜卜-Windows-仅Codex额度"
+          $packagePet = Join-Path $stage "pet\bubu-office"
+          if (-not (Test-Path -LiteralPath $zip)) { throw "Codex-only ZIP missing" }
+          if (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-v1.0.2.zip") { throw "Full v1.0.2 ZIP must not be built" }
+          if (-not (Test-Path -LiteralPath (Join-Path $stage "CODEX-ONLY.txt"))) { throw "Codex-only marker missing" }
+          $manifest = Get-Content -Raw -LiteralPath (Join-Path $packagePet "pet.json") | ConvertFrom-Json
+          if ($manifest.spritesheetPath -ne "spritesheet-win-v1.0.2.webp") { throw "Versioned pet atlas path missing" }
+          $packageAtlas = Join-Path $packagePet $manifest.spritesheetPath
+          if (-not (Test-Path -LiteralPath $packageAtlas)) { throw "Versioned pet atlas missing" }
+          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $packageAtlas).Hash -ne
+              (Get-FileHash -Algorithm SHA256 -LiteralPath "shared\pet\bubu-office\spritesheet.webp").Hash) {
+            throw "Packaged pet atlas differs from validated source atlas"
+          }
+
+          $testHome = Join-Path $env:RUNNER_TEMP "bubu-codex-home"
+          Remove-Item -LiteralPath $testHome -Recurse -Force -ErrorAction SilentlyContinue
+          $oldPet = Join-Path $testHome "pets\bubu-office"
+          New-Item -ItemType Directory -Force -Path $oldPet | Out-Null
+          Set-Content -LiteralPath (Join-Path $oldPet "spritesheet.webp") -Value "stale pet"
+          Set-Content -LiteralPath (Join-Path $oldPet "pet.json") -Value '{"id":"stale"}'
+          $env:CODEX_HOME = $testHome
+          $env:BUBU_INSTALL_NONINTERACTIVE = "1"
+          & (Join-Path $stage "Install-Bubu.cmd") /petonly
+          if ($LASTEXITCODE -ne 0) { throw "Codex-only pet installer simulation failed" }
+          if (Test-Path -LiteralPath (Join-Path $oldPet "spritesheet.webp")) { throw "Stale pet atlas was not removed" }
+          if (-not (Test-Path -LiteralPath (Join-Path $oldPet "spritesheet-win-v1.0.2.webp"))) { throw "New pet atlas was not installed" }
+          $installedConfig = Get-Content -Raw -LiteralPath (Join-Path $testHome "config.toml")
+          if ($installedConfig -notmatch '(?ms)^\s*\[desktop\].*?^\s*selected-avatar-id\s*=\s*"custom:bubu-office"\s*$') {
+            throw "Bubu was not selected in the installed config"
+          }
+          Remove-Item Env:CODEX_HOME
+          Remove-Item Env:BUBU_INSTALL_NONINTERACTIVE
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-release-v1.0.1
+          name: windows-codex-only-v1.0.2
           if-no-files-found: error
-          path: |
-            dist/Mayday-Bubu-Windows-10-11-v1.0.1.zip
-            dist/Mayday-Bubu-Windows-10-11-Codex-Only-v1.0.1.zip
+          path: dist/Mayday-Bubu-Windows-10-11-Codex-Only-v1.0.2.zip

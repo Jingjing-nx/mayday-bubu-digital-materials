@@ -1,8 +1,10 @@
-param()
+param(
+    [switch]$CodexOnlyRelease
+)
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = "1.0.1"
+$Version = "1.0.2"
 $StageRoot = Join-Path $Root "build\release"
 $FullStage = Join-Path $StageRoot "卜卜-Windows"
 $CodexOnlyStage = Join-Path $StageRoot "卜卜-Windows-仅Codex额度"
@@ -36,6 +38,27 @@ function New-ReleasePackage {
         Copy-Item -LiteralPath (Join-Path $Root "windows\CODEX-ONLY.txt") -Destination (Join-Path $Stage "CODEX-ONLY.txt")
     }
 
+    # A versioned atlas path prevents the desktop app from reusing the previous
+    # custom-pet texture after an in-place Windows upgrade.
+    $petDirectory = Join-Path $Stage "pet\bubu-office"
+    $oldAtlas = Join-Path $petDirectory "spritesheet.webp"
+    $atlasName = "spritesheet-win-v$Version.webp"
+    $newAtlas = Join-Path $petDirectory $atlasName
+    Move-Item -LiteralPath $oldAtlas -Destination $newAtlas -Force
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $manifestPath = Join-Path $petDirectory "pet.json"
+    $manifest = [IO.File]::ReadAllText($manifestPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+    $manifest.spritesheetPath = $atlasName
+    [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 8) + "`n", $utf8NoBom)
+
+    $validationPath = Join-Path $petDirectory "validation.json"
+    if (Test-Path -LiteralPath $validationPath) {
+        $validation = [IO.File]::ReadAllText($validationPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+        $validation.file = $atlasName
+        [IO.File]::WriteAllText($validationPath, ($validation | ConvertTo-Json -Depth 16) + "`n", $utf8NoBom)
+    }
+
     $checksums = Get-ChildItem -LiteralPath $Stage -File -Recurse | Sort-Object FullName | ForEach-Object {
         $relative = $_.FullName.Substring($Stage.Length + 1).Replace("\", "/")
         $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
@@ -47,5 +70,7 @@ function New-ReleasePackage {
     Write-Output $Output
 }
 
-New-ReleasePackage -Stage $FullStage -Output $FullOutput -CodexOnly $false
+if (-not $CodexOnlyRelease) {
+    New-ReleasePackage -Stage $FullStage -Output $FullOutput -CodexOnly $false
+}
 New-ReleasePackage -Stage $CodexOnlyStage -Output $CodexOnlyOutput -CodexOnly $true

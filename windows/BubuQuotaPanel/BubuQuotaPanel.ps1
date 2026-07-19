@@ -1,11 +1,12 @@
 ﻿param(
     [switch]$PrintConfiguration,
-    [switch]$ValidateXaml
+    [switch]$ValidateXaml,
+    [switch]$ValidateTrackingFilters
 )
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "1.0.1"
+$script:PanelVersion = "1.0.2"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $script:MarketPricesEnabled = $true
@@ -152,6 +153,12 @@ namespace BubuPanel {
         private static extern bool SetWindowPos(
             IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int width, int height, uint flags);
 
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", ExactSpelling = true)]
+        private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
+
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", ExactSpelling = true)]
+        private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int index, IntPtr newLong);
+
         [DllImport("user32.dll")]
         private static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint flags);
 
@@ -201,6 +208,21 @@ namespace BubuPanel {
             const uint SWP_SHOWWINDOW = 0x0040;
             return SetWindowPos(hWnd, IntPtr.Zero, x, y, 0, 0,
                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
+
+        public static void ApplyNoActivateStyle(IntPtr hWnd) {
+            const int GWL_EXSTYLE = -20;
+            const long WS_EX_TOOLWINDOW = 0x00000080L;
+            const long WS_EX_NOACTIVATE = 0x08000000L;
+            long style = GetWindowLongPtr(hWnd, GWL_EXSTYLE).ToInt64();
+            SetWindowLongPtr(hWnd, GWL_EXSTYLE,
+                new IntPtr(style | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE));
+        }
+
+        public static bool HasNoActivateStyle(IntPtr hWnd) {
+            const int GWL_EXSTYLE = -20;
+            const long WS_EX_NOACTIVATE = 0x08000000L;
+            return (GetWindowLongPtr(hWnd, GWL_EXSTYLE).ToInt64() & WS_EX_NOACTIVATE) != 0;
         }
 
         public static NativeWindowInfo GetMonitorWorkArea(IntPtr hWnd) {
@@ -381,6 +403,7 @@ $script:Window.WindowStartupLocation = [Windows.WindowStartupLocation]::Manual
 $script:Window.Left = -32000
 $script:Window.Top = -32000
 $script:WindowHandle = [Windows.Interop.WindowInteropHelper]::new($script:Window).EnsureHandle()
+[BubuPanel.NativeWindows]::ApplyNoActivateStyle($script:WindowHandle)
 $script:HealthPath = Join-Path $PSScriptRoot "panel-health.json"
 $script:LastPositionMode = "starting"
 $script:LastQuotaStatus = "starting"
@@ -691,7 +714,7 @@ function Start-QuotaRequest {
         $process.StartInfo = $info
         if (-not $process.Start()) { throw "Codex 本机服务启动失败" }
 
-        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"1.0.1"},"capabilities":{"experimentalApi":true}}}'
+        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"1.0.2"},"capabilities":{"experimentalApi":true}}}'
         $initialized = '{"method":"initialized","params":{}}'
         $readLimits = '{"method":"account/rateLimits/read","id":2}'
         $process.StandardInput.WriteLine($initialize)
@@ -1008,12 +1031,38 @@ function Test-PetWindowSize($candidate, $bounds) {
     $expectedWidth = [double]$bounds.width
     $expectedHeight = [double]$bounds.height
     if ($expectedWidth -le 0 -or $expectedHeight -le 0) { return $false }
-    if ($candidate.Width -lt 120 -or $candidate.Width -gt 1600) { return $false }
-    if ($candidate.Height -lt 100 -or $candidate.Height -gt 1600) { return $false }
+    if ($candidate.Width -lt 180 -or $candidate.Width -gt 1600) { return $false }
+    if ($candidate.Height -lt 170 -or $candidate.Height -gt 1600) { return $false }
+    $windowSignature = ([string]$candidate.Title + " " + [string]$candidate.ClassName)
+    if ($windowSignature -match '(?i)IME|Candidate|InputMethod|TextInput|Cicero|MSCTF') { return $false }
+    $expectedRatio = $expectedWidth / $expectedHeight
+    $candidateRatio = $candidate.Width / [double]$candidate.Height
+    $relativeRatio = $candidateRatio / $expectedRatio
+    if ($relativeRatio -lt 0.72 -or $relativeRatio -gt 1.38) { return $false }
     $scaleX = $candidate.Width / $expectedWidth
     $scaleY = $candidate.Height / $expectedHeight
     if ($scaleX -lt 0.25 -or $scaleX -gt 6.0 -or $scaleY -lt 0.25 -or $scaleY -gt 6.0) { return $false }
-    if ([Math]::Abs($scaleX - $scaleY) -gt 0.75) { return $false }
+    if ([Math]::Abs($scaleX - $scaleY) -gt 0.35) { return $false }
+    return $true
+}
+
+function Test-HeuristicPetWindow($candidate) {
+    if (-not $candidate) { return $false }
+    if (-not [string]::IsNullOrWhiteSpace($candidate.Title)) { return $false }
+    if ($candidate.Width -lt 180 -or $candidate.Width -gt 1600 -or
+        $candidate.Height -lt 170 -or $candidate.Height -gt 1600) { return $false }
+    $windowSignature = ([string]$candidate.Title + " " + [string]$candidate.ClassName)
+    if ($windowSignature -match '(?i)IME|Candidate|InputMethod|TextInput|Cicero|MSCTF') { return $false }
+
+    $dpiScale = [BubuPanel.NativeWindows]::GetWindowDpi($candidate.Handle) / 96.0
+    $expectedWidth = 356.0 * $dpiScale
+    $expectedHeight = 320.0 * $dpiScale
+    $scaleX = $candidate.Width / $expectedWidth
+    $scaleY = $candidate.Height / $expectedHeight
+    $candidateRatio = $candidate.Width / [double]$candidate.Height
+    if ($candidateRatio -lt 0.80 -or $candidateRatio -gt 1.55) { return $false }
+    if ($scaleX -lt 0.55 -or $scaleX -gt 3.5 -or $scaleY -lt 0.55 -or $scaleY -gt 3.5) { return $false }
+    if ([Math]::Abs($scaleX - $scaleY) -gt 0.35) { return $false }
     return $true
 }
 
@@ -1070,9 +1119,7 @@ function Find-PetWindowHeuristic {
     if ($script:PetWindowHandle -ne [IntPtr]::Zero) {
         $cached = [BubuPanel.NativeWindows]::GetWindow($script:PetWindowHandle)
         if ($cached -and $script:ChatProcessIds.ContainsKey([uint32]$cached.ProcessId) -and
-            [string]::IsNullOrWhiteSpace($cached.Title) -and
-            $cached.Width -ge 120 -and $cached.Width -le 1600 -and
-            $cached.Height -ge 100 -and $cached.Height -le 1600) {
+            (Test-HeuristicPetWindow $cached)) {
             return $cached
         }
         $script:PetWindowHandle = [IntPtr]::Zero
@@ -1084,9 +1131,7 @@ function Find-PetWindowHeuristic {
     $bestScore = [double]::MaxValue
     foreach ($candidate in [BubuPanel.NativeWindows]::GetVisibleWindows()) {
         if (-not $script:ChatProcessIds.ContainsKey([uint32]$candidate.ProcessId)) { continue }
-        if (-not [string]::IsNullOrWhiteSpace($candidate.Title)) { continue }
-        if ($candidate.Width -lt 120 -or $candidate.Width -gt 1600 -or
-            $candidate.Height -lt 100 -or $candidate.Height -gt 1600) { continue }
+        if (-not (Test-HeuristicPetWindow $candidate)) { continue }
         $dpiScale = [BubuPanel.NativeWindows]::GetWindowDpi($candidate.Handle) / 96.0
         $expectedWidth = 356.0 * $dpiScale
         $expectedHeight = 320.0 * $dpiScale
@@ -1241,7 +1286,12 @@ function Clear-NativeTrackingTarget {
 function Follow-PetWindowFast {
     if ($script:PetWindowHandle -eq [IntPtr]::Zero -or $script:TrackingMode -eq "none") { return }
     $petWindow = [BubuPanel.NativeWindows]::GetWindow($script:PetWindowHandle)
-    if (-not $petWindow) {
+    $targetIsValid = $petWindow -and (
+        ($script:TrackingMode -eq "exact" -and $script:TrackingBounds -and
+            (Test-PetWindowSize $petWindow $script:TrackingBounds)) -or
+        ($script:TrackingMode -eq "heuristic" -and (Test-HeuristicPetWindow $petWindow))
+    )
+    if (-not $targetIsValid) {
         $script:PetWindowHandle = [IntPtr]::Zero
         Clear-NativeTrackingTarget
         $script:NextStateCheckAt = [DateTime]::MinValue
@@ -1319,6 +1369,36 @@ function Update-PetPosition {
     # Kept as a compatibility entry point for click handlers and older repair logic.
     Update-PetTarget
     Follow-PetWindowFast
+}
+
+if ($ValidateTrackingFilters) {
+    $testBounds = [PSCustomObject]@{ width = 356; height = 320; x = 400; y = 240 }
+    $petWindow = [PSCustomObject]@{
+        Handle = [IntPtr]::Zero; Title = ""; ClassName = "Chrome_WidgetWin_1"
+        Width = 356; Height = 320; Left = 400; Top = 240
+    }
+    $imeWindow = [PSCustomObject]@{
+        Handle = [IntPtr]::Zero; Title = ""; ClassName = "Chrome_WidgetWin_1"
+        Width = 520; Height = 142; Left = 400; Top = 560
+    }
+    $imeClassWindow = [PSCustomObject]@{
+        Handle = [IntPtr]::Zero; Title = ""; ClassName = "MSCTFIME UI"
+        Width = 356; Height = 320; Left = 400; Top = 240
+    }
+    $petAccepted = (Test-PetWindowSize $petWindow $testBounds) -and
+        (Test-HeuristicPetWindow $petWindow)
+    $imeRejected = -not (Test-PetWindowSize $imeWindow $testBounds) -and
+        -not (Test-HeuristicPetWindow $imeWindow)
+    $imeClassRejected = -not (Test-PetWindowSize $imeClassWindow $testBounds) -and
+        -not (Test-HeuristicPetWindow $imeClassWindow)
+    $noActivateApplied = [BubuPanel.NativeWindows]::HasNoActivateStyle($script:WindowHandle)
+    if (-not $petAccepted -or -not $imeRejected -or -not $imeClassRejected -or
+        -not $noActivateApplied) {
+        throw "Pet-window tracking filters failed validation."
+    }
+    Write-Output "tracking-filter-validation: pet=True ime-size=True ime-class=True no-activate=True"
+    $script:Window.Close()
+    exit 0
 }
 
 $script:IsCollapsed = $false
