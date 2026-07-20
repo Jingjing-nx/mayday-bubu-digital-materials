@@ -6,7 +6,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "1.0.3"
+$script:PanelVersion = "1.0.4"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $script:MarketPricesEnabled = $true
@@ -19,12 +19,19 @@ if (-not [string]::IsNullOrWhiteSpace($marketSetting)) {
 $script:ExpandedHeight = if ($script:MarketPricesEnabled) { 160 } else { 116 }
 $script:ExpandedBodyHeight = $script:ExpandedHeight - 13
 $script:ExpandedPointerTipY = $script:ExpandedHeight - 1
+$script:ExpandedWidth = 224.0
+$script:CollapsedWidth = 64.0
+$script:CollapsedHeight = 44.0
+$script:CanonicalPetWidth = 163.0
+$script:PanelScale = 1.0
+$script:MinimumPanelScale = 0.20
+$script:MaximumPanelScale = 8.0
 
 if ($PrintConfiguration) {
     Write-Output (
         "panel-config: version=" + $script:PanelVersion +
         " marketPricesEnabled=" + $script:MarketPricesEnabled.ToString().ToLowerInvariant() +
-        " width=224 height=" + $script:ExpandedHeight
+        " width=" + [int]$script:ExpandedWidth + " height=" + $script:ExpandedHeight
     )
     exit 0
 }
@@ -317,7 +324,7 @@ $xaml = @"
         </Style>
     </Window.Resources>
 
-    <Grid>
+    <Grid x:Name="PanelScaleRoot" RenderTransformOrigin="0,0">
         <Canvas x:Name="ExpandedRoot" Width="224" Height="$($script:ExpandedHeight)">
             <Polygon x:Name="ExpandedPointer" Points="104,$($script:ExpandedBodyHeight) 112,$($script:ExpandedPointerTipY) 120,$($script:ExpandedBodyHeight)"
                      Fill="#F7080B17" Stroke="#38FFFFFF" StrokeThickness="1"/>
@@ -438,7 +445,10 @@ function Write-PanelHealth([bool]$force) {
             followEngine = "composition-rendering+33ms-fallback"
             perMonitorDpiV2 = $script:PerMonitorDpiEnabled
             marketPricesEnabled = $script:MarketPricesEnabled
-            panelHeightPoints = $script:ExpandedHeight
+            panelBaseHeightPoints = $script:ExpandedHeight
+            panelScale = [Math]::Round($script:PanelScale, 4)
+            panelWidthPoints = [Math]::Round($script:Window.Width, 2)
+            panelHeightPoints = [Math]::Round($script:Window.Height, 2)
             lastPetMotionAt = if (-not $script:LastPetMotionAt -or
                 $script:LastPetMotionAt -eq [DateTime]::MinValue) { $null } else { $script:LastPetMotionAt.ToString("o") }
             quotaStatus = $script:LastQuotaStatus
@@ -456,6 +466,7 @@ function Get-Control([string]$name) {
     return $script:Window.FindName($name)
 }
 
+$script:PanelScaleRoot = Get-Control "PanelScaleRoot"
 $script:ExpandedRoot = Get-Control "ExpandedRoot"
 $script:CollapsedRoot = Get-Control "CollapsedRoot"
 $script:ExpandedPointer = Get-Control "ExpandedPointer"
@@ -734,7 +745,7 @@ function Start-QuotaRequest {
         $process.StartInfo = $info
         if (-not $process.Start()) { throw "Codex 本机服务启动失败" }
 
-        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"1.0.3"},"capabilities":{"experimentalApi":true}}}'
+        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"1.0.4"},"capabilities":{"experimentalApi":true}}}'
         $initialized = '{"method":"initialized","params":{}}'
         $readLimits = '{"method":"account/rateLimits/read","id":2}'
         $process.StandardInput.WriteLine($initialize)
@@ -1203,29 +1214,84 @@ function Set-PositionMode([string]$mode) {
     }
 }
 
+function Limit-PanelScale([double]$scale) {
+    if ([double]::IsNaN($scale) -or [double]::IsInfinity($scale) -or $scale -le 0) {
+        return 1.0
+    }
+    return [Math]::Max($script:MinimumPanelScale, [Math]::Min($script:MaximumPanelScale, $scale))
+}
+
+function Set-PanelScale([double]$scale) {
+    $safeScale = Limit-PanelScale $scale
+    $scaleChanged = [Math]::Abs($script:PanelScale - $safeScale) -ge 0.0025
+    if ($scaleChanged) {
+        $script:PanelScale = $safeScale
+        $script:PanelScaleRoot.LayoutTransform = [Windows.Media.ScaleTransform]::new($safeScale, $safeScale)
+        $script:LastPointerCenter = [double]::NaN
+    }
+
+    $baseWidth = if ($script:IsCollapsed) { $script:CollapsedWidth } else { $script:ExpandedWidth }
+    $baseHeight = if ($script:IsCollapsed) { $script:CollapsedHeight } else { [double]$script:ExpandedHeight }
+    $targetWidth = $baseWidth * $safeScale
+    $targetHeight = $baseHeight * $safeScale
+    if ([Math]::Abs($script:Window.Width - $targetWidth) -ge 0.05) {
+        $script:Window.Width = $targetWidth
+    }
+    if ([Math]::Abs($script:Window.Height - $targetHeight) -ge 0.05) {
+        $script:Window.Height = $targetHeight
+    }
+    if ($scaleChanged) {
+        $script:Window.UpdateLayout()
+    }
+    return $safeScale
+}
+
+function Get-NativePetScale($petWindow, $bounds, $geometry, [double]$dpi) {
+    if (-not $petWindow -or -not $bounds -or -not $geometry -or
+        [double]$bounds.width -le 0 -or [double]$bounds.height -le 0) {
+        return 1.0
+    }
+    $dpiScale = [Math]::Max(0.1, $dpi / 96.0)
+    $storedPetScale = [double]$geometry.Width / $script:CanonicalPetWidth
+    $liveScaleX = $petWindow.Width / [double]$bounds.width / $dpiScale
+    $liveScaleY = $petWindow.Height / [double]$bounds.height / $dpiScale
+    if ($liveScaleX -le 0 -or $liveScaleY -le 0) { return Limit-PanelScale $storedPetScale }
+
+    # The persisted geometry may lag briefly while the native overlay is being
+    # resized. Multiplying its scale by the live/reference window ratio keeps
+    # the panel synchronized throughout the resize, not only after JSON saves.
+    $liveWindowRatio = [Math]::Sqrt($liveScaleX * $liveScaleY)
+    return Limit-PanelScale ($storedPetScale * $liveWindowRatio)
+}
+
 function Get-MascotGeometry($bounds) {
     if ($bounds.mascot) {
+        $width = [double]$bounds.mascot.width
+        $petScale = Limit-PanelScale ($width / $script:CanonicalPetWidth)
         return [PSCustomObject]@{
             Left = [double]$bounds.mascot.left
-            Top = [double]$bounds.mascot.top + 7
-            Width = [double]$bounds.mascot.width
+            Top = [double]$bounds.mascot.top + 7 * $petScale
+            Width = $width
         }
     }
     if ($bounds.anchor) {
+        $width = [double]$bounds.anchor.width
+        $petScale = Limit-PanelScale ($width / $script:CanonicalPetWidth)
         return [PSCustomObject]@{
             Left = [double]$bounds.anchor.x - [double]$bounds.x
-            Top = [double]$bounds.anchor.y - [double]$bounds.y + 7
-            Width = [double]$bounds.anchor.width
+            Top = [double]$bounds.anchor.y - [double]$bounds.y + 7 * $petScale
+            Width = $width
         }
     }
 
-    $estimatedWidth = [Math]::Min(163.0, [double]$bounds.width * 0.46)
+    $estimatedWidth = [Math]::Max(24.0,
+        [double]$bounds.width * $script:CanonicalPetWidth / 356.0)
     $estimatedLeft = ([double]$bounds.width - $estimatedWidth) / 2.0
     if ($bounds.placement -match "start$") { $estimatedLeft = 8.0 }
     if ($bounds.placement -match "end$") { $estimatedLeft = [double]$bounds.width - $estimatedWidth - 8.0 }
     return [PSCustomObject]@{
         Left = $estimatedLeft
-        Top = 15.0
+        Top = 15.0 * ([double]$bounds.height / 320.0)
         Width = $estimatedWidth
     }
 }
@@ -1233,7 +1299,9 @@ function Get-MascotGeometry($bounds) {
 $script:LastPointerCenter = [double]::NaN
 function Set-PanelPointer([double]$centerPhysical, [double]$panelPhysicalWidth) {
     if ($panelPhysicalWidth -le 0) { return }
-    $logicalWidth = [double]$script:Window.Width
+    # Polygon coordinates stay in the unscaled 224/64 design space; the root
+    # LayoutTransform scales them with the rest of the panel.
+    $logicalWidth = if ($script:IsCollapsed) { $script:CollapsedWidth } else { $script:ExpandedWidth }
     $logicalCenter = $centerPhysical * $logicalWidth / $panelPhysicalWidth
     $safeInset = if ($script:IsCollapsed) { 12.0 } else { 18.0 }
     $logicalCenter = [Math]::Max($safeInset, [Math]::Min($logicalWidth - $safeInset, $logicalCenter))
@@ -1255,7 +1323,15 @@ function Set-PanelPointer([double]$centerPhysical, [double]$panelPhysicalWidth) 
     }
 }
 
-function Get-NativePanelPlacement($petWindow, $bounds, $geometry, $panelWindow, [double]$dpi, $workArea) {
+function Get-NativePanelPlacement(
+    $petWindow,
+    $bounds,
+    $geometry,
+    $panelWindow,
+    [double]$dpi,
+    [double]$panelScale,
+    $workArea
+) {
     if (-not $petWindow -or -not $bounds -or -not $geometry -or -not $panelWindow) { return $null }
     if ([double]$bounds.width -le 0 -or [double]$bounds.height -le 0 -or
         $panelWindow.Width -le 0 -or $panelWindow.Height -le 0) { return $null }
@@ -1265,15 +1341,18 @@ function Get-NativePanelPlacement($petWindow, $bounds, $geometry, $panelWindow, 
     $visualCenterX = $petWindow.Left + ($geometry.Left + $geometry.Width / 2.0) * $scaleX
     $visualTop = $petWindow.Top + $geometry.Top * $scaleY
     $gap = 14.0 * $dpi / 96.0
+    $safePanelScale = Limit-PanelScale $panelScale
+    $pointerBottomInset = $safePanelScale * $dpi / 96.0
     $left = [Math]::Round($visualCenterX - $panelWindow.Width / 2.0)
-    # The pointer tip is one physical pixel above the window's bottom edge.
-    # Position that tip, not the outer window edge, exactly 14 logical pixels
+    # The pointer's one-DIP bottom inset grows with both DPI and Bubu's scale.
+    # Position the scaled tip, not the outer edge, exactly 14 logical pixels
     # above Bubu. Never clamp vertically because that would detach the panel.
-    $top = [Math]::Round($visualTop - $gap - ($panelWindow.Height - 1.0))
+    $top = [Math]::Round($visualTop - $gap - ($panelWindow.Height - $pointerBottomInset))
 
     if ($workArea) {
-        $left = [Math]::Max($workArea.Left + 8,
-            [Math]::Min($workArea.Right - $panelWindow.Width - 8, $left))
+        $screenMargin = 8.0 * $dpi / 96.0
+        $left = [Math]::Max($workArea.Left + $screenMargin,
+            [Math]::Min($workArea.Right - $panelWindow.Width - $screenMargin, $left))
     }
 
     $pointerCenterPhysical = $visualCenterX - $left
@@ -1281,13 +1360,17 @@ function Get-NativePanelPlacement($petWindow, $bounds, $geometry, $panelWindow, 
         Left = [int]$left
         Top = [int]$top
         PointerCenterPhysical = [double]$pointerCenterPhysical
+        PanelScale = [double]$safePanelScale
         GapPixels = [double]$gap
-        ActualGapPixels = [double]($visualTop - ($top + $panelWindow.Height - 1.0))
+        ActualGapPixels = [double]($visualTop - ($top + $panelWindow.Height - $pointerBottomInset))
         CenterErrorPixels = [double](($left + $pointerCenterPhysical) - $visualCenterX)
     }
 }
 
 function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
+    $dpi = [BubuPanel.NativeWindows]::GetWindowDpi($petWindow.Handle)
+    $panelScale = Get-NativePetScale $petWindow $bounds $geometry $dpi
+    [void](Set-PanelScale $panelScale)
     if (-not $script:Window.IsVisible) {
         $script:Window.Show()
         $script:Window.UpdateLayout()
@@ -1296,9 +1379,9 @@ function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
     $panelWindow = [BubuPanel.NativeWindows]::GetWindow($script:WindowHandle)
     if (-not $panelWindow) { return $false }
 
-    $dpi = [BubuPanel.NativeWindows]::GetWindowDpi($petWindow.Handle)
     $workArea = [BubuPanel.NativeWindows]::GetMonitorWorkArea($petWindow.Handle)
-    $placement = Get-NativePanelPlacement $petWindow $bounds $geometry $panelWindow $dpi $workArea
+    $placement = Get-NativePanelPlacement `
+        $petWindow $bounds $geometry $panelWindow $dpi $panelScale $workArea
     if (-not $placement) { return $false }
 
     if ([Math]::Abs($panelWindow.Left - $placement.Left) -gt 1 -or
@@ -1312,17 +1395,20 @@ function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
 }
 
 function Show-PanelAtHeuristicWindow($petWindow) {
+    $dpi = [BubuPanel.NativeWindows]::GetWindowDpi($petWindow.Handle)
+    $estimatedBounds = [PSCustomObject]@{ width = 356.0; height = 320.0 }
+    $estimatedGeometry = [PSCustomObject]@{ Left = 165.0; Top = 15.0; Width = 163.0 }
+    $panelScale = Get-NativePetScale $petWindow $estimatedBounds $estimatedGeometry $dpi
+    [void](Set-PanelScale $panelScale)
     if (-not $script:Window.IsVisible) {
         $script:Window.Show()
         $script:Window.UpdateLayout()
     }
     $panelWindow = [BubuPanel.NativeWindows]::GetWindow($script:WindowHandle)
     if (-not $panelWindow) { return $false }
-    $dpi = [BubuPanel.NativeWindows]::GetWindowDpi($petWindow.Handle)
-    $estimatedBounds = [PSCustomObject]@{ width = 356.0; height = 320.0 }
-    $estimatedGeometry = [PSCustomObject]@{ Left = 165.0; Top = 15.0; Width = 163.0 }
     $workArea = [BubuPanel.NativeWindows]::GetMonitorWorkArea($petWindow.Handle)
-    $placement = Get-NativePanelPlacement $petWindow $estimatedBounds $estimatedGeometry $panelWindow $dpi $workArea
+    $placement = Get-NativePanelPlacement `
+        $petWindow $estimatedBounds $estimatedGeometry $panelWindow $dpi $panelScale $workArea
     if (-not $placement) { return $false }
     if ([Math]::Abs($panelWindow.Left - $placement.Left) -gt 1 -or
         [Math]::Abs($panelWindow.Top - $placement.Top) -gt 1) {
@@ -1335,17 +1421,17 @@ function Show-PanelAtHeuristicWindow($petWindow) {
 }
 
 function Show-PanelAtSavedState($bounds, $geometry) {
+    $panelScale = Limit-PanelScale ([double]$geometry.Width / $script:CanonicalPetWidth)
+    [void](Set-PanelScale $panelScale)
     $visualCenterX = [double]$bounds.x + $geometry.Left + $geometry.Width / 2.0
     $visualTop = [double]$bounds.y + $geometry.Top
     $left = $visualCenterX - $script:Window.Width / 2.0
-    $top = $visualTop - 14 - $script:Window.Height
+    $top = $visualTop - 14 - ($script:Window.Height - $panelScale)
 
     if ($bounds.displayBounds) {
         $display = $bounds.displayBounds
         $left = [Math]::Max([double]$display.x + 8,
             [Math]::Min([double]$display.x + [double]$display.width - $script:Window.Width - 8, $left))
-        $top = [Math]::Max([double]$display.y + 8,
-            [Math]::Min([double]$display.y + [double]$display.height - $script:Window.Height - 8, $top))
     }
 
     $script:Window.Left = [Math]::Round($left)
@@ -1464,6 +1550,22 @@ function Update-PetPosition {
 }
 
 if ($ValidateTrackingFilters) {
+    $script:IsCollapsed = $false
+    $layoutScaleSamples = 0
+    foreach ($layoutScale in @(0.5, 2.0)) {
+        [void](Set-PanelScale $layoutScale)
+        $expectedWidth = $script:ExpandedWidth * $layoutScale
+        $expectedHeight = $script:ExpandedHeight * $layoutScale
+        if ([Math]::Abs($script:Window.Width - $expectedWidth) -gt 0.01 -or
+            [Math]::Abs($script:Window.Height - $expectedHeight) -gt 0.01 -or
+            [Math]::Abs($script:PanelScaleRoot.LayoutTransform.ScaleX - $layoutScale) -gt 0.001 -or
+            [Math]::Abs($script:PanelScaleRoot.LayoutTransform.ScaleY - $layoutScale) -gt 0.001) {
+            throw "WPF proportional layout scaling failed at scale=$layoutScale."
+        }
+        $layoutScaleSamples++
+    }
+    [void](Set-PanelScale 1.0)
+
     $testBounds = [PSCustomObject]@{ width = 356; height = 320; x = 400; y = 240 }
     $petWindow = [PSCustomObject]@{
         Handle = [IntPtr]::Zero; Title = ""; ClassName = "Chrome_WidgetWin_1"
@@ -1485,6 +1587,7 @@ if ($ValidateTrackingFilters) {
         -not (Test-HeuristicPetWindow $imeClassWindow)
     $noActivateApplied = [BubuPanel.NativeWindows]::HasNoActivateStyle($script:WindowHandle)
     $placementSamples = 0
+    $scaleSamples = 0
     $geometry = [PSCustomObject]@{ Left = 165.0; Top = 15.0; Width = 163.0 }
     foreach ($dpi in @(96.0, 120.0, 144.0, 192.0, 288.0)) {
         foreach ($petScale in @(0.5, 1.0, 1.75, 2.5)) {
@@ -1495,14 +1598,19 @@ if ($ValidateTrackingFilters) {
                 Height = [int][Math]::Round(320.0 * $combinedScale)
             }
             $syntheticPanel = [PSCustomObject]@{
-                Width = [int][Math]::Round(224.0 * $dpi / 96.0)
-                Height = [int][Math]::Round(116.0 * $dpi / 96.0)
+                Width = [int][Math]::Round(224.0 * $dpi / 96.0 * $petScale)
+                Height = [int][Math]::Round(116.0 * $dpi / 96.0 * $petScale)
             }
             $syntheticWorkArea = [PSCustomObject]@{
                 Left = -1920; Top = 0; Right = 1920; Bottom = 2160
             }
+            $derivedScale = Get-NativePetScale $syntheticPet $testBounds $geometry $dpi
+            if ([Math]::Abs($derivedScale - $petScale) -gt 0.01) {
+                throw "Panel scale derivation failed at dpi=$dpi petScale=$petScale derived=$derivedScale."
+            }
+            $scaleSamples++
             $placement = Get-NativePanelPlacement $syntheticPet $testBounds $geometry `
-                $syntheticPanel $dpi $syntheticWorkArea
+                $syntheticPanel $dpi $petScale $syntheticWorkArea
             $expectedGap = 14.0 * $dpi / 96.0
             if (-not $placement -or
                 [Math]::Abs($placement.ActualGapPixels - $expectedGap) -gt 0.51 -or
@@ -1517,7 +1625,9 @@ if ($ValidateTrackingFilters) {
         throw "Pet-window tracking filters failed validation."
     }
     Write-Output ("tracking-filter-validation: pet=True ime-size=True ime-class=True " +
-        "no-activate=True placement-matrix=" + $placementSamples)
+        "no-activate=True placement-matrix=" + $placementSamples +
+        " scale-matrix=" + $scaleSamples +
+        " layout-scale-matrix=" + $layoutScaleSamples)
     $script:Window.Close()
     exit 0
 }
@@ -1529,14 +1639,11 @@ function Set-Collapsed([bool]$collapsed) {
     if ($collapsed) {
         $script:ExpandedRoot.Visibility = [Windows.Visibility]::Collapsed
         $script:CollapsedRoot.Visibility = [Windows.Visibility]::Visible
-        $script:Window.Width = 64
-        $script:Window.Height = 44
     } else {
         $script:CollapsedRoot.Visibility = [Windows.Visibility]::Collapsed
         $script:ExpandedRoot.Visibility = [Windows.Visibility]::Visible
-        $script:Window.Width = 224
-        $script:Window.Height = $script:ExpandedHeight
     }
+    [void](Set-PanelScale $script:PanelScale)
     Update-PetPosition
 }
 

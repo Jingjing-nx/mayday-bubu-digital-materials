@@ -22,9 +22,9 @@
 请在项目右侧的 **Releases** 中选择对应系统：
 
 - `Mayday-Bubu-macOS-Universal-v1.0.7.zip`：macOS 12.3+ 完整版，含 Codex 额度与 BTC/ETH 行情，支持 Apple 芯片与 Intel Mac。
-- `Mayday-Bubu-macOS-Universal-Codex-Only-v1.0.8.zip`：macOS 12.3+ 仅 Codex 额度版；修复多屏、Retina 和宠物缩放后的面板分离，不显示、也不请求 BTC/ETH 行情。
+- `Mayday-Bubu-macOS-Universal-Codex-Only-v1.0.9.zip`：macOS 12.3+ 仅 Codex 额度版；面板会随卜卜同比放大缩小，并兼容多屏与 Retina，不显示、也不请求 BTC/ETH 行情。
 - `Mayday-Bubu-Windows-10-11-v1.0.1.zip`：Windows 10/11 完整版，含 Codex 额度与 BTC/ETH 行情，支持 x64 与 ARM64。
-- `Mayday-Bubu-Windows-10-11-Codex-Only-v1.0.3.zip`：Windows 10/11 仅 Codex 额度版；修复多显示器 DPI、宠物缩放、低帧率环境下的面板分离，不显示、也不请求 BTC/ETH 行情。
+- `Mayday-Bubu-Windows-10-11-Codex-Only-v1.0.4.zip`：Windows 10/11 仅 Codex 额度版；面板会随卜卜同比放大缩小，并兼容多显示器 DPI 与低帧率环境，不显示、也不请求 BTC/ETH 行情。
 
 四个压缩包的名称、根目录和安装入口都明确标注了系统或版本，不能混用。
 
@@ -55,13 +55,13 @@
 - 鼠标悬停：卜卜拿起咖啡杯喝咖啡。
 - 向左拖动：保留头顶三瓣装饰，变成无手脚圆球，在立式麦克风前唱歌。
 - 向右拖动：变成无手脚圆球，弹奏深蓝色电吉他。
-- 额度面板：跟随在卜卜头顶约 14 px，额度每 5 分钟更新，可隐藏和显示。完整版另含每 5 秒更新的 BTC/ETH；`Codex-Only` 版会缩短面板并完全关闭行情请求。
+- 额度面板：跟随在卜卜头顶约 14 px，并随卜卜同比放大缩小；额度每 5 分钟更新，可隐藏和显示。完整版另含每 5 秒更新的 BTC/ETH；`Codex-Only` 版会缩短面板并完全关闭行情请求。
 
 ## 性能与兼容性
 
 - 宠物图集固定为 Codex v2 的 8×11、1536×2288 WebP；Mac 与 Windows 使用同一份已验证图集，避免跨平台动作变形。
-- macOS 面板使用原生 AppKit，30 ms 跟随；箭头对齐宠物可见中心，与头顶保持 14 个逻辑像素。定位不依赖显示器编号，兼容 Retina、外接屏、旧版 `anchor` 状态和不同宠物尺寸。
-- Windows 面板使用每显示器 DPI v2 坐标，桌面合成器逐帧跟随，并在软件渲染、远程桌面或低刷新率环境下启用 33 ms 定时兜底；宠物缩放期间持续刷新锚点。
+- macOS 面板使用原生 AppKit，30 ms 跟随；窗口、文字、进度条、按钮和箭头使用同一宠物缩放系数，箭头仍与宠物可见中心对齐并保持 14 个逻辑像素。定位不依赖显示器编号，兼容 Retina、外接屏和旧版 `anchor` 状态。
+- Windows 面板使用每显示器 DPI v2 坐标，把系统 DPI 与宠物缩放拆开计算后再整体缩放 WPF 设计坐标；桌面合成器逐帧跟随，并在软件渲染、远程桌面或低刷新率环境下启用 33 ms 定时兜底。
 - 两个平台都不需要管理员权限，也不需要 API Key。
 
 ## 源码目录
@@ -88,7 +88,7 @@ Windows 10/11 使用 Windows PowerShell 5.1：
 powershell -ExecutionPolicy Bypass -File .\scripts\build-windows-release.ps1 -CodexOnlyRelease
 ```
 
-该命令只生成 Windows `Codex-Only` v1.0.3 修复版；带 BTC/ETH 的完整版继续使用 v1.0.1。
+该命令只生成 Windows `Codex-Only` v1.0.4 修复版；带 BTC/ETH 的完整版继续使用 v1.0.1。
 
 ## 许可与声明
 
