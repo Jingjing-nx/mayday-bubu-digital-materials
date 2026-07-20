@@ -12,14 +12,16 @@
   <string>io.github.mayday-materials.bubu-quota-panel</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleName</key>
   <string>卜卜额度面板</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-	<string>1.0.10</string>
+	<string>1.1.3</string>
   <key>CFBundleVersion</key>
-	<string>10</string>
+	<string>110</string>
   <key>LSMinimumSystemVersion</key>
   <string>12.3</string>
   <key>LSUIElement</key>

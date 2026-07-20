@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = "1.0.6"
+$Version = "1.1.3"
 $StageRoot = Join-Path $Root "build\release"
 $FullStage = Join-Path $StageRoot "卜卜-Windows"
 $CodexOnlyStage = Join-Path $StageRoot "卜卜-Windows-仅Codex额度"
@@ -42,7 +42,9 @@ function New-ReleasePackage {
     # custom-pet texture after an in-place Windows upgrade.
     $petDirectory = Join-Path $Stage "pet\bubu-office"
     $oldAtlas = Join-Path $petDirectory "spritesheet.webp"
-    $atlasName = "spritesheet-win-v$Version.webp"
+    # The pet art did not change in this panel release. Keep the existing atlas
+    # name so the installer and compatibility checker agree on one asset ID.
+    $atlasName = "spritesheet-win-v1.1.0.webp"
     $newAtlas = Join-Path $petDirectory $atlasName
     Move-Item -LiteralPath $oldAtlas -Destination $newAtlas -Force
 

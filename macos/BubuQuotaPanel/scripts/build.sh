@@ -14,6 +14,7 @@ rm -rf "$APP"
 mkdir -p "$MACOS" "$RESOURCES"
 cp "$ROOT/Resources/Info.plist" "$CONTENTS/Info.plist"
 cp "$ROOT/Resources/quota-panel-background.png" "$RESOURCES/quota-panel-background.png"
+cp "$ROOT/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
 
 for ARCH in arm64 x86_64; do
   /usr/bin/swiftc \

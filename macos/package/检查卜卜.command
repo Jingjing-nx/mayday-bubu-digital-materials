@@ -45,6 +45,8 @@ if [[ -x "$BIN" ]]; then
   echo ""
   echo "Codex 额度读取："
   "$BIN" --print-quota || FAILED=1
+  echo "任务进度读取："
+  "$BIN" --print-task-progress || FAILED=1
   if [[ "$MARKET_PRICES_ENABLED" == "false" ]]; then
     echo "行情读取：已按“仅 Codex 额度版”关闭。"
     BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config || FAILED=1
