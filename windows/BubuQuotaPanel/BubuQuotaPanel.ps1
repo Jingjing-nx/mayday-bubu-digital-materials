@@ -6,7 +6,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "1.0.5"
+$script:PanelVersion = "1.0.6"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $script:MarketPricesEnabled = $true
@@ -125,6 +125,12 @@ namespace BubuPanel {
         }
 
         [StructLayout(LayoutKind.Sequential)]
+        private struct POINT {
+            public int X;
+            public int Y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
         private struct MONITORINFO {
             public int cbSize;
             public RECT rcMonitor;
@@ -171,6 +177,9 @@ namespace BubuPanel {
 
         [DllImport("user32.dll")]
         private static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint flags);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr MonitorFromPoint(POINT point, uint flags);
 
         [DllImport("user32.dll")]
         private static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
@@ -265,6 +274,40 @@ namespace BubuPanel {
         public static NativeWindowInfo GetMonitorBounds(IntPtr hWnd) {
             const uint MONITOR_DEFAULTTONEAREST = 2;
             IntPtr monitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
+            if (monitor == IntPtr.Zero) return null;
+            MONITORINFO info = new MONITORINFO();
+            info.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+            if (!GetMonitorInfo(monitor, ref info)) return null;
+            return new NativeWindowInfo {
+                Handle = monitor,
+                Left = info.rcMonitor.Left,
+                Top = info.rcMonitor.Top,
+                Right = info.rcMonitor.Right,
+                Bottom = info.rcMonitor.Bottom
+            };
+        }
+
+        public static NativeWindowInfo GetMonitorWorkAreaAtPoint(int x, int y) {
+            const uint MONITOR_DEFAULTTONEAREST = 2;
+            POINT point = new POINT { X = x, Y = y };
+            IntPtr monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
+            if (monitor == IntPtr.Zero) return null;
+            MONITORINFO info = new MONITORINFO();
+            info.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+            if (!GetMonitorInfo(monitor, ref info)) return null;
+            return new NativeWindowInfo {
+                Handle = monitor,
+                Left = info.rcWork.Left,
+                Top = info.rcWork.Top,
+                Right = info.rcWork.Right,
+                Bottom = info.rcWork.Bottom
+            };
+        }
+
+        public static NativeWindowInfo GetMonitorBoundsAtPoint(int x, int y) {
+            const uint MONITOR_DEFAULTTONEAREST = 2;
+            POINT point = new POINT { X = x, Y = y };
+            IntPtr monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
             if (monitor == IntPtr.Zero) return null;
             MONITORINFO info = new MONITORINFO();
             info.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
@@ -467,6 +510,9 @@ function Write-PanelHealth([bool]$force) {
             panelHeightPoints = [Math]::Round($script:Window.Height, 2)
             horizontalAlignmentPixels = [Math]::Round($script:TrackingAlignmentX, 2)
             verticalAlignmentPixels = [Math]::Round($script:TrackingAlignmentY, 2)
+            fallbackGraceMilliseconds = $script:NativeFallbackGraceMilliseconds
+            lastNativeSuccessAt = if (-not $script:LastNativeSuccessAt -or
+                $script:LastNativeSuccessAt -eq [DateTime]::MinValue) { $null } else { $script:LastNativeSuccessAt.ToString("o") }
             lastPetMotionAt = if (-not $script:LastPetMotionAt -or
                 $script:LastPetMotionAt -eq [DateTime]::MinValue) { $null } else { $script:LastPetMotionAt.ToString("o") }
             quotaStatus = $script:LastQuotaStatus
@@ -763,7 +809,7 @@ function Start-QuotaRequest {
         $process.StartInfo = $info
         if (-not $process.Start()) { throw "Codex 本机服务启动失败" }
 
-        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"1.0.5"},"capabilities":{"experimentalApi":true}}}'
+        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"1.0.6"},"capabilities":{"experimentalApi":true}}}'
         $initialized = '{"method":"initialized","params":{}}'
         $readLimits = '{"method":"account/rateLimits/read","id":2}'
         $process.StandardInput.WriteLine($initialize)
@@ -1083,6 +1129,8 @@ $script:TrackingAlignmentX = 0.0
 $script:TrackingAlignmentY = 0.0
 $script:TrackingAlignmentHandle = [IntPtr]::Zero
 $script:TrackingAlignmentStateWrite = [DateTime]::MinValue
+$script:LastNativeSuccessAt = [DateTime]::MinValue
+$script:NativeFallbackGraceMilliseconds = 750
 
 function Test-PetWindowSize($candidate, $bounds) {
     if (-not $candidate -or -not $bounds) { return $false }
@@ -1124,10 +1172,26 @@ function Test-HeuristicPetWindow($candidate) {
     return $true
 }
 
+function Get-StateMonitorBounds($bounds, [IntPtr]$fallbackHandle = [IntPtr]::Zero) {
+    if ($bounds -and $bounds.displayBounds) {
+        $display = $bounds.displayBounds
+        if ([double]$display.width -gt 0 -and [double]$display.height -gt 0) {
+            $centerX = [int][Math]::Round([double]$display.x + [double]$display.width / 2.0)
+            $centerY = [int][Math]::Round([double]$display.y + [double]$display.height / 2.0)
+            $monitor = [BubuPanel.NativeWindows]::GetMonitorBoundsAtPoint($centerX, $centerY)
+            if ($monitor) { return $monitor }
+        }
+    }
+    if ($fallbackHandle -ne [IntPtr]::Zero) {
+        return [BubuPanel.NativeWindows]::GetMonitorBounds($fallbackHandle)
+    }
+    return $null
+}
+
 function Get-NativeOverlayExpectation($candidate, $bounds, $monitorBounds = $null) {
     if (-not $candidate -or -not $bounds) { return $null }
     if (-not $monitorBounds -and $candidate.Handle -ne [IntPtr]::Zero) {
-        $monitorBounds = [BubuPanel.NativeWindows]::GetMonitorBounds($candidate.Handle)
+        $monitorBounds = Get-StateMonitorBounds $bounds $candidate.Handle
     }
 
     $display = $bounds.displayBounds
@@ -1236,7 +1300,7 @@ function Find-PetWindow($bounds) {
     foreach ($candidate in [BubuPanel.NativeWindows]::GetVisibleWindows()) {
         if (-not $script:ChatProcessIds.ContainsKey([uint32]$candidate.ProcessId)) { continue }
         if (-not (Test-PetWindowSize $candidate $bounds)) { continue }
-        $monitorBounds = [BubuPanel.NativeWindows]::GetMonitorBounds($candidate.Handle)
+        $monitorBounds = Get-StateMonitorBounds $bounds $candidate.Handle
         $score = Get-PetWindowCandidateScore $candidate $bounds $monitorBounds
         if ($score -lt $bestScore) {
             $bestScore = $score
@@ -1279,7 +1343,7 @@ function Find-PetWindowHeuristic($bounds = $null) {
         $classPenalty = if ($candidate.ClassName -match "Chrome|CEF|Widget") { 0 } else { 250 }
         $score = $sizeScore + $classPenalty
         if ($bounds) {
-            $monitorBounds = [BubuPanel.NativeWindows]::GetMonitorBounds($candidate.Handle)
+            $monitorBounds = Get-StateMonitorBounds $bounds $candidate.Handle
             $stateScore = Get-PetWindowCandidateScore $candidate $bounds $monitorBounds
             if ($stateScore -lt [double]::MaxValue) { $score = $stateScore + $classPenalty }
         }
@@ -1422,6 +1486,24 @@ function Set-PanelPointer([double]$centerPhysical, [double]$panelPhysicalWidth) 
     }
 }
 
+function Get-NativePetAnchor(
+    $petWindow,
+    $bounds,
+    $geometry,
+    [double]$alignmentX = 0.0,
+    [double]$alignmentY = 0.0
+) {
+    if (-not $petWindow -or -not $bounds -or -not $geometry -or
+        [double]$bounds.width -le 0 -or [double]$bounds.height -le 0) { return $null }
+    $scaleX = $petWindow.Width / [double]$bounds.width
+    $scaleY = $petWindow.Height / [double]$bounds.height
+    return [PSCustomObject]@{
+        CenterX = [double]($petWindow.Left +
+            ($geometry.Left + $geometry.Width / 2.0) * $scaleX + $alignmentX)
+        Top = [double]($petWindow.Top + $geometry.Top * $scaleY + $alignmentY)
+    }
+}
+
 function Get-NativePanelPlacement(
     $petWindow,
     $bounds,
@@ -1437,10 +1519,10 @@ function Get-NativePanelPlacement(
     if ([double]$bounds.width -le 0 -or [double]$bounds.height -le 0 -or
         $panelWindow.Width -le 0 -or $panelWindow.Height -le 0) { return $null }
 
-    $scaleX = $petWindow.Width / [double]$bounds.width
-    $scaleY = $petWindow.Height / [double]$bounds.height
-    $visualCenterX = $petWindow.Left + ($geometry.Left + $geometry.Width / 2.0) * $scaleX + $alignmentX
-    $visualTop = $petWindow.Top + $geometry.Top * $scaleY + $alignmentY
+    $anchor = Get-NativePetAnchor $petWindow $bounds $geometry $alignmentX $alignmentY
+    if (-not $anchor) { return $null }
+    $visualCenterX = $anchor.CenterX
+    $visualTop = $anchor.Top
     $gap = 14.0 * $dpi / 96.0
     $safePanelScale = Limit-PanelScale $panelScale
     $pointerBottomInset = $safePanelScale * $dpi / 96.0
@@ -1480,7 +1562,19 @@ function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
     $panelWindow = [BubuPanel.NativeWindows]::GetWindow($script:WindowHandle)
     if (-not $panelWindow) { return $false }
 
-    $workArea = [BubuPanel.NativeWindows]::GetMonitorWorkArea($petWindow.Handle)
+    # Affected Codex builds can expose a synchronized transparent helper window
+    # on another display. The calibrated Bubu center is authoritative; using the
+    # helper window's monitor for horizontal clamping makes the panel alternate
+    # between Bubu and a screen edge for a single frame.
+    $anchor = Get-NativePetAnchor $petWindow $bounds $geometry `
+        $script:TrackingAlignmentX $script:TrackingAlignmentY
+    $workArea = if ($anchor) {
+        [BubuPanel.NativeWindows]::GetMonitorWorkAreaAtPoint(
+            [int][Math]::Round($anchor.CenterX), [int][Math]::Round($anchor.Top))
+    } else { $null }
+    if (-not $workArea) {
+        $workArea = [BubuPanel.NativeWindows]::GetMonitorWorkArea($petWindow.Handle)
+    }
     $placement = Get-NativePanelPlacement `
         $petWindow $bounds $geometry $panelWindow $dpi $panelScale $workArea `
         $script:TrackingAlignmentX $script:TrackingAlignmentY
@@ -1492,6 +1586,7 @@ function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
             $script:WindowHandle, $placement.Left, $placement.Top)
     }
     Set-PanelPointer $placement.PointerCenterPhysical $panelWindow.Width
+    $script:LastNativeSuccessAt = [DateTime]::UtcNow
     Set-PositionMode "native-dpi-v2"
     return $true
 }
@@ -1508,7 +1603,14 @@ function Show-PanelAtHeuristicWindow($petWindow) {
     }
     $panelWindow = [BubuPanel.NativeWindows]::GetWindow($script:WindowHandle)
     if (-not $panelWindow) { return $false }
-    $workArea = [BubuPanel.NativeWindows]::GetMonitorWorkArea($petWindow.Handle)
+    $anchor = Get-NativePetAnchor $petWindow $estimatedBounds $estimatedGeometry
+    $workArea = if ($anchor) {
+        [BubuPanel.NativeWindows]::GetMonitorWorkAreaAtPoint(
+            [int][Math]::Round($anchor.CenterX), [int][Math]::Round($anchor.Top))
+    } else { $null }
+    if (-not $workArea) {
+        $workArea = [BubuPanel.NativeWindows]::GetMonitorWorkArea($petWindow.Handle)
+    }
     $placement = Get-NativePanelPlacement `
         $petWindow $estimatedBounds $estimatedGeometry $panelWindow $dpi $panelScale $workArea
     if (-not $placement) { return $false }
@@ -1518,6 +1620,7 @@ function Show-PanelAtHeuristicWindow($petWindow) {
             $script:WindowHandle, $placement.Left, $placement.Top)
     }
     Set-PanelPointer $placement.PointerCenterPhysical $panelWindow.Width
+    $script:LastNativeSuccessAt = [DateTime]::UtcNow
     Set-PositionMode "native-heuristic-dpi-v2"
     return $true
 }
@@ -1557,7 +1660,7 @@ function Update-NativeTrackingAlignment($petWindow, $bounds, $geometry, [bool]$f
         $script:TrackingAlignmentHandle -eq $petWindow.Handle -and
         $script:TrackingAlignmentStateWrite -eq $script:LastStateWrite) { return }
 
-    $monitorBounds = [BubuPanel.NativeWindows]::GetMonitorBounds($petWindow.Handle)
+    $monitorBounds = Get-StateMonitorBounds $bounds $petWindow.Handle
     $alignment = Get-NativeStateAlignment $petWindow $bounds $geometry $monitorBounds
     if (-not $alignment.Valid) { return }
 
@@ -1593,6 +1696,22 @@ function Clear-NativeTrackingTarget {
     $script:TrackingAlignmentY = 0.0
     $script:TrackingAlignmentHandle = [IntPtr]::Zero
     $script:TrackingAlignmentStateWrite = [DateTime]::MinValue
+}
+
+function Test-NativeFallbackGraceAt(
+    [DateTime]$now,
+    [DateTime]$lastNativeSuccess,
+    [int]$graceMilliseconds
+) {
+    if ($lastNativeSuccess -eq [DateTime]::MinValue -or $graceMilliseconds -le 0) { return $false }
+    $elapsed = ($now - $lastNativeSuccess).TotalMilliseconds
+    return $elapsed -ge 0 -and $elapsed -le $graceMilliseconds
+}
+
+function Test-NativeTrackingGrace {
+    return $script:Window.IsVisible -and `
+        (Test-NativeFallbackGraceAt ([DateTime]::UtcNow) $script:LastNativeSuccessAt `
+            $script:NativeFallbackGraceMilliseconds)
 }
 
 function Follow-PetWindowFast {
@@ -1649,6 +1768,9 @@ function Update-PetTarget {
             [void](Show-PanelAtHeuristicWindow $heuristicWindow)
             return
         }
+        # Do not hide or reposition the panel for a one-frame native-enumeration
+        # miss. This is the visible flash captured in the user recording.
+        if (Test-NativeTrackingGrace) { return }
         Clear-NativeTrackingTarget
         Hide-PanelWindow
         return
@@ -1680,6 +1802,10 @@ function Update-PetTarget {
         return
     }
 
+    # Saved-state coordinates are intentionally a slow startup fallback. Mixing
+    # one saved-state frame into active native tracking makes the collapsed
+    # button visibly jump between Bubu and a screen edge.
+    if (Test-NativeTrackingGrace) { return }
     Clear-NativeTrackingTarget
     Show-PanelAtSavedState $bounds $geometry
 }
@@ -1808,6 +1934,24 @@ if ($ValidateTrackingFilters) {
     if ([Math]::Abs($draggedCenter - ($expectedCenter + 60.0)) -gt 0.01) {
         throw "Calibrated panel did not preserve center while the pet window moved."
     }
+    $calibratedAnchor = Get-NativePetAnchor $offsetCandidate $stateBounds $geometry `
+        $alignment.X $alignment.Y
+    if (-not $calibratedAnchor -or
+        [Math]::Abs($calibratedAnchor.CenterX - $expectedCenter) -gt 0.01) {
+        throw "Calibrated pet anchor did not preserve Bubu's visible center."
+    }
+    $pointWorkArea = [BubuPanel.NativeWindows]::GetMonitorWorkAreaAtPoint(0, 0)
+    $pointMonitorBounds = [BubuPanel.NativeWindows]::GetMonitorBoundsAtPoint(0, 0)
+    if (-not $pointWorkArea -or $pointWorkArea.Width -le 0 -or $pointWorkArea.Height -le 0 -or
+        -not $pointMonitorBounds -or $pointMonitorBounds.Width -le 0 -or $pointMonitorBounds.Height -le 0) {
+        throw "Anchor-point monitor lookup failed."
+    }
+    $graceNow = [DateTime]::UtcNow
+    $singleFrameMissHeld = Test-NativeFallbackGraceAt $graceNow $graceNow.AddMilliseconds(-100) 750
+    $sustainedMissReleased = Test-NativeFallbackGraceAt $graceNow $graceNow.AddMilliseconds(-900) 750
+    if (-not $singleFrameMissHeld -or $sustainedMissReleased) {
+        throw "Native fallback grace did not suppress only transient tracking misses."
+    }
     if (-not $petAccepted -or -not $imeRejected -or -not $imeClassRejected -or
         -not $noActivateApplied) {
         throw "Pet-window tracking filters failed validation."
@@ -1816,7 +1960,8 @@ if ($ValidateTrackingFilters) {
         "no-activate=True placement-matrix=" + $placementSamples +
         " scale-matrix=" + $scaleSamples +
         " layout-scale-matrix=" + $layoutScaleSamples +
-        " state-aware-selection=True center-calibration=True drag-center=True")
+        " state-aware-selection=True center-calibration=True drag-center=True" +
+        " anchor-monitor=True flicker-grace=True")
     $script:Window.Close()
     exit 0
 }

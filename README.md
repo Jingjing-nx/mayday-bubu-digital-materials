@@ -24,7 +24,7 @@
 - `Mayday-Bubu-macOS-Universal-v1.0.7.zip`：macOS 12.3+ 完整版，含 Codex 额度与 BTC/ETH 行情，支持 Apple 芯片与 Intel Mac。
 - `Mayday-Bubu-macOS-Universal-Codex-Only-v1.0.9.zip`：macOS 12.3+ 仅 Codex 额度版；面板会随卜卜同比放大缩小，并兼容多屏与 Retina，不显示、也不请求 BTC/ETH 行情。
 - `Mayday-Bubu-Windows-10-11-v1.0.1.zip`：Windows 10/11 完整版，含 Codex 额度与 BTC/ETH 行情，支持 x64 与 ARM64。
-- `Mayday-Bubu-Windows-10-11-Codex-Only-v1.0.5.zip`：Windows 10/11 仅 Codex 额度版；面板会随卜卜同比放大缩小，并按卜卜头顶正中校准，兼容多显示器 DPI、同尺寸透明辅助窗口与低帧率环境，不显示、也不请求 BTC/ETH 行情。
+- `Mayday-Bubu-Windows-10-11-Codex-Only-v1.0.6.zip`：Windows 10/11 仅 Codex 额度版；面板会随卜卜同比放大缩小并固定在头顶正中，兼容多显示器 DPI、同尺寸透明辅助窗口与低帧率环境，同时抑制折叠按钮的单帧跳位，不显示、也不请求 BTC/ETH 行情。
 
 四个压缩包的名称、根目录和安装入口都明确标注了系统或版本，不能混用。
 
@@ -88,7 +88,7 @@ Windows 10/11 使用 Windows PowerShell 5.1：
 powershell -ExecutionPolicy Bypass -File .\scripts\build-windows-release.ps1 -CodexOnlyRelease
 ```
 
-该命令只生成 Windows `Codex-Only` v1.0.5 修复版；带 BTC/ETH 的完整版继续使用 v1.0.1。
+该命令只生成 Windows `Codex-Only` v1.0.6 修复版；带 BTC/ETH 的完整版继续使用 v1.0.1。
 
 ## 许可与声明
 
