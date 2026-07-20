@@ -8,6 +8,7 @@ LABEL="io.github.mayday-materials.bubu-quota-panel"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/卜卜额度面板.log"
 HEALTH="$HOME/Library/Caches/io.github.mayday-materials.bubu-quota-panel/panel-health.json"
+STATE="${CODEX_HOME:-$HOME/.codex}/.codex-global-state.json"
 DOMAIN="gui/$(id -u)"
 
 "$ROOT/scripts/build.sh" >/dev/null
@@ -18,6 +19,7 @@ rm -rf "$DEST_APP"
 /usr/bin/sed \
   -e "s|__EXECUTABLE__|$DEST_APP/Contents/MacOS/BubuQuotaPanel|g" \
   -e "s|__HEALTH_PATH__|$HEALTH|g" \
+  -e "s|__STATE_PATH__|$STATE|g" \
   -e "s|__LOG_PATH__|$LOG|g" \
   "$ROOT/Resources/$LABEL.plist.in" > "$PLIST"
 
