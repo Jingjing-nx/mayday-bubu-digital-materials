@@ -71,7 +71,7 @@ try {
     $installDirectory = Join-Path $env:LOCALAPPDATA "BubuPet"
     $codexOnlySource = Join-Path $rootPath "CODEX-ONLY.txt"
     $marketPricesEnabled = -not (Test-Path -LiteralPath $codexOnlySource)
-    $expectedPanelHeight = if ($marketPricesEnabled) { 160 } else { 116 }
+    $expectedPanelHeight = if ($marketPricesEnabled) { 183 } else { 139 }
     $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
     $configPath = Join-Path $codexHome "config.toml"
 
@@ -172,7 +172,7 @@ try {
                 $health = [IO.File]::ReadAllText($oldHealthPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
                 $healthProcess = Get-Process -Id ([int]$health.processId) -ErrorAction SilentlyContinue
                 $healthAge = [DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($oldHealthPath)
-                if ($health.version -eq "1.0.6" -and
+                if ($health.version -eq "1.1.3" -and
                     [bool]$health.marketPricesEnabled -eq $marketPricesEnabled -and
                     [int]$health.panelHeightPoints -eq $expectedPanelHeight -and
                     $healthProcess -and

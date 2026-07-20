@@ -4,7 +4,8 @@ import Foundation
 
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
-private let panelVersion = "1.0.10"
+private let taskProgressRefreshInterval: TimeInterval = 2
+private let panelVersion = "1.1.3"
 private let marketPricesEnabled: Bool = {
     guard let rawValue = ProcessInfo.processInfo.environment["BUBU_SHOW_MARKET_PRICES"] else {
         return true
@@ -15,12 +16,55 @@ private let marketPricesEnabled: Bool = {
 // pet window is moving between animation positions.
 private let followInterval: TimeInterval = 0.03
 private let desktopClientCheckInterval: TimeInterval = 0.20
-private let expandedPanelSize = NSSize(width: 224, height: marketPricesEnabled ? 160 : 116)
+private let taskProgressRowHeight: CGFloat = 23
+private let maximumVisibleTaskRows = 5
+private let baseExpandedPanelHeight: CGFloat = marketPricesEnabled ? 160 : 116
+private func panelSizeForTaskRows(_ count: Int) -> NSSize {
+    let safeCount = max(1, min(maximumVisibleTaskRows, count))
+    return NSSize(
+        width: 224,
+        height: baseExpandedPanelHeight + taskProgressRowHeight * CGFloat(safeCount)
+    )
+}
+private let expandedPanelSize = panelSizeForTaskRows(1)
 private let panelPetGap: CGFloat = 14
 private let panelScreenMargin: CGFloat = 8
 private let pointerTipBottomInset: CGFloat = 1
 private let pointerHorizontalSafeInset: CGFloat = 18
 private let canonicalPetSpriteSize = NSSize(width: 163, height: 177)
+private let petAtlasFrameSize = NSSize(width: 192, height: 208)
+// Alpha bounds (threshold 20) of every distinct visible frame in the 8x11
+// office atlas. Matching both width and height lets us recover the zoom factor
+// without mistaking coffee/singing/guitar animation padding for a resize.
+private let petFrameVisiblePixelSizes: [NSSize] = [
+    NSSize(width: 109, height: 166), NSSize(width: 109, height: 186),
+    NSSize(width: 110, height: 172), NSSize(width: 110, height: 185),
+    NSSize(width: 110, height: 186), NSSize(width: 110, height: 187),
+    NSSize(width: 111, height: 186), NSSize(width: 113, height: 153),
+    NSSize(width: 113, height: 181), NSSize(width: 114, height: 181),
+    NSSize(width: 116, height: 182), NSSize(width: 116, height: 185),
+    NSSize(width: 118, height: 187), NSSize(width: 118, height: 189),
+    NSSize(width: 118, height: 192), NSSize(width: 118, height: 193),
+    NSSize(width: 118, height: 194), NSSize(width: 119, height: 152),
+    NSSize(width: 119, height: 155), NSSize(width: 119, height: 167),
+    NSSize(width: 119, height: 194), NSSize(width: 120, height: 185),
+    NSSize(width: 120, height: 189), NSSize(width: 120, height: 192),
+    NSSize(width: 120, height: 194), NSSize(width: 121, height: 190),
+    NSSize(width: 121, height: 192), NSSize(width: 121, height: 196),
+    NSSize(width: 121, height: 198), NSSize(width: 122, height: 190),
+    NSSize(width: 122, height: 191), NSSize(width: 122, height: 192),
+    NSSize(width: 122, height: 194), NSSize(width: 123, height: 185),
+    NSSize(width: 123, height: 196), NSSize(width: 123, height: 198),
+    NSSize(width: 124, height: 191), NSSize(width: 124, height: 194),
+    NSSize(width: 124, height: 198), NSSize(width: 125, height: 198),
+    NSSize(width: 132, height: 198), NSSize(width: 133, height: 198),
+    NSSize(width: 136, height: 198), NSSize(width: 138, height: 196),
+    NSSize(width: 141, height: 196), NSSize(width: 144, height: 198),
+    NSSize(width: 153, height: 198), NSSize(width: 154, height: 198),
+    NSSize(width: 155, height: 198), NSSize(width: 157, height: 198),
+    NSSize(width: 161, height: 198),
+]
+private let visualScaleTolerance: CGFloat = 0.12
 private let minimumPanelScale: CGFloat = 0.20
 private let maximumPanelScale: CGFloat = 8
 // The v2 sprite has a small transparent top padding inside Codex's stored
@@ -225,6 +269,514 @@ private struct QuotaRow {
     let name: String
     let remainingPercent: Int
     let resetsAt: Date?
+}
+
+private enum TaskProgressKind: String, Equatable {
+    case reading
+    case running
+    case waitingForInput
+    case completed
+    case idle
+}
+
+private struct TaskProgressItem: Equatable {
+    let title: String
+    let kind: TaskProgressKind
+    let startedAt: Date
+    let statusOverride: String?
+
+    init(
+        title: String,
+        kind: TaskProgressKind,
+        startedAt: Date = .distantPast,
+        statusOverride: String? = nil
+    ) {
+        self.title = title
+        self.kind = kind
+        self.startedAt = startedAt
+        self.statusOverride = statusOverride
+    }
+
+    var statusText: String {
+        if let statusOverride { return statusOverride }
+        switch kind {
+        case .reading:
+            return "读取中"
+        case .running:
+            return "正在执行"
+        case .waitingForInput:
+            return "等你确认"
+        case .completed:
+            return "已完成"
+        case .idle:
+            return "等待"
+        }
+    }
+}
+
+private struct TaskProgressSnapshot: Equatable {
+    let items: [TaskProgressItem]
+
+    var kind: TaskProgressKind { items.first?.kind ?? .idle }
+    var text: String {
+        items.first?.statusText ?? "等待任务"
+    }
+
+    var rowCount: Int { max(1, items.count) }
+
+    static let reading = TaskProgressSnapshot(items: [TaskProgressItem(
+        title: "正在读取任务",
+        kind: .reading
+    )])
+
+    static let idle = TaskProgressSnapshot(items: [TaskProgressItem(
+        title: "暂无进行中的任务",
+        kind: .idle
+    )])
+
+    static func displaying(_ sourceItems: [TaskProgressItem]) -> TaskProgressSnapshot {
+        guard !sourceItems.isEmpty else { return .idle }
+        guard sourceItems.count > maximumVisibleTaskRows else {
+            return TaskProgressSnapshot(items: sourceItems)
+        }
+        let visible = Array(sourceItems.prefix(maximumVisibleTaskRows - 1))
+        let remaining = sourceItems.count - visible.count
+        return TaskProgressSnapshot(items: visible + [TaskProgressItem(
+            title: "还有 \(remaining) 个任务",
+            kind: .reading,
+            startedAt: .distantFuture,
+            statusOverride: "继续排队"
+        )])
+    }
+}
+
+private final class CodexTaskProgressReader {
+    struct UnreadThreadState {
+        let ids: Set<String>
+        let isAvailable: Bool
+    }
+
+    private struct RolloutCandidate {
+        let url: URL
+        let modificationDate: Date
+    }
+
+    private struct ParsedCacheEntry {
+        let modificationDate: Date
+        let snapshot: TaskProgressSnapshot
+    }
+
+    private let fileManager = FileManager.default
+    private let maximumTailBytes: UInt64 = 1_048_576
+    private let rolloutRescanInterval: TimeInterval = 5
+    private let activeTaskFreshness: TimeInterval = 30 * 60
+    private let completedTaskVisibility: TimeInterval = 2 * 60
+    private var cachedRollouts: [RolloutCandidate] = []
+    private var parsedCache: [String: ParsedCacheEntry] = [:]
+    private var cachedThreadTitles: [String: String] = [:]
+    private var cachedThreadIndexModificationDate: Date?
+    private var cachedUnreadThreadIDs = Set<String>()
+    private var cachedUnreadStateModificationDate: Date?
+    private var hasCachedUnreadState = false
+    private var nextRolloutScanAt = Date.distantPast
+
+    func read() -> TaskProgressSnapshot {
+        let now = Date()
+        let threadTitles = readThreadTitleIndex()
+        let unreadState = readUnreadThreadState()
+        var items: [TaskProgressItem] = []
+        for candidate in recentRollouts(at: now, unreadThreadIDs: unreadState.ids) {
+            let cacheKey = candidate.url.path
+            let snapshot: TaskProgressSnapshot
+            if let cached = parsedCache[cacheKey],
+               cached.modificationDate == candidate.modificationDate
+            {
+                snapshot = cached.snapshot
+            } else {
+                guard let lines = readTailLines(from: candidate.url) else { continue }
+                snapshot = Self.parse(
+                    lines: lines,
+                    modificationDate: candidate.modificationDate,
+                    now: now
+                )
+                parsedCache[cacheKey] = ParsedCacheEntry(
+                    modificationDate: candidate.modificationDate,
+                    snapshot: snapshot
+                )
+            }
+            guard var item = snapshot.items.first, item.kind != .idle else { continue }
+            let resolvedTitle = Self.resolvedTitle(
+                for: candidate.url,
+                indexedTitles: threadTitles,
+                fallback: item.title
+            )
+            if resolvedTitle != item.title {
+                item = TaskProgressItem(
+                    title: resolvedTitle,
+                    kind: item.kind,
+                    startedAt: item.startedAt,
+                    statusOverride: item.statusOverride
+                )
+            }
+            let threadID = Self.threadID(from: candidate.url)
+            guard Self.shouldDisplay(
+                kind: item.kind,
+                threadID: threadID,
+                modificationDate: candidate.modificationDate,
+                now: now,
+                unreadState: unreadState,
+                fallbackVisibility: completedTaskVisibility
+            ) else { continue }
+            items.append(item)
+        }
+
+        items.sort {
+            let leftCompleted = $0.kind == .completed
+            let rightCompleted = $1.kind == .completed
+            if leftCompleted != rightCompleted { return !leftCompleted }
+            if $0.startedAt == $1.startedAt { return $0.title < $1.title }
+            return $0.startedAt < $1.startedAt
+        }
+        return .displaying(items)
+    }
+
+    static func parse(
+        lines: [String],
+        modificationDate: Date,
+        now: Date
+    ) -> TaskProgressSnapshot {
+        var lifecycle: TaskProgressKind?
+        var pendingUserInputCalls = Set<String>()
+        var latestUserTitle: String?
+        var activeTaskTitle: String?
+        var taskStartedAt = modificationDate
+
+        for line in lines {
+            guard line.contains("task_started")
+                || line.contains("task_complete")
+                || line.contains("user_message")
+                || line.contains("request_user_input")
+                || line.contains("function_call_output")
+                || line.contains("custom_tool_call_output")
+            else { continue }
+
+            guard let data = line.data(using: .utf8),
+                  let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let payload = record["payload"] as? [String: Any],
+                  let payloadType = payload["type"] as? String
+            else { continue }
+
+            if record["type"] as? String == "event_msg" {
+                if payloadType == "user_message",
+                   let message = payload["message"] as? String,
+                   let title = taskTitle(from: message)
+                {
+                    latestUserTitle = title
+                } else if payloadType == "task_started" {
+                    lifecycle = .running
+                    pendingUserInputCalls.removeAll()
+                    activeTaskTitle = latestUserTitle ?? activeTaskTitle
+                    taskStartedAt = timestamp(from: record) ?? modificationDate
+                } else if payloadType == "task_complete" {
+                    lifecycle = .completed
+                    pendingUserInputCalls.removeAll()
+                }
+                continue
+            }
+
+            if ["function_call", "custom_tool_call"].contains(payloadType),
+               payload["name"] as? String == "request_user_input",
+               let callID = payload["call_id"] as? String
+            {
+                pendingUserInputCalls.insert(callID)
+                continue
+            }
+
+            if ["function_call_output", "custom_tool_call_output"].contains(payloadType),
+               let callID = payload["call_id"] as? String
+            {
+                pendingUserInputCalls.remove(callID)
+            }
+        }
+
+        let title = activeTaskTitle ?? latestUserTitle ?? "Codex 任务"
+        if lifecycle == .running, !pendingUserInputCalls.isEmpty {
+            return TaskProgressSnapshot(items: [TaskProgressItem(
+                title: title,
+                kind: .waitingForInput,
+                startedAt: taskStartedAt
+            )])
+        }
+        if let lifecycle {
+            return TaskProgressSnapshot(items: [TaskProgressItem(
+                title: title,
+                kind: lifecycle,
+                startedAt: taskStartedAt
+            )])
+        }
+        if !pendingUserInputCalls.isEmpty {
+            return TaskProgressSnapshot(items: [TaskProgressItem(
+                title: title,
+                kind: .waitingForInput,
+                startedAt: taskStartedAt
+            )])
+        }
+        if now.timeIntervalSince(modificationDate) <= 30 * 60 {
+            return TaskProgressSnapshot(items: [TaskProgressItem(
+                title: title,
+                kind: .running,
+                startedAt: taskStartedAt
+            )])
+        }
+        return .idle
+    }
+
+    private static func taskTitle(from rawMessage: String) -> String? {
+        var value = rawMessage
+        if let marker = value.range(
+            of: "## My request for Codex:",
+            options: [.caseInsensitive]
+        ) {
+            value = String(value[marker.upperBound...])
+        }
+        if let imageTag = value.range(of: "<image", options: [.caseInsensitive]) {
+            value = String(value[..<imageTag.lowerBound])
+        }
+
+        let lines = value.components(separatedBy: .newlines).compactMap { line -> String? in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  !trimmed.hasPrefix("# Files mentioned"),
+                  !trimmed.hasPrefix("## My request"),
+                  !trimmed.hasPrefix("/")
+            else { return nil }
+            return trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "#*- "))
+        }
+        let title = lines.joined(separator: " ")
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return nil }
+        return String(title.prefix(80))
+    }
+
+    private static func timestamp(from record: [String: Any]) -> Date? {
+        guard let raw = record["timestamp"] as? String else { return nil }
+        return iso8601WithFractional.date(from: raw) ?? iso8601.date(from: raw)
+    }
+
+    static func threadID(from rolloutURL: URL) -> String? {
+        let filename = rolloutURL.deletingPathExtension().lastPathComponent
+        let pattern = #"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"#
+        guard let range = filename.range(of: pattern, options: .regularExpression) else {
+            return nil
+        }
+        return String(filename[range]).lowercased()
+    }
+
+    static func resolvedTitle(
+        for rolloutURL: URL,
+        indexedTitles: [String: String],
+        fallback: String
+    ) -> String {
+        guard let threadID = threadID(from: rolloutURL),
+              let indexedTitle = indexedTitles[threadID],
+              !indexedTitle.isEmpty
+        else { return fallback }
+        return indexedTitle
+    }
+
+    static func shouldDisplay(
+        kind: TaskProgressKind,
+        threadID: String?,
+        modificationDate: Date,
+        now: Date,
+        unreadState: UnreadThreadState,
+        fallbackVisibility: TimeInterval = 2 * 60
+    ) -> Bool {
+        guard kind == .completed else { return true }
+        if unreadState.isAvailable, let threadID {
+            return unreadState.ids.contains(threadID)
+        }
+        return now.timeIntervalSince(modificationDate) <= fallbackVisibility
+    }
+
+    private func codexHomeURL() -> URL {
+        if let override = ProcessInfo.processInfo.environment["CODEX_HOME"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex", isDirectory: true)
+    }
+
+    private func readThreadTitleIndex() -> [String: String] {
+        let indexURL = codexHomeURL().appendingPathComponent("session_index.jsonl")
+        guard let values = try? indexURL.resourceValues(
+            forKeys: [.contentModificationDateKey, .isRegularFileKey]
+        ),
+        values.isRegularFile == true,
+        let modificationDate = values.contentModificationDate
+        else {
+            return cachedThreadTitles
+        }
+
+        if cachedThreadIndexModificationDate == modificationDate {
+            return cachedThreadTitles
+        }
+        guard let data = try? Data(contentsOf: indexURL),
+              let text = String(data: data, encoding: .utf8)
+        else {
+            return cachedThreadTitles
+        }
+
+        var titles: [String: String] = [:]
+        for line in text.split(whereSeparator: \.isNewline) {
+            guard let lineData = String(line).data(using: .utf8),
+                  let record = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let rawID = record["id"] as? String,
+                  let rawTitle = record["thread_name"] as? String
+            else { continue }
+            let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { continue }
+            titles[rawID.lowercased()] = String(title.prefix(80))
+        }
+
+        cachedThreadTitles = titles
+        cachedThreadIndexModificationDate = modificationDate
+        return titles
+    }
+
+    private func readUnreadThreadState() -> UnreadThreadState {
+        let stateURL: URL
+        if let override = ProcessInfo.processInfo.environment["BUBU_CODEX_STATE_FILE"],
+           !override.isEmpty
+        {
+            stateURL = URL(fileURLWithPath: override)
+        } else {
+            stateURL = codexHomeURL().appendingPathComponent(".codex-global-state.json")
+        }
+
+        guard let values = try? stateURL.resourceValues(
+            forKeys: [.contentModificationDateKey, .isRegularFileKey]
+        ),
+        values.isRegularFile == true,
+        let modificationDate = values.contentModificationDate
+        else {
+            return UnreadThreadState(
+                ids: cachedUnreadThreadIDs,
+                isAvailable: hasCachedUnreadState
+            )
+        }
+        if cachedUnreadStateModificationDate == modificationDate {
+            return UnreadThreadState(
+                ids: cachedUnreadThreadIDs,
+                isAvailable: hasCachedUnreadState
+            )
+        }
+
+        guard let data = try? Data(contentsOf: stateURL),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let atomState = root["electron-persisted-atom-state"] as? [String: Any],
+              let unreadByHost = atomState["unread-thread-ids-by-host-v1"] as? [String: Any]
+        else {
+            return UnreadThreadState(
+                ids: cachedUnreadThreadIDs,
+                isAvailable: hasCachedUnreadState
+            )
+        }
+
+        var ids = Set<String>()
+        for value in unreadByHost.values {
+            guard let hostIDs = value as? [String] else { continue }
+            ids.formUnion(hostIDs.map { $0.lowercased() })
+        }
+        cachedUnreadThreadIDs = ids
+        cachedUnreadStateModificationDate = modificationDate
+        hasCachedUnreadState = true
+        return UnreadThreadState(ids: ids, isAvailable: true)
+    }
+
+    private func recentRollouts(
+        at now: Date,
+        unreadThreadIDs: Set<String>
+    ) -> [RolloutCandidate] {
+        if let override = ProcessInfo.processInfo.environment["BUBU_TASK_ROLLOUT_FILE"],
+           !override.isEmpty
+        {
+            let url = URL(fileURLWithPath: override)
+            let modified = (try? url.resourceValues(
+                forKeys: [.contentModificationDateKey]
+            ).contentModificationDate) ?? now
+            return [RolloutCandidate(url: url, modificationDate: modified)]
+        }
+
+        if now < nextRolloutScanAt, !cachedRollouts.isEmpty {
+            return cachedRollouts.filter { fileManager.fileExists(atPath: $0.url.path) }
+        }
+
+        nextRolloutScanAt = now.addingTimeInterval(rolloutRescanInterval)
+        let codexHome = codexHomeURL()
+        let sessionsURL = codexHome.appendingPathComponent("sessions", isDirectory: true)
+        guard let enumerator = fileManager.enumerator(
+            at: sessionsURL,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            cachedRollouts = []
+            return []
+        }
+
+        var candidates: [RolloutCandidate] = []
+        for case let url as URL in enumerator {
+            guard url.pathExtension == "jsonl",
+                  url.lastPathComponent.hasPrefix("rollout-"),
+                  let values = try? url.resourceValues(
+                      forKeys: [.contentModificationDateKey, .isRegularFileKey]
+                  ),
+                  values.isRegularFile == true,
+                  let modified = values.contentModificationDate
+            else { continue }
+            let threadID = Self.threadID(from: url)
+            let isUnread = threadID.map { unreadThreadIDs.contains($0) } ?? false
+            guard now.timeIntervalSince(modified) <= activeTaskFreshness || isUnread else {
+                continue
+            }
+            candidates.append(RolloutCandidate(url: url, modificationDate: modified))
+        }
+
+        cachedRollouts = Array(candidates.sorted {
+            $0.modificationDate > $1.modificationDate
+        }.prefix(12))
+        let activePaths = Set(cachedRollouts.map { $0.url.path })
+        parsedCache = parsedCache.filter { activePaths.contains($0.key) }
+        return cachedRollouts
+    }
+
+    private func readTailLines(from url: URL) -> [String]? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+
+        let fileSize = (try? handle.seekToEnd()) ?? 0
+        let startOffset = fileSize > maximumTailBytes ? fileSize - maximumTailBytes : 0
+        do {
+            try handle.seek(toOffset: startOffset)
+            guard var data = try handle.readToEnd(), !data.isEmpty else { return [] }
+            if startOffset > 0, let firstNewline = data.firstIndex(of: 0x0A) {
+                data.removeSubrange(...firstNewline)
+            }
+            guard let text = String(data: data, encoding: .utf8) else { return nil }
+            return text.split(whereSeparator: \.isNewline).map(String.init)
+        } catch {
+            return nil
+        }
+    }
+
+    private static let iso8601WithFractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso8601 = ISO8601DateFormatter()
 }
 
 private struct BinanceTickerResponse: Decodable {
@@ -456,6 +1008,11 @@ private final class QuotaPanelView: NSView {
     var rows: [QuotaRow] = [] { didSet { needsDisplay = true } }
     var statusText = "正在读取额度…" { didSet { needsDisplay = true } }
     var errorText: String? { didSet { needsDisplay = true } }
+    var taskProgress = TaskProgressSnapshot.reading {
+        didSet {
+            if taskProgress != oldValue { needsDisplay = true }
+        }
+    }
     var btcPrice: Double? { didSet { needsDisplay = true } }
     var btcPriceDirection = 0 { didSet { needsDisplay = true } }
     var btcStatusText = "读取中…" { didSet { needsDisplay = true } }
@@ -600,6 +1157,21 @@ private final class QuotaPanelView: NSView {
             alignment: .right
         )
 
+        let taskItems = taskProgress.items.isEmpty
+            ? TaskProgressSnapshot.idle.items
+            : taskProgress.items
+        for (index, item) in taskItems.enumerated() {
+            drawTaskProgressItem(
+                item,
+                index: index,
+                y: 103 + CGFloat(index) * taskProgressRowHeight,
+                separatorY: 96 + CGFloat(index) * taskProgressRowHeight,
+                contentX: contentX,
+                contentWidth: contentWidth
+            )
+        }
+        let taskProgressSectionHeight = taskProgressRowHeight * CGFloat(max(1, taskItems.count))
+
         if marketPricesEnabled {
             drawMarketPriceRow(
                 symbol: "BTC/USDT",
@@ -608,8 +1180,8 @@ private final class QuotaPanelView: NSView {
                 price: btcPrice,
                 direction: btcPriceDirection,
                 statusText: btcStatusText,
-                y: 103,
-                separatorY: 96,
+                y: 103 + taskProgressSectionHeight,
+                separatorY: 96 + taskProgressSectionHeight,
                 contentX: contentX,
                 contentWidth: contentWidth
             )
@@ -620,8 +1192,8 @@ private final class QuotaPanelView: NSView {
                 price: ethPrice,
                 direction: ethPriceDirection,
                 statusText: ethStatusText,
-                y: 126,
-                separatorY: 122,
+                y: 126 + taskProgressSectionHeight,
+                separatorY: 122 + taskProgressSectionHeight,
                 contentX: contentX,
                 contentWidth: contentWidth
             )
@@ -767,6 +1339,41 @@ private final class QuotaPanelView: NSView {
         )
     }
 
+    private func drawTaskProgressItem(
+        _ item: TaskProgressItem,
+        index: Int,
+        y: CGFloat,
+        separatorY: CGFloat,
+        contentX: CGFloat,
+        contentWidth: CGFloat
+    ) {
+        let separator = NSBezierPath()
+        separator.move(to: NSPoint(x: contentX, y: separatorY))
+        separator.line(to: NSPoint(x: contentX + contentWidth, y: separatorY))
+        NSColor.white.withAlphaComponent(0.13).setStroke()
+        separator.lineWidth = 0.75
+        separator.stroke()
+
+        let color = taskProgressColor(for: item.kind)
+        let dot = NSBezierPath(ovalIn: NSRect(x: contentX, y: y + 4, width: 7, height: 7))
+        color.setFill()
+        dot.fill()
+
+        drawText(
+            item.title,
+            in: NSRect(x: contentX + 13, y: y, width: contentWidth - 80, height: 15),
+            font: .systemFont(ofSize: 9.4, weight: index == 0 ? .semibold : .medium),
+            color: NSColor.white.withAlphaComponent(0.84)
+        )
+        drawText(
+            item.statusText,
+            in: NSRect(x: contentX + contentWidth - 66, y: y, width: 66, height: 15),
+            font: .systemFont(ofSize: 9.2, weight: .semibold),
+            color: color,
+            alignment: .right
+        )
+    }
+
     private func drawMarketPriceRow(
         symbol: String,
         iconText: String,
@@ -841,6 +1448,21 @@ private final class QuotaPanelView: NSView {
             return NSColor(calibratedRed: 1.0, green: 0.39, blue: 0.43, alpha: 1)
         default:
             return NSColor.white.withAlphaComponent(0.94)
+        }
+    }
+
+    private func taskProgressColor(for kind: TaskProgressKind) -> NSColor {
+        switch kind {
+        case .reading:
+            return NSColor.white.withAlphaComponent(0.56)
+        case .running:
+            return NSColor(calibratedRed: 0.22, green: 0.68, blue: 1.0, alpha: 1)
+        case .waitingForInput:
+            return NSColor(calibratedRed: 1.0, green: 0.70, blue: 0.22, alpha: 1)
+        case .completed:
+            return NSColor(calibratedRed: 0.24, green: 0.86, blue: 0.58, alpha: 1)
+        case .idle:
+            return NSColor.white.withAlphaComponent(0.56)
         }
     }
 
@@ -934,6 +1556,10 @@ private final class PetWindowLocator {
     private var cachedWindowID: CGWindowID?
     private var cachedMascotMetrics: StoredMascotMetrics?
     private var cachedOverlaySize: CGSize?
+    private var cachedVisualMetrics: StoredMascotMetrics?
+    private var cachedVisualOverlaySize: CGSize?
+    private var cachedVisualWindowID: CGWindowID?
+    private var cachedVisualAt: CFAbsoluteTime = 0
     private var lastVisualProbeAt: CFAbsoluteTime = 0
     private var lastOverlayStateReadAt: CFAbsoluteTime = 0
     private var storedOverlayLocations: [StoredOverlayLocation] = []
@@ -982,6 +1608,10 @@ private final class PetWindowLocator {
 
     private func makeLocation(from quartzRect: CGRect, windowID: CGWindowID) -> LocatedPet? {
         guard let converted = convertToAppKit(quartzRect) else { return nil }
+        let visualMetrics = currentVisualMetrics(
+            windowID: windowID,
+            overlayRect: quartzRect
+        )
 
         if let matched = bestStoredMetrics(matching: quartzRect),
            let quartzMetrics = scaledMetrics(matched.metrics, from: matched.referenceSize, to: quartzRect.size),
@@ -989,6 +1619,24 @@ private final class PetWindowLocator {
         {
             cachedMascotMetrics = quartzMetrics
             cachedOverlaySize = quartzRect.size
+            if let visualMetrics,
+               let appVisualMetrics = scaledMetrics(
+                   visualMetrics,
+                   from: quartzRect.size,
+                   to: converted.0.size
+               )
+            {
+                return LocatedPet(
+                    overlayRect: converted.0,
+                    visibleRect: visibleRect(in: converted.0, metrics: appVisualMetrics),
+                    panelScale: reconciledPanelScale(
+                        anchorMetrics: quartzMetrics,
+                        visualMetrics: visualMetrics
+                    ),
+                    screen: converted.1,
+                    source: "window-visual-probe"
+                )
+            }
             return LocatedPet(
                 overlayRect: converted.0,
                 visibleRect: visibleRect(in: converted.0, metrics: appMetrics),
@@ -1007,6 +1655,24 @@ private final class PetWindowLocator {
         {
             self.cachedMascotMetrics = quartzMetrics
             self.cachedOverlaySize = quartzRect.size
+            if let visualMetrics,
+               let appVisualMetrics = scaledMetrics(
+                   visualMetrics,
+                   from: quartzRect.size,
+                   to: converted.0.size
+               )
+            {
+                return LocatedPet(
+                    overlayRect: converted.0,
+                    visibleRect: visibleRect(in: converted.0, metrics: appVisualMetrics),
+                    panelScale: reconciledPanelScale(
+                        anchorMetrics: quartzMetrics,
+                        visualMetrics: visualMetrics
+                    ),
+                    screen: converted.1,
+                    source: "window-visual-probe-cached-anchor"
+                )
+            }
             return LocatedPet(
                 overlayRect: converted.0,
                 visibleRect: visibleRect(in: converted.0, metrics: appMetrics),
@@ -1016,38 +1682,20 @@ private final class PetWindowLocator {
             )
         }
 
-        // This is only a last resort for state files from unknown Codex builds.
-        // Screen capture can be unavailable without Screen Recording permission,
-        // so an unverified hard-coded transparent-window inset is never used.
-        let now = CFAbsoluteTimeGetCurrent()
-        if now - lastVisualProbeAt >= 0.12 {
-            lastVisualProbeAt = now
-            if let probedInset = probeTopVisualInset(windowID: windowID) {
-                let width = max(24, quartzRect.width * canonicalPetSpriteSize.width / 356)
-                let height = width * 177 / 163
-                let topPadding = petSpriteTopPaddingInsideAnchor
-                    * normalizedPanelScale(width / canonicalPetSpriteSize.width)
-                let metrics = StoredMascotMetrics(
-                    left: max(0, (quartzRect.width - width) / 2),
-                    top: max(0, probedInset - topPadding),
-                    width: width,
-                    height: height,
-                    topPadding: topPadding,
-                    source: "image-probe"
-                )
-                cachedMascotMetrics = metrics
-                cachedOverlaySize = quartzRect.size
-                guard let appMetrics = scaledMetrics(metrics, from: quartzRect.size, to: converted.0.size) else {
-                    return nil
-                }
-                return LocatedPet(
-                    overlayRect: converted.0,
-                    visibleRect: visibleRect(in: converted.0, metrics: appMetrics),
-                    panelScale: panelScale(for: metrics),
-                    screen: converted.1,
-                    source: "window-image-probe"
-                )
-            }
+        if let visualMetrics,
+           let appVisualMetrics = scaledMetrics(
+               visualMetrics,
+               from: quartzRect.size,
+               to: converted.0.size
+           )
+        {
+            return LocatedPet(
+                overlayRect: converted.0,
+                visibleRect: visibleRect(in: converted.0, metrics: appVisualMetrics),
+                panelScale: visualPanelScale(for: visualMetrics),
+                screen: converted.1,
+                source: "window-visual-probe-only"
+            )
         }
 
         return nil
@@ -1268,6 +1916,67 @@ private final class PetWindowLocator {
         return normalizedPanelScale(sqrt(widthScale * heightScale))
     }
 
+    private func visualScaleCandidates(
+        for metrics: StoredMascotMetrics
+    ) -> [(scale: CGFloat, distortion: CGFloat)] {
+        guard metrics.width.isFinite,
+              metrics.height.isFinite,
+              metrics.width > 0,
+              metrics.height > 0
+        else { return [] }
+
+        let candidates = petFrameVisiblePixelSizes.compactMap { frameSize
+            -> (scale: CGFloat, distortion: CGFloat)? in
+            let expectedWidth = frameSize.width
+                * canonicalPetSpriteSize.width / petAtlasFrameSize.width
+            let expectedHeight = frameSize.height
+                * canonicalPetSpriteSize.height / petAtlasFrameSize.height
+            let widthScale = metrics.width / expectedWidth
+            let heightScale = metrics.height / expectedHeight
+            guard widthScale.isFinite,
+                  heightScale.isFinite,
+                  widthScale > 0,
+                  heightScale > 0
+            else { return nil }
+            return (
+                normalizedPanelScale(sqrt(widthScale * heightScale)),
+                abs(log(widthScale / heightScale))
+            )
+        }
+        guard let bestDistortion = candidates.map(\.distortion).min(),
+              bestDistortion <= 0.15
+        else { return [] }
+        // One-pixel antialiasing differences matter at very small scales. Keep
+        // all atlas frames whose aspect fit is within 2% of the best match.
+        return candidates.filter { $0.distortion <= bestDistortion + 0.02 }
+    }
+
+    private func visualPanelScale(for metrics: StoredMascotMetrics) -> CGFloat {
+        let scales = visualScaleCandidates(for: metrics)
+            .map(\.scale)
+            .sorted()
+        guard !scales.isEmpty else { return 1 }
+        return scales[scales.count / 2]
+    }
+
+    private func reconciledPanelScale(
+        anchorMetrics: StoredMascotMetrics,
+        visualMetrics: StoredMascotMetrics
+    ) -> CGFloat {
+        let anchorScale = panelScale(for: anchorMetrics)
+        let candidates = visualScaleCandidates(for: visualMetrics)
+        guard let visualScale = candidates.min(by: {
+            abs(log($0.scale / anchorScale)) < abs(log($1.scale / anchorScale))
+        })?.scale else { return anchorScale }
+        guard anchorScale > 0, visualScale > 0 else { return anchorScale }
+
+        // Ordinary sprite rows vary slightly in visible height. Keep the
+        // persisted anchor scale for that small variation, but trust the real
+        // pixels when Codex shrinks the rendered pet inside a stale anchor.
+        let relativeDifference = abs(log(visualScale / anchorScale))
+        return relativeDifference > visualScaleTolerance ? visualScale : anchorScale
+    }
+
     private func visibleRect(in overlayRect: NSRect, metrics: StoredMascotMetrics) -> NSRect {
         let visibleHeight = max(1, metrics.height - metrics.topPadding)
         return NSRect(
@@ -1300,44 +2009,101 @@ private final class PetWindowLocator {
         return nil
     }
 
-    private func probeTopVisualInset(windowID: CGWindowID) -> CGFloat? {
+    private func currentVisualMetrics(
+        windowID: CGWindowID,
+        overlayRect: CGRect
+    ) -> StoredMascotMetrics? {
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - lastVisualProbeAt >= 0.12 {
+            lastVisualProbeAt = now
+            if let metrics = probeVisibleMascotMetrics(
+                windowID: windowID,
+                overlaySize: overlayRect.size
+            ) {
+                cachedVisualMetrics = metrics
+                cachedVisualOverlaySize = overlayRect.size
+                cachedVisualWindowID = windowID
+                cachedVisualAt = now
+                return metrics
+            }
+        }
+
+        guard cachedVisualWindowID == windowID,
+              now - cachedVisualAt <= 0.50,
+              let cachedVisualMetrics,
+              let cachedVisualOverlaySize
+        else { return nil }
+        return scaledMetrics(
+            cachedVisualMetrics,
+            from: cachedVisualOverlaySize,
+            to: overlayRect.size
+        )
+    }
+
+    private func probeVisibleMascotMetrics(
+        windowID: CGWindowID,
+        overlaySize: CGSize
+    ) -> StoredMascotMetrics? {
         guard let image = CGWindowListCreateImage(
             .null,
             .optionIncludingWindow,
             windowID,
             [.boundsIgnoreFraming]
-        ), image.width >= 250, image.height >= 170,
+        ), image.width >= 80, image.height >= 80,
         let data = image.dataProvider?.data,
         let bytes = CFDataGetBytePtr(data)
         else { return nil }
 
         let bytesPerPixel = max(1, image.bitsPerPixel / 8)
         let bytesPerRow = image.bytesPerRow
-        let minX = max(0, Int(Double(image.width) * 0.50))
-        let maxX = min(image.width, Int(Double(image.width) * 0.85))
-        let maxY = min(image.height, 190)
-        let roiWidth = maxX - minX
-        guard bytesPerPixel >= 4, roiWidth > 0 else { return nil }
+        guard bytesPerPixel >= 4,
+              overlaySize.width > 0,
+              overlaySize.height > 0
+        else { return nil }
 
-        for y in 0..<maxY {
-            var visiblePixels = 0
-            for x in minX..<maxX {
+        var minX = image.width
+        var minY = image.height
+        var maxX = -1
+        var maxY = -1
+        var visiblePixels = 0
+        for y in 0..<image.height {
+            for x in 0..<image.width {
                 let offset = y * bytesPerRow + x * bytesPerPixel
                 var isVisible = false
                 for channel in 0..<min(bytesPerPixel, 4) where bytes[offset + channel] > 20 {
                     isVisible = true
                     break
                 }
-                if isVisible { visiblePixels += 1 }
-            }
-
-            // The pet's narrow top decoration begins with only a few pixels.
-            // Reject nearly solid rows, which indicates a privacy-blocked image.
-            if visiblePixels >= 4 && visiblePixels < Int(Double(roiWidth) * 0.80) {
-                return CGFloat(y)
+                guard isVisible else { continue }
+                visiblePixels += 1
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
             }
         }
-        return nil
+
+        let totalPixels = image.width * image.height
+        guard visiblePixels >= 64,
+              visiblePixels < Int(Double(totalPixels) * 0.80),
+              maxX >= minX,
+              maxY >= minY
+        else { return nil }
+
+        // Window captures use backing pixels on Retina displays. Width is
+        // always complete even when macOS clips transparent rows, so use it as
+        // the uniform backing scale for both axes.
+        let backingScale = CGFloat(image.width) / overlaySize.width
+        guard backingScale.isFinite, backingScale > 0 else { return nil }
+        let metrics = StoredMascotMetrics(
+            left: CGFloat(minX) / backingScale,
+            top: CGFloat(minY) / backingScale,
+            width: CGFloat(maxX - minX + 1) / backingScale,
+            height: CGFloat(maxY - minY + 1) / backingScale,
+            topPadding: 0,
+            source: "visual-pixels"
+        )
+        return metricsAreValid(metrics, for: overlaySize) ? metrics : nil
     }
 
     private func candidate(from window: [String: Any]) -> (rect: CGRect, score: Double)? {
@@ -1426,16 +2192,58 @@ private final class PetWindowLocator {
                   abs(panelScale(for: scaled) - factor) <= 0.01
             else { return false }
         }
-        return scaledMetrics(
+        guard scaledMetrics(
             base,
             from: baseSize,
             to: CGSize(width: baseSize.width * 2, height: baseSize.height * 0.5)
-        ) == nil
+        ) == nil else { return false }
+
+        // The Electron overlay may retain its old transparent bounds while
+        // the pet itself is zoomed inside them. In that case the visible
+        // pixels, not the stale anchor, must drive the whole panel scale.
+        let visualCases: [(
+            anchor: CGFloat,
+            visual: CGFloat,
+            expected: CGFloat,
+            frame: NSSize
+        )] = [
+            (1.0, 0.4, 0.4, NSSize(width: 161, height: 198)),
+            (1.0, 0.7, 0.7, NSSize(width: 161, height: 198)),
+            (0.5, 0.5, 0.5, NSSize(width: 161, height: 198)),
+            (1.0, 0.94, 1.0, NSSize(width: 161, height: 198)),
+            (1.0, 1.0, 1.0, NSSize(width: 119, height: 152)),
+            (1.0, 0.4, 0.4, NSSize(width: 119, height: 152)),
+        ]
+        for test in visualCases {
+            let anchor = StoredMascotMetrics(
+                left: 0,
+                top: 0,
+                width: canonicalPetSpriteSize.width * test.anchor,
+                height: canonicalPetSpriteSize.height * test.anchor,
+                topPadding: 0,
+                source: "self-test-anchor"
+            )
+            let visual = StoredMascotMetrics(
+                left: 0,
+                top: 0,
+                width: test.frame.width * canonicalPetSpriteSize.width
+                    / petAtlasFrameSize.width * test.visual,
+                height: test.frame.height * canonicalPetSpriteSize.height
+                    / petAtlasFrameSize.height * test.visual,
+                topPadding: 0,
+                source: "self-test-visual"
+            )
+            guard abs(reconciledPanelScale(anchorMetrics: anchor, visualMetrics: visual)
+                - test.expected) <= 0.01
+            else { return false }
+        }
+        return true
     }
 }
 
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let quotaClient = CodexQuotaClient()
+    private let taskProgressReader = CodexTaskProgressReader()
     private let btcPriceClient = MarketPriceClient(symbol: "BTCUSDT")
     private let ethPriceClient = MarketPriceClient(symbol: "ETHUSDT")
     private let locator = PetWindowLocator()
@@ -1444,9 +2252,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: NSPanel!
     private var statusItem: NSStatusItem?
     private var refreshTimer: Timer?
+    private var taskProgressTimer: Timer?
     private var btcRefreshTimer: Timer?
     private var followTimer: Timer?
     private var isRefreshing = false
+    private var isRefreshingTaskProgress = false
     private var isRefreshingBTCPrice = false
     private var isRefreshingETHPrice = false
     private var lastBTCPrice: Double?
@@ -1454,6 +2264,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastLocatedPet: LocatedPet?
     private var lastLocatedAt: CFAbsoluteTime = 0
     private var currentPanelScale: CGFloat = 1
+    private var currentBasePanelSize = expandedPanelSize
     private var isPanelHiddenByUser = false
     private var cachedCodexDesktopRunning = false
     private var lastCodexDesktopCheckAt: CFAbsoluteTime = 0
@@ -1465,6 +2276,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         healthWriter.write(status: "started", panelVisible: false, locationSource: nil, force: true)
         followPet()
         refreshQuota()
+        refreshTaskProgress()
         if marketPricesEnabled {
             refreshBTCPrice()
             refreshETHPrice()
@@ -1476,6 +2288,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             self?.refreshQuota()
         }
+        taskProgressTimer = Timer.scheduledTimer(
+            withTimeInterval: taskProgressRefreshInterval,
+            repeats: true
+        ) { [weak self] _ in
+            self?.refreshTaskProgress()
+        }
         if marketPricesEnabled {
             btcRefreshTimer = Timer.scheduledTimer(withTimeInterval: btcRefreshInterval, repeats: true) { [weak self] _ in
                 self?.refreshBTCPrice()
@@ -1486,6 +2304,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         refreshTimer?.invalidate()
+        taskProgressTimer?.invalidate()
         btcRefreshTimer?.invalidate()
         followTimer?.invalidate()
         if let statusItem {
@@ -1537,7 +2356,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             panelVisible: false,
             locationSource: nil,
             panelScale: currentPanelScale,
-            panelSize: scaledPanelSize(expandedPanelSize, scale: currentPanelScale),
+            panelSize: scaledPanelSize(currentBasePanelSize, scale: currentPanelScale),
             force: true
         )
     }
@@ -1569,7 +2388,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 panelVisible: false,
                 locationSource: nil,
                 panelScale: currentPanelScale,
-                panelSize: scaledPanelSize(expandedPanelSize, scale: currentPanelScale)
+                panelSize: scaledPanelSize(currentBasePanelSize, scale: currentPanelScale)
             )
             return
         }
@@ -1594,12 +2413,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 panelVisible: false,
                 locationSource: nil,
                 panelScale: currentPanelScale,
-                panelSize: scaledPanelSize(expandedPanelSize, scale: currentPanelScale)
+                panelSize: scaledPanelSize(currentBasePanelSize, scale: currentPanelScale)
             )
             return
         }
 
-        let basePanelSize = expandedPanelSize
+        let basePanelSize = currentBasePanelSize
         currentPanelScale = normalizedPanelScale(pet.panelScale)
         let currentPanelSize = scaledPanelSize(basePanelSize, scale: currentPanelScale)
         let placement = panelPlacement(
@@ -1620,9 +2439,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         {
             panel.setFrame(targetFrame, display: false)
         }
-        // Keep the view's design coordinate system at 224×116 (or 224×160)
-        // while its frame follows the scaled window. AppKit then scales every
-        // visual and hit target together without changing their proportions.
+        // Keep the view's design coordinate system at the current task-list
+        // height while its frame follows the scaled window. AppKit then scales
+        // every visual and hit target together without changing proportions.
         quotaView.frame = NSRect(origin: .zero, size: currentPanelSize)
         quotaView.bounds = NSRect(origin: .zero, size: basePanelSize)
         quotaView.needsDisplay = true
@@ -1667,6 +2486,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 case .failure(let error):
                     self.quotaView.errorText = error.localizedDescription
                     self.quotaView.statusText = "5 分钟后自动重试"
+                }
+            }
+        }
+    }
+
+    private func refreshTaskProgress() {
+        guard !isRefreshingTaskProgress else { return }
+        isRefreshingTaskProgress = true
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            let snapshot = self.taskProgressReader.read()
+            DispatchQueue.main.async {
+                self.isRefreshingTaskProgress = false
+                self.quotaView.taskProgress = snapshot
+                let nextBaseSize = panelSizeForTaskRows(snapshot.rowCount)
+                if nextBaseSize != self.currentBasePanelSize {
+                    self.currentBasePanelSize = nextBaseSize
+                    self.followPet()
                 }
             }
         }
@@ -1806,6 +2643,15 @@ private func printPanelConfiguration() -> Never {
     exit(0)
 }
 
+private func printTaskProgressOnce() -> Never {
+    let snapshot = CodexTaskProgressReader().read()
+    let details = snapshot.items.enumerated().map { index, item in
+        "\(index + 1):\(item.title)[\(item.kind.rawValue)]"
+    }.joined(separator: " | ")
+    print("task-progress: count=\(snapshot.items.count) \(details)")
+    exit(0)
+}
+
 private func printPanelPlacementOnce(savedStateOnly: Bool = false) -> Never {
     let locator = PetWindowLocator()
     let result = savedStateOnly ? locator.locateSavedState() : locator.locate()
@@ -1921,7 +2767,7 @@ private func runPlacementSelfTest() -> Never {
         exit(1)
     }
 
-    print("placement-self-test: 6/6 passed; mascot-scaling=6/6; panel-scaling=6/6; gap=14.0; centerError=0.0")
+    print("placement-self-test: 6/6 passed; mascot-scaling=6/6; visual-scaling=6/6; panel-scaling=6/6; gap=14.0; centerError=0.0")
     exit(0)
 }
 
@@ -2007,9 +2853,128 @@ private func runLifecycleSelfTest() -> Never {
     exit(0)
 }
 
+private func runTaskProgressSelfTest() -> Never {
+    let now = Date()
+    let started = #"{"type":"event_msg","payload":{"type":"task_started"}}"#
+    let completed = #"{"type":"event_msg","payload":{"type":"task_complete"}}"#
+    let request = #"{"type":"response_item","payload":{"type":"function_call","name":"request_user_input","call_id":"call-1"}}"#
+    let response = #"{"type":"response_item","payload":{"type":"function_call_output","call_id":"call-1"}}"#
+    let cases: [(String, [String], Date, TaskProgressKind)] = [
+        ("running", [started], now, .running),
+        ("waiting", [started, request], now, .waitingForInput),
+        ("resumed", [started, request, response], now, .running),
+        ("completed", [started, completed], now, .completed),
+        ("fresh-tail-fallback", [], now, .running),
+        ("idle", [], now.addingTimeInterval(-31 * 60), .idle),
+    ]
+
+    for test in cases {
+        let result = CodexTaskProgressReader.parse(
+            lines: test.1,
+            modificationDate: test.2,
+            now: now
+        )
+        guard result.kind == test.3 else {
+            fputs("task progress case \(test.0) failed: \(result.kind.rawValue)\n", stderr)
+            exit(1)
+        }
+    }
+
+    let titledUserMessage = ##"{"type":"event_msg","payload":{"type":"user_message","message":"# Files mentioned by the user:\n/a.png\n## My request for Codex:\n列出具体任务名称"}}"##
+    let titled = CodexTaskProgressReader.parse(
+        lines: [titledUserMessage, started],
+        modificationDate: now,
+        now: now
+    )
+    guard titled.items.first?.title == "列出具体任务名称" else {
+        fputs("task title extraction failed\n", stderr)
+        exit(1)
+    }
+
+    let indexedThreadID = "12345678-1234-4abc-8def-1234567890ab"
+    let indexedRollout = URL(fileURLWithPath:
+        "/tmp/rollout-2026-07-16T16-52-47-\(indexedThreadID).jsonl"
+    )
+    let indexedTitle = CodexTaskProgressReader.resolvedTitle(
+        for: indexedRollout,
+        indexedTitles: [indexedThreadID: "正式任务名称"],
+        fallback: "Codex 任务"
+    )
+    guard indexedTitle == "正式任务名称" else {
+        fputs("task index title mapping failed\n", stderr)
+        exit(1)
+    }
+
+    let unreadState = CodexTaskProgressReader.UnreadThreadState(
+        ids: [indexedThreadID],
+        isAvailable: true
+    )
+    let readState = CodexTaskProgressReader.UnreadThreadState(
+        ids: [],
+        isAvailable: true
+    )
+    let unavailableState = CodexTaskProgressReader.UnreadThreadState(
+        ids: [],
+        isAvailable: false
+    )
+    let readStateCases = [
+        CodexTaskProgressReader.shouldDisplay(
+            kind: .completed,
+            threadID: indexedThreadID,
+            modificationDate: now.addingTimeInterval(-3600),
+            now: now,
+            unreadState: unreadState
+        ),
+        !CodexTaskProgressReader.shouldDisplay(
+            kind: .completed,
+            threadID: indexedThreadID,
+            modificationDate: now,
+            now: now,
+            unreadState: readState
+        ),
+        CodexTaskProgressReader.shouldDisplay(
+            kind: .completed,
+            threadID: indexedThreadID,
+            modificationDate: now,
+            now: now,
+            unreadState: unavailableState
+        ),
+        !CodexTaskProgressReader.shouldDisplay(
+            kind: .completed,
+            threadID: indexedThreadID,
+            modificationDate: now.addingTimeInterval(-180),
+            now: now,
+            unreadState: unavailableState
+        ),
+    ]
+    guard readStateCases.allSatisfy({ $0 }) else {
+        fputs("task unread/read visibility mapping failed\n", stderr)
+        exit(1)
+    }
+
+    let overflow = TaskProgressSnapshot.displaying((0..<7).map { index in
+        TaskProgressItem(title: "任务 \(index + 1)", kind: .running, startedAt: now)
+    })
+    guard overflow.items.count == maximumVisibleTaskRows,
+          overflow.items.last?.title == "还有 3 个任务"
+    else {
+        fputs("task list overflow handling failed\n", stderr)
+        exit(1)
+    }
+
+    print("task-progress-self-test: running waiting resumed completed fresh-fallback idle = 6/6; title=1/1; index=1/1; read-state=4/4; list=5+overflow")
+    exit(0)
+}
+
 private func renderPreviewOnce(to outputPath: String) -> Never {
     _ = NSApplication.shared
-    let view = QuotaPanelView(frame: NSRect(origin: .zero, size: expandedPanelSize))
+    let previewTasks = TaskProgressSnapshot(items: [
+        TaskProgressItem(title: "修复 Windows 宠物替换", kind: .running, startedAt: Date()),
+        TaskProgressItem(title: "整理 macOS 分享包", kind: .waitingForInput, startedAt: Date()),
+        TaskProgressItem(title: "更新 GitHub 使用说明", kind: .completed, startedAt: Date()),
+    ])
+    let previewPanelSize = panelSizeForTaskRows(previewTasks.rowCount)
+    let view = QuotaPanelView(frame: NSRect(origin: .zero, size: previewPanelSize))
     view.pointerSide = .bottom
     view.rows = [QuotaRow(
         name: "Codex",
@@ -2017,6 +2982,7 @@ private func renderPreviewOnce(to outputPath: String) -> Never {
         resetsAt: Calendar.current.date(byAdding: .day, value: 7, to: Date())
     )]
     view.statusText = "12:43 更新 · 5分钟"
+    view.taskProgress = previewTasks
     view.btcPrice = 64_169.97
     view.btcPriceDirection = 1
     view.btcStatusText = "5秒"
@@ -2028,8 +2994,8 @@ private func renderPreviewOnce(to outputPath: String) -> Never {
     let scale: CGFloat = 2
     guard let bitmap = NSBitmapImageRep(
         bitmapDataPlanes: nil,
-        pixelsWide: Int(expandedPanelSize.width * scale),
-        pixelsHigh: Int(expandedPanelSize.height * scale),
+        pixelsWide: Int(previewPanelSize.width * scale),
+        pixelsHigh: Int(previewPanelSize.height * scale),
         bitsPerSample: 8,
         samplesPerPixel: 4,
         hasAlpha: true,
@@ -2041,7 +3007,7 @@ private func renderPreviewOnce(to outputPath: String) -> Never {
         fputs("无法创建预览画布\n", stderr)
         exit(1)
     }
-    bitmap.size = expandedPanelSize
+    bitmap.size = previewPanelSize
 
     view.cacheDisplay(in: view.bounds, to: bitmap)
 
@@ -2088,8 +3054,16 @@ if CommandLine.arguments.contains("--self-test-lifecycle") {
     runLifecycleSelfTest()
 }
 
+if CommandLine.arguments.contains("--self-test-task-progress") {
+    runTaskProgressSelfTest()
+}
+
 if CommandLine.arguments.contains("--print-panel-config") {
     printPanelConfiguration()
+}
+
+if CommandLine.arguments.contains("--print-task-progress") {
+    printTaskProgressOnce()
 }
 
 if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-preview"),

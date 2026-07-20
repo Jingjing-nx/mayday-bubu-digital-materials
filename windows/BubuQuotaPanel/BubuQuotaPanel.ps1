@@ -1,12 +1,14 @@
 ﻿param(
     [switch]$PrintConfiguration,
     [switch]$ValidateXaml,
-    [switch]$ValidateTrackingFilters
+    [switch]$ValidateTrackingFilters,
+    [switch]$ValidateTaskProgress,
+    [switch]$PrintTaskProgress
 )
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "1.0.6"
+$script:PanelVersion = "1.1.3"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $script:MarketPricesEnabled = $true
@@ -16,16 +18,40 @@ if (-not [string]::IsNullOrWhiteSpace($marketSetting)) {
 } elseif (Test-Path -LiteralPath (Join-Path $PSScriptRoot "CODEX-ONLY.txt")) {
     $script:MarketPricesEnabled = $false
 }
-$script:ExpandedHeight = if ($script:MarketPricesEnabled) { 160 } else { 116 }
+$script:TaskProgressRowHeight = 23
+$script:MaximumVisibleTaskRows = 5
+$script:BaseExpandedHeight = if ($script:MarketPricesEnabled) { 160 } else { 116 }
+$script:TaskProgressRowCount = 1
+$script:ExpandedHeight = $script:BaseExpandedHeight + $script:TaskProgressRowHeight
 $script:ExpandedBodyHeight = $script:ExpandedHeight - 13
 $script:ExpandedPointerTipY = $script:ExpandedHeight - 1
 $script:ExpandedWidth = 224.0
 $script:CollapsedWidth = 64.0
 $script:CollapsedHeight = 44.0
 $script:CanonicalPetWidth = 163.0
+$script:CanonicalPetHeight = 177.0
+$script:PetAtlasFrameWidth = 192.0
+$script:PetAtlasFrameHeight = 208.0
+$script:PetFrameVisiblePixelSizes = @(
+    '109x166', '109x186', '110x172', '110x185', '110x186', '110x187',
+    '111x186', '113x153', '113x181', '114x181', '116x182', '116x185',
+    '118x187', '118x189', '118x192', '118x193', '118x194', '119x152',
+    '119x155', '119x167', '119x194', '120x185', '120x189', '120x192',
+    '120x194', '121x190', '121x192', '121x196', '121x198', '122x190',
+    '122x191', '122x192', '122x194', '123x185', '123x196', '123x198',
+    '124x191', '124x194', '124x198', '125x198', '132x198', '133x198',
+    '136x198', '138x196', '141x196', '144x198', '153x198', '154x198',
+    '155x198', '157x198', '161x198'
+)
 $script:PanelScale = 1.0
 $script:MinimumPanelScale = 0.20
 $script:MaximumPanelScale = 8.0
+$script:VisualScaleTolerance = 0.12
+$script:VisualProbeIntervalMilliseconds = 120
+$script:CachedVisualMetrics = $null
+$script:CachedVisualWindowHandle = [IntPtr]::Zero
+$script:LastVisualProbeAt = [DateTime]::MinValue
+$script:CachedVisualAt = [DateTime]::MinValue
 
 if ($PrintConfiguration) {
     Write-Output (
@@ -67,14 +93,20 @@ function Write-PanelLog([string]$message) {
 
 trap {
     Write-PanelLog ("FATAL " + $_.Exception.ToString())
-    try {
-        [Windows.MessageBox]::Show(
-            "卜卜看板启动失败。请运行分享包里的【检查安装环境.cmd】，并发送生成的报告。",
-            "卜卜看板",
-            [Windows.MessageBoxButton]::OK,
-            [Windows.MessageBoxImage]::Warning
-        ) | Out-Null
-    } catch {
+    $isValidationRun = $ValidateXaml -or $ValidateTrackingFilters -or
+        $ValidateTaskProgress -or $PrintTaskProgress
+    if ($isValidationRun) {
+        [Console]::Error.WriteLine($_.Exception.ToString())
+    } else {
+        try {
+            [Windows.MessageBox]::Show(
+                "卜卜看板启动失败。请运行分享包里的【检查安装环境.cmd】，并发送生成的报告。",
+                "卜卜看板",
+                [Windows.MessageBoxButton]::OK,
+                [Windows.MessageBoxImage]::Warning
+            ) | Out-Null
+        } catch {
+        }
     }
     exit 1
 }
@@ -85,6 +117,7 @@ Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName System.Net.Http
+Add-Type -AssemblyName System.Drawing
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
@@ -97,6 +130,8 @@ if (-not $createdNew) {
 Add-Type -TypeDefinition @"
 using System;
 using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 
 namespace BubuPanel {
@@ -111,6 +146,14 @@ namespace BubuPanel {
         public int Bottom { get; set; }
         public int Width { get { return Right - Left; } }
         public int Height { get { return Bottom - Top; } }
+    }
+
+    public sealed class NativeVisualInfo {
+        public int Left { get; set; }
+        public int Top { get; set; }
+        public int Width { get; set; }
+        public int Height { get; set; }
+        public double VisibleFraction { get; set; }
     }
 
     public static class NativeWindows {
@@ -146,6 +189,9 @@ namespace BubuPanel {
 
         [DllImport("user32.dll")]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+
+        [DllImport("user32.dll")]
+        private static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint flags);
 
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
@@ -209,6 +255,84 @@ namespace BubuPanel {
 
         public static NativeWindowInfo GetWindow(IntPtr hWnd) {
             return ReadWindow(hWnd);
+        }
+
+        public static NativeVisualInfo CaptureVisibleBounds(IntPtr hWnd) {
+            RECT rect;
+            if (hWnd == IntPtr.Zero || !IsWindow(hWnd) ||
+                !GetWindowRect(hWnd, out rect)) return null;
+            int width = rect.Right - rect.Left;
+            int height = rect.Bottom - rect.Top;
+            if (width < 40 || height < 40 || width > 2000 || height > 2000) return null;
+
+            using (var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb)) {
+                bool captured = false;
+                using (Graphics graphics = Graphics.FromImage(bitmap)) {
+                    IntPtr hdc = graphics.GetHdc();
+                    try {
+                        // PW_RENDERFULLCONTENT captures Chromium/Electron
+                        // transparent windows even when another app overlaps.
+                        captured = PrintWindow(hWnd, hdc, 2u);
+                    } finally {
+                        graphics.ReleaseHdc(hdc);
+                    }
+                }
+                if (!captured) return null;
+
+                var area = new Rectangle(0, 0, width, height);
+                BitmapData data = bitmap.LockBits(area, ImageLockMode.ReadOnly,
+                    PixelFormat.Format32bppArgb);
+                try {
+                    int rowBytes = Math.Abs(data.Stride);
+                    byte[] pixels = new byte[rowBytes * height];
+                    Marshal.Copy(data.Scan0, pixels, 0, pixels.Length);
+                    int alphaPixels = 0;
+                    int colorPixels = 0;
+                    int totalPixels = width * height;
+
+                    for (int y = 0; y < height; y++) {
+                        int row = data.Stride >= 0 ? y * rowBytes : (height - 1 - y) * rowBytes;
+                        for (int x = 0; x < width; x++) {
+                            int offset = row + x * 4;
+                            if (pixels[offset + 3] > 20) alphaPixels++;
+                            if (pixels[offset] > 20 || pixels[offset + 1] > 20 ||
+                                pixels[offset + 2] > 20) colorPixels++;
+                        }
+                    }
+
+                    bool useAlpha = alphaPixels >= 64 && alphaPixels < totalPixels * 0.80;
+                    bool useColor = !useAlpha && colorPixels >= 64 && colorPixels < totalPixels * 0.80;
+                    if (!useAlpha && !useColor) return null;
+
+                    int minX = width, minY = height, maxX = -1, maxY = -1, visible = 0;
+                    for (int y = 0; y < height; y++) {
+                        int row = data.Stride >= 0 ? y * rowBytes : (height - 1 - y) * rowBytes;
+                        for (int x = 0; x < width; x++) {
+                            int offset = row + x * 4;
+                            bool isVisible = useAlpha
+                                ? pixels[offset + 3] > 20
+                                : pixels[offset] > 20 || pixels[offset + 1] > 20 ||
+                                  pixels[offset + 2] > 20;
+                            if (!isVisible) continue;
+                            visible++;
+                            if (x < minX) minX = x;
+                            if (x > maxX) maxX = x;
+                            if (y < minY) minY = y;
+                            if (y > maxY) maxY = y;
+                        }
+                    }
+                    if (visible < 64 || maxX < minX || maxY < minY) return null;
+                    return new NativeVisualInfo {
+                        Left = minX,
+                        Top = minY,
+                        Width = maxX - minX + 1,
+                        Height = maxY - minY + 1,
+                        VisibleFraction = visible / (double)totalPixels
+                    };
+                } finally {
+                    bitmap.UnlockBits(data);
+                }
+            }
         }
 
         public static uint GetWindowDpi(IntPtr hWnd) {
@@ -332,7 +456,7 @@ namespace BubuPanel {
         }
     }
 }
-"@
+"@ -ReferencedAssemblies @([Drawing.Bitmap].Assembly.Location)
 
 $script:PerMonitorDpiEnabled = [BubuPanel.NativeWindows]::EnablePerMonitorV2()
 Write-PanelLog ("DPI per-monitor-v2=" + $script:PerMonitorDpiEnabled)
@@ -387,12 +511,12 @@ $xaml = @"
         <Canvas x:Name="ExpandedRoot" Width="224" Height="$($script:ExpandedHeight)">
             <Polygon x:Name="ExpandedPointer" Points="104,$($script:ExpandedBodyHeight) 112,$($script:ExpandedPointerTipY) 120,$($script:ExpandedBodyHeight)"
                      Fill="#F7080B17" Stroke="#38FFFFFF" StrokeThickness="1"/>
-            <Border Canvas.Left="3" Canvas.Top="3" Width="218" Height="$($script:ExpandedBodyHeight)"
+            <Border x:Name="ExpandedPanelBorder" Canvas.Left="3" Canvas.Top="3" Width="218" Height="$($script:ExpandedBodyHeight)"
                     CornerRadius="17" Background="#F7080B17"
                     BorderBrush="#38FFFFFF" BorderThickness="1">
                 <Grid ClipToBounds="True">
                     <Rectangle x:Name="BackgroundBand" Height="93" VerticalAlignment="Top"/>
-                    <Canvas Width="218" Height="$($script:ExpandedBodyHeight)">
+                    <Canvas x:Name="ExpandedContentCanvas" Width="218" Height="$($script:ExpandedBodyHeight)">
                         <TextBlock x:Name="CodexName" Canvas.Left="14" Canvas.Top="11"
                                    Width="62" Height="18" Text="Codex"
                                    FontFamily="Microsoft YaHei UI" FontSize="11" FontWeight="SemiBold"
@@ -419,41 +543,44 @@ $xaml = @"
                                    TextAlignment="Right" FontFamily="Microsoft YaHei UI" FontSize="9.2"
                                    Foreground="#B8FFFFFF"/>
 
-                        <Canvas x:Name="MarketRows" Width="218" Height="147">
-                        <Border Canvas.Left="14" Canvas.Top="93" Width="190" Height="1"
+                        <Canvas x:Name="TaskProgressRows" Canvas.Left="0" Canvas.Top="93"
+                                Width="218" Height="23"/>
+
+                        <Canvas x:Name="MarketRows" Width="218" Height="$($script:ExpandedBodyHeight)">
+                        <Border Canvas.Left="14" Canvas.Top="116" Width="190" Height="1"
                                 Background="#21FFFFFF"/>
-                        <Ellipse Canvas.Left="14" Canvas.Top="100" Width="15" Height="15"
+                        <Ellipse Canvas.Left="14" Canvas.Top="123" Width="15" Height="15"
                                  Fill="#F7931A"/>
-                        <TextBlock Canvas.Left="14" Canvas.Top="99.5" Width="15" Height="15"
+                        <TextBlock Canvas.Left="14" Canvas.Top="122.5" Width="15" Height="15"
                                    Text="₿" TextAlignment="Center" FontFamily="Segoe UI Symbol"
                                    FontSize="10" FontWeight="Bold" Foreground="White"/>
-                        <TextBlock Canvas.Left="34" Canvas.Top="100" Width="62" Height="16"
+                        <TextBlock Canvas.Left="34" Canvas.Top="123" Width="62" Height="16"
                                    Text="BTC/USDT" FontFamily="Microsoft YaHei UI"
                                    FontSize="9.6" FontWeight="SemiBold" Foreground="#C8FFFFFF"/>
-                        <TextBlock x:Name="BTCPriceText" Canvas.Left="92" Canvas.Top="98.5"
+                        <TextBlock x:Name="BTCPriceText" Canvas.Left="92" Canvas.Top="121.5"
                                    Width="80" Height="18" Text="--" TextAlignment="Right"
                                    FontFamily="Consolas" FontSize="11.4" FontWeight="Bold"
                                    Foreground="#F0FFFFFF"/>
-                        <TextBlock x:Name="BTCStatusText" Canvas.Left="176" Canvas.Top="101"
+                        <TextBlock x:Name="BTCStatusText" Canvas.Left="176" Canvas.Top="124"
                                    Width="28" Height="14" Text="读取中"
                                    TextAlignment="Right" FontFamily="Microsoft YaHei UI"
                                    FontSize="8.2" Foreground="#8AFFFFFF"/>
 
-                        <Border Canvas.Left="14" Canvas.Top="119" Width="190" Height="1"
+                        <Border Canvas.Left="14" Canvas.Top="142" Width="190" Height="1"
                                 Background="#21FFFFFF"/>
-                        <Ellipse Canvas.Left="14" Canvas.Top="123" Width="15" Height="15"
+                        <Ellipse Canvas.Left="14" Canvas.Top="146" Width="15" Height="15"
                                  Fill="#627EEA"/>
-                        <TextBlock Canvas.Left="14" Canvas.Top="122.5" Width="15" Height="15"
+                        <TextBlock Canvas.Left="14" Canvas.Top="145.5" Width="15" Height="15"
                                    Text="Ξ" TextAlignment="Center" FontFamily="Segoe UI Symbol"
                                    FontSize="10" FontWeight="Bold" Foreground="White"/>
-                        <TextBlock Canvas.Left="34" Canvas.Top="123" Width="62" Height="16"
+                        <TextBlock Canvas.Left="34" Canvas.Top="146" Width="62" Height="16"
                                    Text="ETH/USDT" FontFamily="Microsoft YaHei UI"
                                    FontSize="9.6" FontWeight="SemiBold" Foreground="#C8FFFFFF"/>
-                        <TextBlock x:Name="ETHPriceText" Canvas.Left="92" Canvas.Top="121.5"
+                        <TextBlock x:Name="ETHPriceText" Canvas.Left="92" Canvas.Top="144.5"
                                    Width="80" Height="18" Text="--" TextAlignment="Right"
                                    FontFamily="Consolas" FontSize="11.4" FontWeight="Bold"
                                    Foreground="#F0FFFFFF"/>
-                        <TextBlock x:Name="ETHStatusText" Canvas.Left="176" Canvas.Top="124"
+                        <TextBlock x:Name="ETHStatusText" Canvas.Left="176" Canvas.Top="147"
                                    Width="28" Height="14" Text="读取中"
                                    TextAlignment="Right" FontFamily="Microsoft YaHei UI"
                                    FontSize="8.2" Foreground="#8AFFFFFF"/>
@@ -516,6 +643,7 @@ function Write-PanelHealth([bool]$force) {
             lastPetMotionAt = if (-not $script:LastPetMotionAt -or
                 $script:LastPetMotionAt -eq [DateTime]::MinValue) { $null } else { $script:LastPetMotionAt.ToString("o") }
             quotaStatus = $script:LastQuotaStatus
+            taskProgress = if ($script:LastTaskProgress) { $script:LastTaskProgress } else { "reading" }
             stateSource = if ($script:OverlayState) { "available" } else { "unavailable" }
         } | ConvertTo-Json -Compress
         [IO.File]::WriteAllText($script:HealthPath, $payload, [Text.UTF8Encoding]::new($false))
@@ -532,6 +660,8 @@ function Get-Control([string]$name) {
 
 $script:PanelScaleRoot = Get-Control "PanelScaleRoot"
 $script:ExpandedRoot = Get-Control "ExpandedRoot"
+$script:ExpandedPanelBorder = Get-Control "ExpandedPanelBorder"
+$script:ExpandedContentCanvas = Get-Control "ExpandedContentCanvas"
 $script:CollapsedRoot = Get-Control "CollapsedRoot"
 $script:ExpandedPointer = Get-Control "ExpandedPointer"
 $script:CollapsedPointer = Get-Control "CollapsedPointer"
@@ -540,6 +670,7 @@ $script:RemainingText = Get-Control "RemainingText"
 $script:QuotaProgressFill = Get-Control "QuotaProgressFill"
 $script:ResetText = Get-Control "ResetText"
 $script:QuotaStatusText = Get-Control "QuotaStatusText"
+$script:TaskProgressRows = Get-Control "TaskProgressRows"
 $script:MarketRows = Get-Control "MarketRows"
 $script:BTCPriceText = Get-Control "BTCPriceText"
 $script:BTCStatusText = Get-Control "BTCStatusText"
@@ -588,6 +719,10 @@ $script:AmberBrush = New-Brush "#FFB338"
 $script:RedBrush = New-Brush "#FF646E"
 $script:GreenBrush = New-Brush "#3DDB94"
 $script:WhiteBrush = New-Brush "#F0FFFFFF"
+$script:TaskReadingBrush = New-Brush "#8FFFFFFF"
+$script:TaskRunningBrush = New-Brush "#38ADFF"
+$script:TaskWaitingBrush = New-Brush "#FFB338"
+$script:TaskCompletedBrush = New-Brush "#3DDB94"
 
 function Get-QuotaBrush([int]$remaining) {
     if ($remaining -le 20) { return $script:RedBrush }
@@ -809,7 +944,7 @@ function Start-QuotaRequest {
         $process.StartInfo = $info
         if (-not $process.Start()) { throw "Codex 本机服务启动失败" }
 
-        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"1.0.6"},"capabilities":{"experimentalApi":true}}}'
+        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"1.1.3"},"capabilities":{"experimentalApi":true}}}'
         $initialized = '{"method":"initialized","params":{}}'
         $readLimits = '{"method":"account/rateLimits/read","id":2}'
         $process.StandardInput.WriteLine($initialize)
@@ -918,6 +1053,529 @@ function Poll-QuotaRequest {
         Stop-QuotaProcess
         Set-QuotaError "Codex 额度暂时无法读取"
         $script:NextQuotaAt = [DateTime]::UtcNow.AddSeconds(30)
+    }
+}
+
+$script:CachedTaskRollouts = @()
+$script:ParsedTaskCache = @{}
+$script:CachedThreadTitles = @{}
+$script:ThreadTitleIndexStamp = 0L
+$script:CachedUnreadThreadIDs = @{}
+$script:UnreadStateStamp = 0L
+$script:HasCachedUnreadState = $false
+$script:NextTaskRolloutScanAt = [DateTime]::MinValue
+$script:NextTaskProgressAt = [DateTime]::UtcNow
+$script:LastTaskProgress = "reading"
+$script:LastTaskItems = @()
+$script:LastTaskSignature = ""
+
+function Get-TaskProgressBrush([string]$kind) {
+    switch ($kind) {
+        "running" { return $script:TaskRunningBrush }
+        "waiting" { return $script:TaskWaitingBrush }
+        "completed" { return $script:TaskCompletedBrush }
+        default { return $script:TaskReadingBrush }
+    }
+}
+
+function Get-TaskProgressStatus([string]$kind) {
+    switch ($kind) {
+        "reading" { return "读取中" }
+        "running" { return "正在执行" }
+        "waiting" { return "等你确认" }
+        "completed" { return "已完成" }
+        default { return "等待" }
+    }
+}
+
+function Set-TaskProgressRowCount([int]$rowCount) {
+    $safeCount = [Math]::Max(1, [Math]::Min($script:MaximumVisibleTaskRows, $rowCount))
+    if ($safeCount -eq $script:TaskProgressRowCount) { return }
+
+    $script:TaskProgressRowCount = $safeCount
+    $script:ExpandedHeight = $script:BaseExpandedHeight + $script:TaskProgressRowHeight * $safeCount
+    $script:ExpandedBodyHeight = $script:ExpandedHeight - 13
+    $script:ExpandedPointerTipY = $script:ExpandedHeight - 1
+
+    $script:ExpandedRoot.Height = $script:ExpandedHeight
+    $script:ExpandedPanelBorder.Height = $script:ExpandedBodyHeight
+    $script:ExpandedContentCanvas.Height = $script:ExpandedBodyHeight
+    $script:TaskProgressRows.Height = $script:TaskProgressRowHeight * $safeCount
+    $script:MarketRows.Height = $script:ExpandedBodyHeight
+    $extraHeight = ($safeCount - 1) * $script:TaskProgressRowHeight
+    $script:MarketRows.RenderTransform = [Windows.Media.TranslateTransform]::new(0, $extraHeight)
+
+    $points = [Windows.Media.PointCollection]::new()
+    [void]$points.Add([Windows.Point]::new(104, $script:ExpandedBodyHeight))
+    [void]$points.Add([Windows.Point]::new(112, $script:ExpandedPointerTipY))
+    [void]$points.Add([Windows.Point]::new(120, $script:ExpandedBodyHeight))
+    $script:ExpandedPointer.Points = $points
+
+    [void](Set-PanelScale $script:PanelScale)
+    $script:Window.UpdateLayout()
+    $script:LastPointerCenter = [double]::NaN
+}
+
+function Set-TaskProgressUI([object[]]$tasks) {
+    $visibleTasks = @($tasks)
+    if ($visibleTasks.Count -eq 0) {
+        $visibleTasks = @([PSCustomObject]@{
+            Title = "暂无进行中的任务"
+            Kind = "idle"
+            Status = "等待"
+            StartedAt = [DateTime]::MinValue
+        })
+    } elseif ($visibleTasks.Count -gt $script:MaximumVisibleTaskRows) {
+        $kept = @($visibleTasks | Select-Object -First ($script:MaximumVisibleTaskRows - 1))
+        $remaining = $visibleTasks.Count - $kept.Count
+        $visibleTasks = @($kept) + @([PSCustomObject]@{
+            Title = "还有 $remaining 个任务"
+            Kind = "reading"
+            Status = "继续排队"
+            StartedAt = [DateTime]::MaxValue
+        })
+    }
+
+    $signature = @($visibleTasks | ForEach-Object {
+        ([string]$_.Title) + "|" + ([string]$_.Kind) + "|" + ([string]$_.Status)
+    }) -join "`n"
+    if ($signature -eq $script:LastTaskSignature) { return }
+
+    Set-TaskProgressRowCount $visibleTasks.Count
+    $script:TaskProgressRows.Children.Clear()
+
+    for ($index = 0; $index -lt $visibleTasks.Count; $index++) {
+        $task = $visibleTasks[$index]
+        $rowTop = $index * $script:TaskProgressRowHeight
+        $brush = Get-TaskProgressBrush ([string]$task.Kind)
+
+        $separator = [Windows.Controls.Border]::new()
+        $separator.Width = 190
+        $separator.Height = 1
+        $separator.Background = New-Brush "#21FFFFFF"
+        [Windows.Controls.Canvas]::SetLeft($separator, 14)
+        [Windows.Controls.Canvas]::SetTop($separator, $rowTop)
+        [void]$script:TaskProgressRows.Children.Add($separator)
+
+        $dot = [Windows.Shapes.Ellipse]::new()
+        $dot.Width = 7
+        $dot.Height = 7
+        $dot.Fill = $brush
+        [Windows.Controls.Canvas]::SetLeft($dot, 14)
+        [Windows.Controls.Canvas]::SetTop($dot, $rowTop + 11)
+        [void]$script:TaskProgressRows.Children.Add($dot)
+
+        $title = [Windows.Controls.TextBlock]::new()
+        $title.Text = [string]$task.Title
+        $title.Width = 121
+        $title.Height = 16
+        $title.FontFamily = [Windows.Media.FontFamily]::new("Microsoft YaHei UI")
+        $title.FontSize = 9.4
+        $title.FontWeight = if ($index -eq 0) {
+            [Windows.FontWeights]::SemiBold
+        } else {
+            [Windows.FontWeights]::Medium
+        }
+        $title.Foreground = New-Brush "#D6FFFFFF"
+        $title.TextTrimming = [Windows.TextTrimming]::CharacterEllipsis
+        [Windows.Controls.Canvas]::SetLeft($title, 27)
+        [Windows.Controls.Canvas]::SetTop($title, $rowTop + 7)
+        [void]$script:TaskProgressRows.Children.Add($title)
+
+        $status = [Windows.Controls.TextBlock]::new()
+        $status.Text = if ($task.Status) { [string]$task.Status } else {
+            Get-TaskProgressStatus ([string]$task.Kind)
+        }
+        $status.Width = 56
+        $status.Height = 16
+        $status.TextAlignment = [Windows.TextAlignment]::Right
+        $status.FontFamily = [Windows.Media.FontFamily]::new("Microsoft YaHei UI")
+        $status.FontSize = 9.2
+        $status.FontWeight = [Windows.FontWeights]::SemiBold
+        $status.Foreground = $brush
+        $status.TextTrimming = [Windows.TextTrimming]::CharacterEllipsis
+        [Windows.Controls.Canvas]::SetLeft($status, 148)
+        [Windows.Controls.Canvas]::SetTop($status, $rowTop + 7)
+        [void]$script:TaskProgressRows.Children.Add($status)
+    }
+
+    $script:LastTaskItems = @($visibleTasks)
+    $script:LastTaskProgress = (@($visibleTasks | ForEach-Object { [string]$_.Kind }) -join ",")
+    $script:LastTaskSignature = $signature
+}
+
+function Get-TaskTitle([string]$message) {
+    if ([string]::IsNullOrWhiteSpace($message)) { return $null }
+    $value = $message
+    $marker = [Text.RegularExpressions.Regex]::Match(
+        $value,
+        '(?is)##\s*My request for Codex:\s*(.+)$'
+    )
+    if ($marker.Success) { $value = $marker.Groups[1].Value }
+    $value = [Text.RegularExpressions.Regex]::Replace($value, '(?is)<image.*$', '')
+    $lines = @($value -split "`r?`n" | ForEach-Object {
+        $line = ([string]$_).Trim()
+        if (-not $line -or
+            $line -match '^#\s*Files mentioned' -or
+            $line -match '^##\s*My request' -or
+            $line -match '^/[A-Za-z0-9._-]+/') {
+            $null
+        } else {
+            $line -replace '^[#*\-\s]+', ''
+        }
+    } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $title = ([Text.RegularExpressions.Regex]::Replace(($lines -join ' '), '\s+', ' ')).Trim()
+    if (-not $title) { return $null }
+    if ($title.Length -gt 80) { return $title.Substring(0, 80) }
+    return $title
+}
+
+function Get-TaskThreadId([string]$path) {
+    if ([string]::IsNullOrWhiteSpace($path)) { return $null }
+    $filename = [IO.Path]::GetFileNameWithoutExtension($path)
+    $match = [Text.RegularExpressions.Regex]::Match(
+        $filename,
+        '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+    )
+    if (-not $match.Success) { return $null }
+    return $match.Value.ToLowerInvariant()
+}
+
+function Resolve-TaskTitle([string]$path, [hashtable]$threadTitles, [string]$fallback) {
+    $threadId = Get-TaskThreadId $path
+    if ($threadId -and $threadTitles -and $threadTitles.ContainsKey($threadId)) {
+        $indexedTitle = ([string]$threadTitles[$threadId]).Trim()
+        if ($indexedTitle) { return $indexedTitle }
+    }
+    return $fallback
+}
+
+function Get-ThreadTitleIndex {
+    $indexPath = Join-Path $script:CodexHome 'session_index.jsonl'
+    if (-not (Test-Path -LiteralPath $indexPath -PathType Leaf)) {
+        return $script:CachedThreadTitles
+    }
+
+    try {
+        $file = Get-Item -LiteralPath $indexPath -ErrorAction Stop
+        $stamp = $file.LastWriteTimeUtc.Ticks
+        if ($stamp -eq $script:ThreadTitleIndexStamp) {
+            return $script:CachedThreadTitles
+        }
+
+        $share = [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+        $stream = [IO.File]::Open(
+            $indexPath,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            $share
+        )
+        $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8, $true)
+        try {
+            $text = $reader.ReadToEnd()
+        } finally {
+            $reader.Dispose()
+            $stream.Dispose()
+        }
+
+        $titles = @{}
+        foreach ($line in @($text -split "`r?`n")) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            try { $record = $line | ConvertFrom-Json } catch { continue }
+            if (-not $record.id -or -not $record.thread_name) { continue }
+            $title = ([string]$record.thread_name).Trim()
+            if (-not $title) { continue }
+            if ($title.Length -gt 80) { $title = $title.Substring(0, 80) }
+            $titles[([string]$record.id).ToLowerInvariant()] = $title
+        }
+
+        $script:CachedThreadTitles = $titles
+        $script:ThreadTitleIndexStamp = $stamp
+    } catch {
+        return $script:CachedThreadTitles
+    }
+    return $script:CachedThreadTitles
+}
+
+function Get-UnreadThreadState {
+    $statePath = if ($env:BUBU_CODEX_STATE_FILE) {
+        [string]$env:BUBU_CODEX_STATE_FILE
+    } else {
+        Join-Path $script:CodexHome '.codex-global-state.json'
+    }
+    if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
+        return [PSCustomObject]@{
+            Ids = $script:CachedUnreadThreadIDs
+            Available = $script:HasCachedUnreadState
+        }
+    }
+
+    try {
+        $file = Get-Item -LiteralPath $statePath -ErrorAction Stop
+        $stamp = $file.LastWriteTimeUtc.Ticks
+        if ($stamp -eq $script:UnreadStateStamp) {
+            return [PSCustomObject]@{
+                Ids = $script:CachedUnreadThreadIDs
+                Available = $script:HasCachedUnreadState
+            }
+        }
+
+        $share = [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+        $stream = [IO.File]::Open(
+            $statePath,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            $share
+        )
+        $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8, $true)
+        try {
+            $state = ($reader.ReadToEnd()) | ConvertFrom-Json
+        } finally {
+            $reader.Dispose()
+            $stream.Dispose()
+        }
+
+        $atomState = $state.'electron-persisted-atom-state'
+        $unreadByHost = if ($atomState) {
+            $atomState.'unread-thread-ids-by-host-v1'
+        } else { $null }
+        if ($null -eq $unreadByHost) {
+            return [PSCustomObject]@{
+                Ids = $script:CachedUnreadThreadIDs
+                Available = $script:HasCachedUnreadState
+            }
+        }
+
+        $ids = @{}
+        foreach ($property in @($unreadByHost.PSObject.Properties)) {
+            foreach ($id in @($property.Value)) {
+                $normalized = ([string]$id).Trim().ToLowerInvariant()
+                if ($normalized) { $ids[$normalized] = $true }
+            }
+        }
+        $script:CachedUnreadThreadIDs = $ids
+        $script:UnreadStateStamp = $stamp
+        $script:HasCachedUnreadState = $true
+    } catch {
+        return [PSCustomObject]@{
+            Ids = $script:CachedUnreadThreadIDs
+            Available = $script:HasCachedUnreadState
+        }
+    }
+    return [PSCustomObject]@{
+        Ids = $script:CachedUnreadThreadIDs
+        Available = $true
+    }
+}
+
+function Test-TaskShouldDisplay(
+    [string]$kind,
+    [string]$threadId,
+    [DateTime]$modificationDate,
+    [DateTime]$now,
+    $unreadState
+) {
+    if ($kind -ne 'completed') { return $true }
+    if ($unreadState -and $unreadState.Available -and $threadId) {
+        return [bool]$unreadState.Ids.ContainsKey($threadId.ToLowerInvariant())
+    }
+    return (($now.ToUniversalTime() - $modificationDate.ToUniversalTime()).TotalMinutes -le 2)
+}
+
+function Find-RecentTaskRollouts([hashtable]$unreadThreadIDs) {
+    $override = [string]$env:BUBU_TASK_ROLLOUT_FILE
+    if (-not [string]::IsNullOrWhiteSpace($override)) {
+        if (Test-Path -LiteralPath $override -PathType Leaf) {
+            return @(Get-Item -LiteralPath $override -ErrorAction SilentlyContinue)
+        }
+        return @()
+    }
+
+    $now = [DateTime]::UtcNow
+    if ($script:CachedTaskRollouts.Count -gt 0 -and $now -lt $script:NextTaskRolloutScanAt) {
+        return @($script:CachedTaskRollouts | Where-Object {
+            Test-Path -LiteralPath $_.FullName -PathType Leaf
+        })
+    }
+
+    $script:NextTaskRolloutScanAt = $now.AddSeconds(5)
+    $sessionsRoot = Join-Path $script:CodexHome "sessions"
+    if (-not (Test-Path -LiteralPath $sessionsRoot -PathType Container)) {
+        $script:CachedTaskRollouts = @()
+        return @()
+    }
+
+    try {
+        $cutoff = $now.AddMinutes(-30)
+        $script:CachedTaskRollouts = @(Get-ChildItem -LiteralPath $sessionsRoot -Filter "rollout-*.jsonl" `
+            -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object {
+                $threadId = Get-TaskThreadId $_.FullName
+                $_.LastWriteTimeUtc -ge $cutoff -or
+                    ($threadId -and $unreadThreadIDs -and $unreadThreadIDs.ContainsKey($threadId))
+            } |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 12)
+    } catch {
+        $script:CachedTaskRollouts = @()
+    }
+    return @($script:CachedTaskRollouts)
+}
+
+function Read-TaskRolloutTail([string]$path) {
+    $stream = $null
+    $reader = $null
+    try {
+        $share = [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+        $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, $share)
+        $maximumBytes = 1048576L
+        $start = [Math]::Max(0L, $stream.Length - $maximumBytes)
+        [void]$stream.Seek($start, [IO.SeekOrigin]::Begin)
+        $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8, $true, 4096, $true)
+        $text = $reader.ReadToEnd()
+        if ($start -gt 0) {
+            $firstNewline = $text.IndexOf("`n")
+            if ($firstNewline -ge 0) { $text = $text.Substring($firstNewline + 1) }
+        }
+        return @($text -split "`r?`n")
+    } finally {
+        if ($reader) { $reader.Dispose() }
+        if ($stream) { $stream.Dispose() }
+    }
+}
+
+function Get-TaskProgressKind(
+    [object[]]$lines,
+    [DateTime]$modificationDate,
+    [DateTime]$now
+) {
+    $lifecycle = $null
+    $pendingUserInput = @{}
+    foreach ($lineObject in $lines) {
+        $line = [string]$lineObject
+        if ($line -notmatch 'task_started|task_complete|request_user_input|function_call_output|custom_tool_call_output') {
+            continue
+        }
+        try { $record = $line | ConvertFrom-Json } catch { continue }
+        if (-not $record -or -not $record.payload) { continue }
+        $payload = $record.payload
+        if ($record.type -eq "event_msg") {
+            if ($payload.type -eq "task_started") {
+                $lifecycle = "running"
+                $pendingUserInput.Clear()
+            } elseif ($payload.type -eq "task_complete") {
+                $lifecycle = "completed"
+                $pendingUserInput.Clear()
+            }
+            continue
+        }
+        if (($payload.type -eq "function_call" -or $payload.type -eq "custom_tool_call") -and
+            $payload.name -eq "request_user_input" -and $payload.call_id) {
+            $pendingUserInput[[string]$payload.call_id] = $true
+            continue
+        }
+        if (($payload.type -eq "function_call_output" -or
+                $payload.type -eq "custom_tool_call_output") -and $payload.call_id) {
+            [void]$pendingUserInput.Remove([string]$payload.call_id)
+        }
+    }
+
+    if ($lifecycle -eq "running" -and $pendingUserInput.Count -gt 0) { return "waiting" }
+    if ($lifecycle) { return $lifecycle }
+    if ($pendingUserInput.Count -gt 0) { return "waiting" }
+    if (($now.ToUniversalTime() - $modificationDate.ToUniversalTime()).TotalMinutes -le 30) {
+        return "running"
+    }
+    return "idle"
+}
+
+function Get-TaskProgressItem(
+    [object[]]$lines,
+    [DateTime]$modificationDate,
+    [DateTime]$now
+) {
+    $kind = Get-TaskProgressKind -lines $lines -modificationDate $modificationDate -now $now
+    if ($kind -eq "idle") { return $null }
+
+    $latestTitle = $null
+    $activeTitle = $null
+    $startedAt = $modificationDate.ToUniversalTime()
+    foreach ($lineObject in $lines) {
+        $line = [string]$lineObject
+        if ($line -notmatch 'user_message|task_started') { continue }
+        try { $record = $line | ConvertFrom-Json } catch { continue }
+        if (-not $record -or $record.type -ne "event_msg" -or -not $record.payload) { continue }
+        if ($record.payload.type -eq "user_message") {
+            $candidateTitle = Get-TaskTitle ([string]$record.payload.message)
+            if ($candidateTitle) { $latestTitle = $candidateTitle }
+        } elseif ($record.payload.type -eq "task_started") {
+            if ($latestTitle) { $activeTitle = $latestTitle }
+            if ($record.timestamp) {
+                $parsedTimestamp = [DateTimeOffset]::MinValue
+                if ([DateTimeOffset]::TryParse([string]$record.timestamp, [ref]$parsedTimestamp)) {
+                    $startedAt = $parsedTimestamp.UtcDateTime
+                }
+            }
+        }
+    }
+
+    return [PSCustomObject]@{
+        Title = if ($activeTitle) { $activeTitle } elseif ($latestTitle) { $latestTitle } else { "Codex 任务" }
+        Kind = $kind
+        Status = Get-TaskProgressStatus $kind
+        StartedAt = $startedAt
+        ModifiedAt = $modificationDate.ToUniversalTime()
+    }
+}
+
+function Update-TaskProgress {
+    try {
+        $now = [DateTime]::UtcNow
+        $threadTitles = Get-ThreadTitleIndex
+        $unreadState = Get-UnreadThreadState
+        $tasks = New-Object Collections.Generic.List[object]
+        foreach ($file in @(Find-RecentTaskRollouts -unreadThreadIDs $unreadState.Ids)) {
+            if (-not $file) { continue }
+            $cacheKey = [string]$file.FullName
+            $cacheStamp = $file.LastWriteTimeUtc.Ticks
+            $cached = $script:ParsedTaskCache[$cacheKey]
+            if ($cached -and $cached.Stamp -eq $cacheStamp) {
+                $item = $cached.Item
+            } else {
+                $lines = @(Read-TaskRolloutTail $file.FullName)
+                $item = Get-TaskProgressItem -lines $lines `
+                    -modificationDate $file.LastWriteTimeUtc -now $now
+                $script:ParsedTaskCache[$cacheKey] = [PSCustomObject]@{
+                    Stamp = $cacheStamp
+                    Item = $item
+                }
+            }
+            if (-not $item) { continue }
+            $threadId = Get-TaskThreadId $file.FullName
+            if (-not (Test-TaskShouldDisplay -kind ([string]$item.Kind) `
+                    -threadId $threadId -modificationDate $item.ModifiedAt `
+                    -now $now -unreadState $unreadState)) { continue }
+            $resolvedTitle = Resolve-TaskTitle -path $file.FullName `
+                -threadTitles $threadTitles -fallback ([string]$item.Title)
+            [void]$tasks.Add([PSCustomObject]@{
+                Title = $resolvedTitle
+                Kind = $item.Kind
+                Status = $item.Status
+                StartedAt = $item.StartedAt
+                ModifiedAt = $item.ModifiedAt
+            })
+        }
+        $ordered = @($tasks | Sort-Object `
+            @{ Expression = { if ($_.Kind -eq "completed") { 1 } else { 0 } } }, `
+            StartedAt, Title)
+        Set-TaskProgressUI $ordered
+    } catch {
+        Set-TaskProgressUI @([PSCustomObject]@{
+            Title = "正在读取任务"
+            Kind = "reading"
+            Status = "读取中"
+            StartedAt = [DateTime]::MinValue
+        })
     }
 }
 
@@ -1409,7 +2067,77 @@ function Set-PanelScale([double]$scale) {
     return $safeScale
 }
 
-function Get-NativePetScale($petWindow, $bounds, $geometry, [double]$dpi) {
+function Get-NativePetVisualMetrics($petWindow) {
+    if (-not $petWindow -or -not $petWindow.Handle -or
+        $petWindow.Handle -eq [IntPtr]::Zero) { return $null }
+
+    $now = [DateTime]::UtcNow
+    $sameWindow = $script:CachedVisualWindowHandle -eq $petWindow.Handle
+    $elapsed = ($now - $script:LastVisualProbeAt).TotalMilliseconds
+    if ($sameWindow -and $elapsed -lt $script:VisualProbeIntervalMilliseconds) {
+        return $script:CachedVisualMetrics
+    }
+
+    try {
+        $metrics = [BubuPanel.NativeWindows]::CaptureVisibleBounds($petWindow.Handle)
+        $script:LastVisualProbeAt = $now
+        $script:CachedVisualWindowHandle = $petWindow.Handle
+        if ($metrics -and $metrics.Width -ge 20 -and $metrics.Height -ge 30 -and
+            $metrics.Width -lt $petWindow.Width * 0.80 -and
+            $metrics.Height -lt $petWindow.Height * 0.98) {
+            $script:CachedVisualMetrics = $metrics
+            $script:CachedVisualAt = $now
+            return $metrics
+        }
+    } catch {
+        Write-PanelLog ("VISUAL-PROBE failed=" + $_.Exception.Message)
+    }
+
+    # A single failed Chromium frame must not make the panel jump back to its
+    # unscaled size. Keep the most recent measurement briefly, but never carry
+    # it over to another native window.
+    $cachedAge = ($now - $script:CachedVisualAt).TotalMilliseconds
+    if ($sameWindow -and $script:CachedVisualMetrics -and $cachedAge -lt 600) {
+        return $script:CachedVisualMetrics
+    }
+    $script:CachedVisualMetrics = $null
+    return $null
+}
+
+function Get-VisualPetScaleCandidates($visualMetrics, [double]$dpi) {
+    if (-not $visualMetrics -or [double]$visualMetrics.Width -le 0 -or
+        [double]$visualMetrics.Height -le 0) { return @() }
+    $dpiScale = [Math]::Max(0.1, $dpi / 96.0)
+    $allCandidates = @(
+        foreach ($encodedSize in $script:PetFrameVisiblePixelSizes) {
+            $parts = $encodedSize.Split('x')
+            $frameWidth = [double]$parts[0]
+            $frameHeight = [double]$parts[1]
+            $expectedWidth = $frameWidth * $script:CanonicalPetWidth /
+                $script:PetAtlasFrameWidth * $dpiScale
+            $expectedHeight = $frameHeight * $script:CanonicalPetHeight /
+                $script:PetAtlasFrameHeight * $dpiScale
+            $widthScale = [double]$visualMetrics.Width / $expectedWidth
+            $heightScale = [double]$visualMetrics.Height / $expectedHeight
+            if ($widthScale -gt 0 -and $heightScale -gt 0) {
+                [PSCustomObject]@{
+                    Scale = Limit-PanelScale ([Math]::Sqrt($widthScale * $heightScale))
+                    Distortion = [Math]::Abs([Math]::Log($widthScale / $heightScale))
+                }
+            }
+        }
+    )
+    if ($allCandidates.Count -eq 0) { return @() }
+    $distortionMeasurement = $allCandidates |
+        Measure-Object -Property Distortion -Minimum
+    $bestDistortion = [double]$distortionMeasurement.Minimum
+    if ($bestDistortion -gt 0.15) { return @() }
+    return @($allCandidates | Where-Object {
+        $_.Distortion -le $bestDistortion + 0.02
+    })
+}
+
+function Get-NativePetScale($petWindow, $bounds, $geometry, [double]$dpi, $visualMetrics = $null) {
     if (-not $petWindow -or -not $bounds -or -not $geometry -or
         [double]$bounds.width -le 0 -or [double]$bounds.height -le 0) {
         return 1.0
@@ -1424,7 +2152,29 @@ function Get-NativePetScale($petWindow, $bounds, $geometry, [double]$dpi) {
     # resized. Multiplying its scale by the live/reference window ratio keeps
     # the panel synchronized throughout the resize, not only after JSON saves.
     $liveWindowRatio = [Math]::Sqrt($liveScaleX * $liveScaleY)
-    return Limit-PanelScale ($storedPetScale * $liveWindowRatio)
+    $anchorScale = Limit-PanelScale ($storedPetScale * $liveWindowRatio)
+    if (-not $visualMetrics -or [double]$visualMetrics.Height -le 0) {
+        return $anchorScale
+    }
+
+    $visualCandidates = @(Get-VisualPetScaleCandidates $visualMetrics $dpi)
+    if ($visualCandidates.Count -eq 0) { return $anchorScale }
+    # Several animation frames can have nearly the same aspect ratio. Prefer
+    # the matching frame whose scale is nearest the saved anchor, so coffee,
+    # singing and guitar poses cannot make the panel pulse by themselves.
+    $bestVisualCandidate = $visualCandidates |
+        Sort-Object { [Math]::Abs([Math]::Log($_.Scale / $anchorScale)) } |
+        Select-Object -First 1
+    $visualScale = [double]$bestVisualCandidate.Scale
+    if ($anchorScale -le 0 -or $visualScale -le 0) { return $anchorScale }
+    $relativeDifference = [Math]::Abs([Math]::Log($visualScale / $anchorScale))
+    # Different animation rows have a little natural transparent padding. Only
+    # override the saved anchor when the actual rendered size changed enough
+    # to be a real Bubu zoom, not ordinary frame-to-frame motion.
+    if ($relativeDifference -gt $script:VisualScaleTolerance) {
+        return $visualScale
+    }
+    return $anchorScale
 }
 
 function Get-MascotGeometry($bounds) {
@@ -1491,10 +2241,19 @@ function Get-NativePetAnchor(
     $bounds,
     $geometry,
     [double]$alignmentX = 0.0,
-    [double]$alignmentY = 0.0
+    [double]$alignmentY = 0.0,
+    $visualMetrics = $null
 ) {
     if (-not $petWindow -or -not $bounds -or -not $geometry -or
         [double]$bounds.width -le 0 -or [double]$bounds.height -le 0) { return $null }
+    if ($visualMetrics -and [double]$visualMetrics.Width -gt 0 -and
+        [double]$visualMetrics.Height -gt 0) {
+        return [PSCustomObject]@{
+            CenterX = [double]($petWindow.Left + $visualMetrics.Left +
+                $visualMetrics.Width / 2.0)
+            Top = [double]($petWindow.Top + $visualMetrics.Top)
+        }
+    }
     $scaleX = $petWindow.Width / [double]$bounds.width
     $scaleY = $petWindow.Height / [double]$bounds.height
     return [PSCustomObject]@{
@@ -1513,13 +2272,15 @@ function Get-NativePanelPlacement(
     [double]$panelScale,
     $workArea,
     [double]$alignmentX = 0.0,
-    [double]$alignmentY = 0.0
+    [double]$alignmentY = 0.0,
+    $visualMetrics = $null
 ) {
     if (-not $petWindow -or -not $bounds -or -not $geometry -or -not $panelWindow) { return $null }
     if ([double]$bounds.width -le 0 -or [double]$bounds.height -le 0 -or
         $panelWindow.Width -le 0 -or $panelWindow.Height -le 0) { return $null }
 
-    $anchor = Get-NativePetAnchor $petWindow $bounds $geometry $alignmentX $alignmentY
+    $anchor = Get-NativePetAnchor $petWindow $bounds $geometry `
+        $alignmentX $alignmentY $visualMetrics
     if (-not $anchor) { return $null }
     $visualCenterX = $anchor.CenterX
     $visualTop = $anchor.Top
@@ -1552,7 +2313,8 @@ function Get-NativePanelPlacement(
 
 function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
     $dpi = [BubuPanel.NativeWindows]::GetWindowDpi($petWindow.Handle)
-    $panelScale = Get-NativePetScale $petWindow $bounds $geometry $dpi
+    $visualMetrics = Get-NativePetVisualMetrics $petWindow
+    $panelScale = Get-NativePetScale $petWindow $bounds $geometry $dpi $visualMetrics
     [void](Set-PanelScale $panelScale)
     if (-not $script:Window.IsVisible) {
         $script:Window.Show()
@@ -1567,7 +2329,7 @@ function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
     # helper window's monitor for horizontal clamping makes the panel alternate
     # between Bubu and a screen edge for a single frame.
     $anchor = Get-NativePetAnchor $petWindow $bounds $geometry `
-        $script:TrackingAlignmentX $script:TrackingAlignmentY
+        $script:TrackingAlignmentX $script:TrackingAlignmentY $visualMetrics
     $workArea = if ($anchor) {
         [BubuPanel.NativeWindows]::GetMonitorWorkAreaAtPoint(
             [int][Math]::Round($anchor.CenterX), [int][Math]::Round($anchor.Top))
@@ -1577,7 +2339,7 @@ function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
     }
     $placement = Get-NativePanelPlacement `
         $petWindow $bounds $geometry $panelWindow $dpi $panelScale $workArea `
-        $script:TrackingAlignmentX $script:TrackingAlignmentY
+        $script:TrackingAlignmentX $script:TrackingAlignmentY $visualMetrics
     if (-not $placement) { return $false }
 
     if ([Math]::Abs($panelWindow.Left - $placement.Left) -gt 1 -or
@@ -1595,7 +2357,9 @@ function Show-PanelAtHeuristicWindow($petWindow) {
     $dpi = [BubuPanel.NativeWindows]::GetWindowDpi($petWindow.Handle)
     $estimatedBounds = [PSCustomObject]@{ width = 356.0; height = 320.0 }
     $estimatedGeometry = [PSCustomObject]@{ Left = 165.0; Top = 15.0; Width = 163.0 }
-    $panelScale = Get-NativePetScale $petWindow $estimatedBounds $estimatedGeometry $dpi
+    $visualMetrics = Get-NativePetVisualMetrics $petWindow
+    $panelScale = Get-NativePetScale `
+        $petWindow $estimatedBounds $estimatedGeometry $dpi $visualMetrics
     [void](Set-PanelScale $panelScale)
     if (-not $script:Window.IsVisible) {
         $script:Window.Show()
@@ -1603,7 +2367,8 @@ function Show-PanelAtHeuristicWindow($petWindow) {
     }
     $panelWindow = [BubuPanel.NativeWindows]::GetWindow($script:WindowHandle)
     if (-not $panelWindow) { return $false }
-    $anchor = Get-NativePetAnchor $petWindow $estimatedBounds $estimatedGeometry
+    $anchor = Get-NativePetAnchor `
+        $petWindow $estimatedBounds $estimatedGeometry 0.0 0.0 $visualMetrics
     $workArea = if ($anchor) {
         [BubuPanel.NativeWindows]::GetMonitorWorkAreaAtPoint(
             [int][Math]::Round($anchor.CenterX), [int][Math]::Round($anchor.Top))
@@ -1612,7 +2377,8 @@ function Show-PanelAtHeuristicWindow($petWindow) {
         $workArea = [BubuPanel.NativeWindows]::GetMonitorWorkArea($petWindow.Handle)
     }
     $placement = Get-NativePanelPlacement `
-        $petWindow $estimatedBounds $estimatedGeometry $panelWindow $dpi $panelScale $workArea
+        $petWindow $estimatedBounds $estimatedGeometry $panelWindow $dpi $panelScale $workArea `
+        0.0 0.0 $visualMetrics
     if (-not $placement) { return $false }
     if ([Math]::Abs($panelWindow.Left - $placement.Left) -gt 1 -or
         [Math]::Abs($panelWindow.Top - $placement.Top) -gt 1) {
@@ -1816,6 +2582,102 @@ function Update-PetPosition {
     Follow-PetWindowFast
 }
 
+if ($PrintTaskProgress) {
+    Update-TaskProgress
+    $summary = @($script:LastTaskItems | ForEach-Object {
+        ([string]$_.Title) + "[" + ([string]$_.Kind) + "]"
+    }) -join " | "
+    Write-Output ("task-progress: count=" + $script:LastTaskItems.Count + " " + $summary)
+    $script:Window.Close()
+    exit 0
+}
+
+if ($ValidateTaskProgress) {
+    $now = [DateTime]::UtcNow
+    $started = '{"type":"event_msg","payload":{"type":"task_started"}}'
+    $completed = '{"type":"event_msg","payload":{"type":"task_complete"}}'
+    $request = '{"type":"response_item","payload":{"type":"function_call","name":"request_user_input","call_id":"call-1"}}'
+    $response = '{"type":"response_item","payload":{"type":"function_call_output","call_id":"call-1"}}'
+    $cases = @(
+        [PSCustomObject]@{ Name = "running"; Lines = @($started); Modified = $now; Expected = "running" },
+        [PSCustomObject]@{ Name = "waiting"; Lines = @($started, $request); Modified = $now; Expected = "waiting" },
+        [PSCustomObject]@{ Name = "resumed"; Lines = @($started, $request, $response); Modified = $now; Expected = "running" },
+        [PSCustomObject]@{ Name = "completed"; Lines = @($started, $completed); Modified = $now; Expected = "completed" },
+        [PSCustomObject]@{ Name = "fresh-fallback"; Lines = @(); Modified = $now; Expected = "running" },
+        [PSCustomObject]@{ Name = "idle"; Lines = @(); Modified = $now.AddMinutes(-31); Expected = "idle" }
+    )
+    foreach ($case in $cases) {
+        $actual = Get-TaskProgressKind -lines @($case.Lines) `
+            -modificationDate $case.Modified -now $now
+        if ($actual -ne $case.Expected) {
+            throw "Task progress case $($case.Name) failed: expected=$($case.Expected) actual=$actual"
+        }
+    }
+
+    $titledUserMessage = '{"type":"event_msg","payload":{"type":"user_message","message":"# Files mentioned by the user:\n/a.png\n## My request for Codex:\n列出具体任务名称"}}'
+    $titled = Get-TaskProgressItem -lines @($titledUserMessage, $started) `
+        -modificationDate $now -now $now
+    if (-not $titled -or $titled.Title -ne "列出具体任务名称") {
+        throw "Task title extraction failed."
+    }
+
+    $indexedThreadId = '12345678-1234-4abc-8def-1234567890ab'
+    $indexedTitles = @{ $indexedThreadId = '正式任务名称' }
+    $indexedPath = "C:\Codex\rollout-2026-07-16T16-52-47-$indexedThreadId.jsonl"
+    $indexedTitle = Resolve-TaskTitle -path $indexedPath `
+        -threadTitles $indexedTitles -fallback 'Codex 任务'
+    if ($indexedTitle -ne '正式任务名称') {
+        throw "Task index title mapping failed."
+    }
+
+    $unreadState = [PSCustomObject]@{
+        Ids = @{ $indexedThreadId = $true }
+        Available = $true
+    }
+    $readState = [PSCustomObject]@{
+        Ids = @{}
+        Available = $true
+    }
+    $unavailableState = [PSCustomObject]@{
+        Ids = @{}
+        Available = $false
+    }
+    $readStateCases = @(
+        (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
+            -modificationDate ($now.AddHours(-1)) -now $now -unreadState $unreadState),
+        (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
+            -modificationDate $now -now $now -unreadState $readState)),
+        (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
+            -modificationDate $now -now $now -unreadState $unavailableState),
+        (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
+            -modificationDate ($now.AddMinutes(-3)) -now $now -unreadState $unavailableState))
+    )
+    if (@($readStateCases | Where-Object { -not $_ }).Count -ne 0) {
+        throw "Task unread/read visibility mapping failed."
+    }
+
+    $overflowTasks = @(0..6 | ForEach-Object {
+        [PSCustomObject]@{
+            Title = "任务 $($_ + 1)"
+            Kind = "running"
+            Status = "正在执行"
+            StartedAt = $now.AddSeconds($_)
+        }
+    })
+    Set-TaskProgressUI $overflowTasks
+    $expectedDynamicHeight = $script:BaseExpandedHeight +
+        $script:TaskProgressRowHeight * $script:MaximumVisibleTaskRows
+    if ($script:LastTaskItems.Count -ne $script:MaximumVisibleTaskRows -or
+        $script:LastTaskItems[-1].Title -ne "还有 3 个任务" -or
+        $script:ExpandedHeight -ne $expectedDynamicHeight) {
+        throw "Dynamic task-list layout failed."
+    }
+
+    Write-Output "task-progress-validation: running waiting resumed completed fresh-fallback idle = 6/6; title=1/1; index=1/1; read-state=4/4; list=5+overflow"
+    $script:Window.Close()
+    exit 0
+}
+
 if ($ValidateTrackingFilters) {
     $script:IsCollapsed = $false
     $layoutScaleSamples = 0
@@ -1823,11 +2685,18 @@ if ($ValidateTrackingFilters) {
         [void](Set-PanelScale $layoutScale)
         $expectedWidth = $script:ExpandedWidth * $layoutScale
         $expectedHeight = $script:ExpandedHeight * $layoutScale
-        if ([Math]::Abs($script:Window.Width - $expectedWidth) -gt 0.01 -or
-            [Math]::Abs($script:Window.Height - $expectedHeight) -gt 0.01 -or
+        # WPF rounds a half-DIP outer window dimension to the nearest physical
+        # pixel (139 * 0.5 becomes 70). The inner LayoutTransform must remain
+        # exact; only the native window edge gets a half-pixel tolerance.
+        if ([Math]::Abs($script:Window.Width - $expectedWidth) -gt 0.51 -or
+            [Math]::Abs($script:Window.Height - $expectedHeight) -gt 0.51 -or
             [Math]::Abs($script:PanelScaleRoot.LayoutTransform.ScaleX - $layoutScale) -gt 0.001 -or
             [Math]::Abs($script:PanelScaleRoot.LayoutTransform.ScaleY - $layoutScale) -gt 0.001) {
-            throw "WPF proportional layout scaling failed at scale=$layoutScale."
+            throw ("WPF proportional layout scaling failed at scale=$layoutScale " +
+                "window=$($script:Window.Width)x$($script:Window.Height) " +
+                "expected=${expectedWidth}x${expectedHeight} " +
+                "transform=$($script:PanelScaleRoot.LayoutTransform.ScaleX)x" +
+                "$($script:PanelScaleRoot.LayoutTransform.ScaleY).")
         }
         $layoutScaleSamples++
     }
@@ -1855,6 +2724,7 @@ if ($ValidateTrackingFilters) {
     $noActivateApplied = [BubuPanel.NativeWindows]::HasNoActivateStyle($script:WindowHandle)
     $placementSamples = 0
     $scaleSamples = 0
+    $visualScaleSamples = 0
     $geometry = [PSCustomObject]@{ Left = 165.0; Top = 15.0; Width = 163.0 }
     foreach ($dpi in @(96.0, 120.0, 144.0, 192.0, 288.0)) {
         foreach ($petScale in @(0.5, 1.0, 1.75, 2.5)) {
@@ -1866,7 +2736,7 @@ if ($ValidateTrackingFilters) {
             }
             $syntheticPanel = [PSCustomObject]@{
                 Width = [int][Math]::Round(224.0 * $dpi / 96.0 * $petScale)
-                Height = [int][Math]::Round(116.0 * $dpi / 96.0 * $petScale)
+                Height = [int][Math]::Round($script:ExpandedHeight * $dpi / 96.0 * $petScale)
             }
             $syntheticWorkArea = [PSCustomObject]@{
                 Left = -1920; Top = 0; Right = 1920; Bottom = 2160
@@ -1886,6 +2756,61 @@ if ($ValidateTrackingFilters) {
             }
             $placementSamples++
         }
+    }
+    # Reproduce Codex keeping the 356x320 transparent overlay while rendering
+    # a much smaller or larger Bubu inside it. The measured visible pixels must
+    # override the stale 1.0 anchor scale on every DPI.
+    foreach ($dpi in @(96.0, 144.0)) {
+        foreach ($visibleScale in @(0.4, 0.7, 1.5, 2.0)) {
+            $dpiScale = $dpi / 96.0
+            $visualMetrics = [PSCustomObject]@{
+                Left = 120.0
+                Top = 40.0
+                Width = 161.0 * $script:CanonicalPetWidth /
+                    $script:PetAtlasFrameWidth * $visibleScale * $dpiScale
+                Height = 198.0 * $script:CanonicalPetHeight /
+                    $script:PetAtlasFrameHeight * $visibleScale * $dpiScale
+            }
+            $syntheticPet = [PSCustomObject]@{
+                Left = 400; Top = 240
+                Width = [int][Math]::Round(356.0 * $dpiScale)
+                Height = [int][Math]::Round(320.0 * $dpiScale)
+            }
+            $derivedScale = Get-NativePetScale `
+                $syntheticPet $testBounds $geometry $dpi $visualMetrics
+            if ([Math]::Abs($derivedScale - $visibleScale) -gt 0.01) {
+                throw "Visible-pixel scale derivation failed at dpi=$dpi visibleScale=$visibleScale derived=$derivedScale."
+            }
+            $visualScaleSamples++
+        }
+    }
+    $nearFrameVariation = [PSCustomObject]@{
+        Left = 120.0; Top = 40.0
+        Width = 161.0 * $script:CanonicalPetWidth /
+            $script:PetAtlasFrameWidth * 0.94
+        Height = 198.0 * $script:CanonicalPetHeight /
+            $script:PetAtlasFrameHeight * 0.94
+    }
+    $nearFrameScale = Get-NativePetScale `
+        $petWindow $testBounds $geometry 96.0 $nearFrameVariation
+    if ([Math]::Abs($nearFrameScale - 1.0) -gt 0.01) {
+        throw "Ordinary animation-frame height variation changed the panel scale."
+    }
+    $visualScaleSamples++
+    foreach ($shortPoseScale in @(1.0, 0.4)) {
+        $shortPose = [PSCustomObject]@{
+            Left = 120.0; Top = 40.0
+            Width = 119.0 * $script:CanonicalPetWidth /
+                $script:PetAtlasFrameWidth * $shortPoseScale
+            Height = 152.0 * $script:CanonicalPetHeight /
+                $script:PetAtlasFrameHeight * $shortPoseScale
+        }
+        $derivedShortPoseScale = Get-NativePetScale `
+            $petWindow $testBounds $geometry 96.0 $shortPose
+        if ([Math]::Abs($derivedShortPoseScale - $shortPoseScale) -gt 0.01) {
+            throw "Short animation pose was mistaken for a pet resize at scale=$shortPoseScale."
+        }
+        $visualScaleSamples++
     }
     # Reproduce the affected Windows layout: a same-size auxiliary Chrome
     # window sits 90 physical pixels left of the real overlay. The selector must
@@ -1915,7 +2840,7 @@ if ($ValidateTrackingFilters) {
         [Math]::Abs($alignment.Y) -gt 0.01) {
         throw "Native pet-center calibration failed for the 90px Windows offset regression."
     }
-    $regressionPanel = [PSCustomObject]@{ Width = 224; Height = 116 }
+    $regressionPanel = [PSCustomObject]@{ Width = 224; Height = $script:ExpandedHeight }
     $regressionPlacement = Get-NativePanelPlacement $offsetCandidate $stateBounds $geometry `
         $regressionPanel 96.0 1.0 $monitorBounds $alignment.X $alignment.Y
     $expectedCenter = 400.0 + $geometry.Left + $geometry.Width / 2.0
@@ -1959,6 +2884,7 @@ if ($ValidateTrackingFilters) {
     Write-Output ("tracking-filter-validation: pet=True ime-size=True ime-class=True " +
         "no-activate=True placement-matrix=" + $placementSamples +
         " scale-matrix=" + $scaleSamples +
+        " visual-scale-matrix=" + $visualScaleSamples +
         " layout-scale-matrix=" + $layoutScaleSamples +
         " state-aware-selection=True center-calibration=True drag-center=True" +
         " anchor-monitor=True flicker-grace=True")
@@ -2048,6 +2974,10 @@ $script:ServiceTimer.Add_Tick({
     $now = [DateTime]::UtcNow
     Poll-QuotaRequest
     $petIsMoving = Test-PetIsMoving
+    if (-not $petIsMoving -and $now -ge $script:NextTaskProgressAt) {
+        Update-TaskProgress
+        $script:NextTaskProgressAt = $now.AddSeconds(2)
+    }
     if (-not $petIsMoving -and -not $script:QuotaProcess -and $now -ge $script:NextQuotaAt) {
         Start-QuotaRequest
     }

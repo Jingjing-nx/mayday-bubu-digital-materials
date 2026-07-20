@@ -1,5 +1,5 @@
 Package: Bubu macOS
-Version: 1.0.10
+Version: 1.1.3
 System: macOS 12.3+
 Architecture: Universal 2 (arm64 + x86_64)
 Variants: Full / Codex Only (no BTC or ETH)
