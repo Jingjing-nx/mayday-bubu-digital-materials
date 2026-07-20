@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-VERSION="1.0.8"
+VERSION="1.0.9"
 CODEX_ONLY_RELEASE="false"
 if [[ "${1:-}" == "--codex-only" ]]; then
   CODEX_ONLY_RELEASE="true"

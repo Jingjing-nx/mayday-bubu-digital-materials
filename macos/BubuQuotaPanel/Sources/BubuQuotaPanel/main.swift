@@ -4,7 +4,7 @@ import Foundation
 
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
-private let panelVersion = "1.0.8"
+private let panelVersion = "1.0.9"
 private let marketPricesEnabled: Bool = {
     guard let rawValue = ProcessInfo.processInfo.environment["BUBU_SHOW_MARKET_PRICES"] else {
         return true
@@ -20,6 +20,9 @@ private let panelPetGap: CGFloat = 14
 private let panelScreenMargin: CGFloat = 8
 private let pointerTipBottomInset: CGFloat = 1
 private let pointerHorizontalSafeInset: CGFloat = 18
+private let canonicalPetSpriteSize = NSSize(width: 163, height: 177)
+private let minimumPanelScale: CGFloat = 0.20
+private let maximumPanelScale: CGFloat = 8
 // The v2 sprite has a small transparent top padding inside Codex's stored
 // mascot anchor. Add it so the panel measures from Bubu's visible top tuft.
 private let petSpriteTopPaddingInsideAnchor: CGFloat = 7
@@ -37,6 +40,7 @@ private struct PanelPlacement {
 private func panelPlacement(
     petVisibleRect: NSRect,
     panelSize: NSSize,
+    panelScale: CGFloat,
     screenVisibleFrame: NSRect
 ) -> PanelPlacement {
     let minX = screenVisibleFrame.minX + panelScreenMargin
@@ -45,7 +49,7 @@ private func panelPlacement(
     let x = min(max(desiredX, minX), maxX)
 
     let desiredTipY = petVisibleRect.maxY + panelPetGap
-    let desiredY = desiredTipY - pointerTipBottomInset
+    let desiredY = desiredTipY - pointerTipBottomInset * panelScale
     // Keep the pointer attached even near a display's top edge. Vertically
     // clamping the panel to the work area creates the large pet/panel split
     // reported on short or heavily scaled displays.
@@ -54,11 +58,11 @@ private func panelPlacement(
     let originX = x
     let originY = y
     let rawPointerCenterX = petVisibleRect.midX - originX
-    let safeMinX = min(pointerHorizontalSafeInset, panelSize.width / 2)
+    let safeMinX = min(pointerHorizontalSafeInset * panelScale, panelSize.width / 2)
     let safeMaxX = max(safeMinX, panelSize.width - safeMinX)
     let pointerCenterX = min(max(rawPointerCenterX, safeMinX), safeMaxX)
     let actualPointerX = originX + pointerCenterX
-    let actualPointerTipY = originY + pointerTipBottomInset
+    let actualPointerTipY = originY + pointerTipBottomInset * panelScale
 
     return PanelPlacement(
         origin: NSPoint(x: originX, y: originY),
@@ -66,6 +70,16 @@ private func panelPlacement(
         actualGap: actualPointerTipY - petVisibleRect.maxY,
         centerError: actualPointerX - petVisibleRect.midX
     )
+}
+
+private func normalizedPanelScale(_ value: CGFloat) -> CGFloat {
+    guard value.isFinite else { return 1 }
+    return min(max(value, minimumPanelScale), maximumPanelScale)
+}
+
+private func scaledPanelSize(_ baseSize: NSSize, scale: CGFloat) -> NSSize {
+    let safeScale = normalizedPanelScale(scale)
+    return NSSize(width: baseSize.width * safeScale, height: baseSize.height * safeScale)
 }
 
 private final class RuntimeHealthWriter {
@@ -87,9 +101,16 @@ private final class RuntimeHealthWriter {
         locationSource: String?,
         gap: CGFloat? = nil,
         centerError: CGFloat? = nil,
+        panelScale: CGFloat = 1,
+        panelSize: NSSize? = nil,
         force: Bool = false
     ) {
         let now = CFAbsoluteTimeGetCurrent()
+        let safeScale = normalizedPanelScale(panelScale)
+        let livePanelSize = panelSize ?? scaledPanelSize(expandedPanelSize, scale: safeScale)
+        // Do not turn a live resize into 30 disk writes per second. Scale and
+        // dimensions are included in the periodic payload, while the signature
+        // remains limited to meaningful visibility/source changes.
         let signature = "\(status)|\(panelVisible)|\(locationSource ?? "none")"
         guard force || signature != lastSignature || now - lastWriteAt >= 15 else { return }
 
@@ -99,7 +120,10 @@ private final class RuntimeHealthWriter {
             "status": status,
             "panelVisible": panelVisible,
             "marketPricesEnabled": marketPricesEnabled,
-            "panelHeightPoints": expandedPanelSize.height,
+            "panelBaseHeightPoints": expandedPanelSize.height,
+            "panelWidthPoints": livePanelSize.width,
+            "panelHeightPoints": livePanelSize.height,
+            "panelScale": safeScale,
             "locationSource": locationSource ?? NSNull(),
             "updatedAt": ISO8601DateFormatter().string(from: Date()),
         ]
@@ -861,6 +885,7 @@ private final class QuotaPanelView: NSView {
 private struct LocatedPet {
     let overlayRect: NSRect
     let visibleRect: NSRect
+    let panelScale: CGFloat
     let screen: NSScreen
     let source: String
 }
@@ -947,6 +972,7 @@ private final class PetWindowLocator {
             return LocatedPet(
                 overlayRect: converted.0,
                 visibleRect: visibleRect(in: converted.0, metrics: appMetrics),
+                panelScale: panelScale(for: quartzMetrics),
                 screen: converted.1,
                 source: "window-\(quartzMetrics.source)"
             )
@@ -964,6 +990,7 @@ private final class PetWindowLocator {
             return LocatedPet(
                 overlayRect: converted.0,
                 visibleRect: visibleRect(in: converted.0, metrics: appMetrics),
+                panelScale: panelScale(for: quartzMetrics),
                 screen: converted.1,
                 source: "window-cached-anchor"
             )
@@ -976,14 +1003,16 @@ private final class PetWindowLocator {
         if now - lastVisualProbeAt >= 0.12 {
             lastVisualProbeAt = now
             if let probedInset = probeTopVisualInset(windowID: windowID) {
-                let width = min(224, max(80, quartzRect.width * 163 / 356))
+                let width = max(24, quartzRect.width * canonicalPetSpriteSize.width / 356)
                 let height = width * 177 / 163
+                let topPadding = petSpriteTopPaddingInsideAnchor
+                    * normalizedPanelScale(width / canonicalPetSpriteSize.width)
                 let metrics = StoredMascotMetrics(
                     left: max(0, (quartzRect.width - width) / 2),
-                    top: max(0, probedInset - petSpriteTopPaddingInsideAnchor),
+                    top: max(0, probedInset - topPadding),
                     width: width,
                     height: height,
-                    topPadding: petSpriteTopPaddingInsideAnchor,
+                    topPadding: topPadding,
                     source: "image-probe"
                 )
                 cachedMascotMetrics = metrics
@@ -994,6 +1023,7 @@ private final class PetWindowLocator {
                 return LocatedPet(
                     overlayRect: converted.0,
                     visibleRect: visibleRect(in: converted.0, metrics: appMetrics),
+                    panelScale: panelScale(for: metrics),
                     screen: converted.1,
                     source: "window-image-probe"
                 )
@@ -1088,12 +1118,15 @@ private final class PetWindowLocator {
         {
             let derivedHeight = width.doubleValue * 177 / 163
             let height = (mascot["height"] as? NSNumber)?.doubleValue ?? derivedHeight
+            let mascotScale = normalizedPanelScale(
+                CGFloat(width.doubleValue) / canonicalPetSpriteSize.width
+            )
             let metrics = StoredMascotMetrics(
                 left: CGFloat(left.doubleValue),
                 top: CGFloat(top.doubleValue),
                 width: CGFloat(width.doubleValue),
                 height: CGFloat(height),
-                topPadding: petSpriteTopPaddingInsideAnchor,
+                topPadding: petSpriteTopPaddingInsideAnchor * mascotScale,
                 source: "state-mascot"
             )
             if metricsAreValid(metrics, for: overlayRect.size) { return metrics }
@@ -1107,12 +1140,15 @@ private final class PetWindowLocator {
            let width = anchor["width"] as? NSNumber,
            let height = anchor["height"] as? NSNumber
         {
+            let anchorScale = normalizedPanelScale(
+                CGFloat(width.doubleValue) / canonicalPetSpriteSize.width
+            )
             let metrics = StoredMascotMetrics(
                 left: CGFloat(x.doubleValue - overlayRect.minX),
                 top: CGFloat(y.doubleValue - overlayRect.minY),
                 width: CGFloat(width.doubleValue),
                 height: CGFloat(height.doubleValue),
-                topPadding: petSpriteTopPaddingInsideAnchor,
+                topPadding: petSpriteTopPaddingInsideAnchor * anchorScale,
                 source: "state-anchor"
             )
             if metricsAreValid(metrics, for: overlayRect.size) { return metrics }
@@ -1198,6 +1234,20 @@ private final class PetWindowLocator {
         return matches.min(by: { $0.1 < $1.1 })?.0
     }
 
+    private func panelScale(for metrics: StoredMascotMetrics) -> CGFloat {
+        let widthScale = metrics.width / canonicalPetSpriteSize.width
+        let heightScale = metrics.height / canonicalPetSpriteSize.height
+        guard widthScale.isFinite,
+              heightScale.isFinite,
+              widthScale > 0,
+              heightScale > 0
+        else { return 1 }
+
+        // Use both axes so a temporarily rounded Electron window dimension
+        // cannot make the panel pulse by one pixel while Bubu is zooming.
+        return normalizedPanelScale(sqrt(widthScale * heightScale))
+    }
+
     private func visibleRect(in overlayRect: NSRect, metrics: StoredMascotMetrics) -> NSRect {
         let visibleHeight = max(1, metrics.height - metrics.topPadding)
         return NSRect(
@@ -1222,6 +1272,7 @@ private final class PetWindowLocator {
             return LocatedPet(
                 overlayRect: converted.0,
                 visibleRect: visibleRect(in: converted.0, metrics: appMetrics),
+                panelScale: panelScale(for: mascot),
                 screen: converted.1,
                 source: "saved-\(mascot.source)"
             )
@@ -1351,7 +1402,8 @@ private final class PetWindowLocator {
                   abs(scaled.top - base.top * factor) <= 0.01,
                   abs(scaled.width - base.width * factor) <= 0.01,
                   abs(scaled.height - base.height * factor) <= 0.01,
-                  abs(scaled.topPadding - base.topPadding * factor) <= 0.01
+                  abs(scaled.topPadding - base.topPadding * factor) <= 0.01,
+                  abs(panelScale(for: scaled) - factor) <= 0.01
             else { return false }
         }
         return scaledMetrics(
@@ -1380,6 +1432,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastETHPrice: Double?
     private var lastLocatedPet: LocatedPet?
     private var lastLocatedAt: CFAbsoluteTime = 0
+    private var currentPanelScale: CGFloat = 1
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -1439,7 +1492,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func toggleCollapsed() {
         quotaView.isCollapsed.toggle()
-        panel.setContentSize(quotaView.isCollapsed ? collapsedPanelSize : expandedPanelSize)
         followPet()
     }
 
@@ -1456,25 +1508,45 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             pet = recent
         } else {
             panel.orderOut(nil)
-            healthWriter.write(status: "waiting-for-pet-location", panelVisible: false, locationSource: nil)
+            let baseSize = quotaView.isCollapsed ? collapsedPanelSize : expandedPanelSize
+            healthWriter.write(
+                status: "waiting-for-pet-location",
+                panelVisible: false,
+                locationSource: nil,
+                panelScale: currentPanelScale,
+                panelSize: scaledPanelSize(baseSize, scale: currentPanelScale)
+            )
             return
         }
 
-        let currentPanelSize = quotaView.isCollapsed ? collapsedPanelSize : expandedPanelSize
+        let basePanelSize = quotaView.isCollapsed ? collapsedPanelSize : expandedPanelSize
+        currentPanelScale = normalizedPanelScale(pet.panelScale)
+        let currentPanelSize = scaledPanelSize(basePanelSize, scale: currentPanelScale)
         let placement = panelPlacement(
             petVisibleRect: pet.visibleRect,
             panelSize: currentPanelSize,
+            panelScale: currentPanelScale,
             screenVisibleFrame: pet.screen.visibleFrame
         )
 
         quotaView.pointerSide = .bottom
-        quotaView.pointerCenterX = placement.pointerCenterX
+        quotaView.pointerCenterX = placement.pointerCenterX / currentPanelScale
         let targetOrigin = placement.origin
+        let targetFrame = NSRect(origin: targetOrigin, size: currentPanelSize)
         if abs(panel.frame.origin.x - targetOrigin.x) > 0.1
             || abs(panel.frame.origin.y - targetOrigin.y) > 0.1
+            || abs(panel.frame.size.width - currentPanelSize.width) > 0.1
+            || abs(panel.frame.size.height - currentPanelSize.height) > 0.1
         {
-            panel.setFrameOrigin(targetOrigin)
+            panel.setFrame(targetFrame, display: false)
         }
+        // Keep the view's design coordinate system at 224×116 (or 224×160)
+        // while its frame follows the scaled window. AppKit then scales every
+        // visual and hit target together without changing their proportions.
+        quotaView.frame = NSRect(origin: .zero, size: currentPanelSize)
+        quotaView.bounds = NSRect(origin: .zero, size: basePanelSize)
+        quotaView.needsDisplay = true
+        panel.invalidateCursorRects(for: quotaView)
         if !panel.isVisible {
             panel.orderFrontRegardless()
         }
@@ -1483,7 +1555,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             panelVisible: true,
             locationSource: pet.source,
             gap: placement.actualGap,
-            centerError: placement.centerError
+            centerError: placement.centerError,
+            panelScale: currentPanelScale,
+            panelSize: currentPanelSize
         )
     }
 
@@ -1656,9 +1730,11 @@ private func printPanelPlacementOnce(savedStateOnly: Bool = false) -> Never {
         exit(1)
     }
 
+    let livePanelSize = scaledPanelSize(expandedPanelSize, scale: location.panelScale)
     let placement = panelPlacement(
         petVisibleRect: location.visibleRect,
-        panelSize: expandedPanelSize,
+        panelSize: livePanelSize,
+        panelScale: location.panelScale,
         screenVisibleFrame: location.screen.visibleFrame
     )
     print(
@@ -1669,6 +1745,9 @@ private func printPanelPlacementOnce(savedStateOnly: Bool = false) -> Never {
             + "petTop=\(Int(location.visibleRect.maxY.rounded())) "
             + "panelX=\(Int(placement.origin.x)) "
             + "panelY=\(Int(placement.origin.y)) "
+            + "panelScale=\(String(format: "%.3f", location.panelScale)) "
+            + "panelWidth=\(String(format: "%.1f", livePanelSize.width)) "
+            + "panelHeight=\(String(format: "%.1f", livePanelSize.height)) "
             + "gap=\(String(format: "%.1f", placement.actualGap)) "
             + "centerError=\(String(format: "%.1f", placement.centerError))"
     )
@@ -1680,6 +1759,7 @@ private func runPlacementSelfTest() -> Never {
         let name: String
         let petRect: NSRect
         let panelSize: NSSize
+        let panelScale: CGFloat
         let screenRect: NSRect
     }
 
@@ -1688,36 +1768,42 @@ private func runPlacementSelfTest() -> Never {
             name: "built-in-display",
             petRect: NSRect(x: 1_110, y: 318, width: 163, height: 170),
             panelSize: expandedPanelSize,
+            panelScale: 1,
             screenRect: NSRect(x: 0, y: 0, width: 1_512, height: 982)
         ),
         TestCase(
             name: "external-negative-origin",
             petRect: NSRect(x: -554, y: 500, width: 163, height: 170),
             panelSize: expandedPanelSize,
+            panelScale: 1,
             screenRect: NSRect(x: -1_920, y: -98, width: 1_920, height: 1_080)
         ),
         TestCase(
             name: "scaled-pet",
-            petRect: NSRect(x: 420, y: 260, width: 204, height: 213),
-            panelSize: expandedPanelSize,
+            petRect: NSRect(x: 420, y: 260, width: 203.75, height: 212.5),
+            panelSize: scaledPanelSize(expandedPanelSize, scale: 1.25),
+            panelScale: 1.25,
             screenRect: NSRect(x: 0, y: 0, width: 1_920, height: 1_080)
         ),
         TestCase(
             name: "collapsed-panel",
-            petRect: NSRect(x: 280, y: 210, width: 120, height: 125),
-            panelSize: collapsedPanelSize,
+            petRect: NSRect(x: 280, y: 210, width: 122.25, height: 127.5),
+            panelSize: scaledPanelSize(collapsedPanelSize, scale: 0.75),
+            panelScale: 0.75,
             screenRect: NSRect(x: 0, y: 0, width: 1_280, height: 720)
         ),
         TestCase(
             name: "left-screen-edge",
-            petRect: NSRect(x: 8, y: 180, width: 80, height: 100),
-            panelSize: expandedPanelSize,
+            petRect: NSRect(x: 8, y: 180, width: 81.5, height: 85),
+            panelSize: scaledPanelSize(expandedPanelSize, scale: 0.5),
+            panelScale: 0.5,
             screenRect: NSRect(x: 0, y: 0, width: 1_280, height: 720)
         ),
         TestCase(
             name: "right-screen-edge",
-            petRect: NSRect(x: 1_192, y: 180, width: 80, height: 100),
-            panelSize: expandedPanelSize,
+            petRect: NSRect(x: 1_050, y: 180, width: 163, height: 170),
+            panelSize: scaledPanelSize(expandedPanelSize, scale: 2),
+            panelScale: 2,
             screenRect: NSRect(x: 0, y: 0, width: 1_280, height: 720)
         ),
     ]
@@ -1726,10 +1812,18 @@ private func runPlacementSelfTest() -> Never {
         let placement = panelPlacement(
             petVisibleRect: test.petRect,
             panelSize: test.panelSize,
+            panelScale: test.panelScale,
             screenVisibleFrame: test.screenRect
         )
         guard abs(placement.actualGap - panelPetGap) <= 0.01 else {
             fputs("\(test.name): gap=\(placement.actualGap), expected=\(panelPetGap)\n", stderr)
+            exit(1)
+        }
+        let baseSize = test.name == "collapsed-panel" ? collapsedPanelSize : expandedPanelSize
+        guard abs(test.panelSize.width - baseSize.width * test.panelScale) <= 0.01,
+              abs(test.panelSize.height - baseSize.height * test.panelScale) <= 0.01
+        else {
+            fputs("\(test.name): panel did not scale proportionally\n", stderr)
             exit(1)
         }
         guard abs(placement.centerError) <= 0.01 else {
@@ -1743,7 +1837,7 @@ private func runPlacementSelfTest() -> Never {
         exit(1)
     }
 
-    print("placement-self-test: 6/6 passed; scaling=6/6; gap=14.0; centerError=0.0")
+    print("placement-self-test: 6/6 passed; mascot-scaling=6/6; panel-scaling=6/6; gap=14.0; centerError=0.0")
     exit(0)
 }
 
