@@ -140,10 +140,15 @@ jobs:
         run: |
           .\scripts\build-windows-release.ps1 -CodexOnlyRelease
           $zip = "dist\Mayday-Bubu-Windows-10-11-Codex-Only-v1.0.4.zip"
-          $stage = "build\release\卜卜-Windows-仅Codex额度"
-          $packagePet = Join-Path $stage "pet\bubu-office"
           if (-not (Test-Path -LiteralPath $zip)) { throw "Codex-only ZIP missing" }
           if (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-v1.0.4.zip") { throw "Full v1.0.4 ZIP must not be built" }
+
+          $extractRoot = Join-Path $env:RUNNER_TEMP "bubu-windows-release-extracted"
+          Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $zip -DestinationPath $extractRoot -Force
+          $stage = Join-Path $extractRoot "卜卜-Windows-仅Codex额度"
+          $packagePet = Join-Path $stage "pet\bubu-office"
+          if (-not (Test-Path -LiteralPath $stage)) { throw "Windows ZIP root directory missing after extraction" }
           if (-not (Test-Path -LiteralPath (Join-Path $stage "CODEX-ONLY.txt"))) { throw "Codex-only marker missing" }
           $manifest = Get-Content -Raw -LiteralPath (Join-Path $packagePet "pet.json") | ConvertFrom-Json
           if ($manifest.spritesheetPath -ne "spritesheet-win-v1.0.4.webp") { throw "Versioned pet atlas path missing" }
