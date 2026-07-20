@@ -1,5 +1,5 @@
 Package: Bubu Windows
-Version: 1.0.4 (Codex Only); 1.0.1 (Full)
+Version: 1.0.5 (Codex Only); 1.0.1 (Full)
 System: Windows 10/11
 Architecture: x64 + ARM64
 Release: Codex Only (no BTC or ETH)
