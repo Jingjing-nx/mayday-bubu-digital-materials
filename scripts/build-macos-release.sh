@@ -2,7 +2,11 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-VERSION="1.0.7"
+VERSION="1.0.8"
+CODEX_ONLY_RELEASE="false"
+if [[ "${1:-}" == "--codex-only" ]]; then
+  CODEX_ONLY_RELEASE="true"
+fi
 STAGE_ROOT="$ROOT/build/release"
 FULL_STAGE="$STAGE_ROOT/卜卜-macOS"
 CODEX_ONLY_STAGE="$STAGE_ROOT/卜卜-macOS-仅Codex额度"
@@ -45,10 +49,16 @@ stage_package() {
   )
 }
 
-/bin/rm -f "$FULL_OUT" "$CODEX_ONLY_OUT"
-stage_package "$FULL_STAGE" false
+/bin/rm -f "$CODEX_ONLY_OUT"
+if [[ "$CODEX_ONLY_RELEASE" != "true" ]]; then
+  /bin/rm -f "$FULL_OUT"
+  stage_package "$FULL_STAGE" false
+fi
 stage_package "$CODEX_ONLY_STAGE" true
 
-/usr/bin/ditto -c -k --norsrc --keepParent "$FULL_STAGE" "$FULL_OUT"
+if [[ "$CODEX_ONLY_RELEASE" != "true" ]]; then
+  /usr/bin/ditto -c -k --norsrc --keepParent "$FULL_STAGE" "$FULL_OUT"
+  printf '%s\n' "$FULL_OUT"
+fi
 /usr/bin/ditto -c -k --norsrc --keepParent "$CODEX_ONLY_STAGE" "$CODEX_ONLY_OUT"
-printf '%s\n%s\n' "$FULL_OUT" "$CODEX_ONLY_OUT"
+printf '%s\n' "$CODEX_ONLY_OUT"

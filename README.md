@@ -22,9 +22,9 @@
 请在项目右侧的 **Releases** 中选择对应系统：
 
 - `Mayday-Bubu-macOS-Universal-v1.0.7.zip`：macOS 12.3+ 完整版，含 Codex 额度与 BTC/ETH 行情，支持 Apple 芯片与 Intel Mac。
-- `Mayday-Bubu-macOS-Universal-Codex-Only-v1.0.7.zip`：macOS 12.3+ 仅 Codex 额度版，不显示、也不请求 BTC/ETH 行情。
+- `Mayday-Bubu-macOS-Universal-Codex-Only-v1.0.8.zip`：macOS 12.3+ 仅 Codex 额度版；修复多屏、Retina 和宠物缩放后的面板分离，不显示、也不请求 BTC/ETH 行情。
 - `Mayday-Bubu-Windows-10-11-v1.0.1.zip`：Windows 10/11 完整版，含 Codex 额度与 BTC/ETH 行情，支持 x64 与 ARM64。
-- `Mayday-Bubu-Windows-10-11-Codex-Only-v1.0.2.zip`：Windows 10/11 仅 Codex 额度版，不显示、也不请求 BTC/ETH 行情；修复宠物替换和输入法候选框误跟随。
+- `Mayday-Bubu-Windows-10-11-Codex-Only-v1.0.3.zip`：Windows 10/11 仅 Codex 额度版；修复多显示器 DPI、宠物缩放、低帧率环境下的面板分离，不显示、也不请求 BTC/ETH 行情。
 
 四个压缩包的名称、根目录和安装入口都明确标注了系统或版本，不能混用。
 
@@ -61,7 +61,7 @@
 
 - 宠物图集固定为 Codex v2 的 8×11、1536×2288 WebP；Mac 与 Windows 使用同一份已验证图集，避免跨平台动作变形。
 - macOS 面板使用原生 AppKit，30 ms 跟随；箭头对齐宠物可见中心，与头顶保持 14 个逻辑像素。定位不依赖显示器编号，兼容 Retina、外接屏、旧版 `anchor` 状态和不同宠物尺寸。
-- Windows 面板使用 WPF 与桌面合成器逐帧事件跟随；拖动时暂停额度、行情和诊断刷新，减少跟随延迟。
+- Windows 面板使用每显示器 DPI v2 坐标，桌面合成器逐帧跟随，并在软件渲染、远程桌面或低刷新率环境下启用 33 ms 定时兜底；宠物缩放期间持续刷新锚点。
 - 两个平台都不需要管理员权限，也不需要 API Key。
 
 ## 源码目录
@@ -88,7 +88,7 @@ Windows 10/11 使用 Windows PowerShell 5.1：
 powershell -ExecutionPolicy Bypass -File .\scripts\build-windows-release.ps1 -CodexOnlyRelease
 ```
 
-该命令只生成 Windows `Codex-Only` v1.0.2 修复版；带 BTC/ETH 的完整版继续使用 v1.0.1。
+该命令只生成 Windows `Codex-Only` v1.0.3 修复版；带 BTC/ETH 的完整版继续使用 v1.0.1。
 
 ## 许可与声明
 

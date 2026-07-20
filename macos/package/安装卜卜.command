@@ -16,8 +16,9 @@ LOG_PATH="$HOME/Library/Logs/卜卜额度面板.log"
 HEALTH_DIR="$HOME/Library/Caches/io.github.mayday-materials.bubu-quota-panel"
 HEALTH_PATH="$HEALTH_DIR/panel-health.json"
 CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
+STATE_PATH="${CODEX_HOME:-$HOME/.codex}/.codex-global-state.json"
 DOMAIN="gui/$(id -u)"
-PANEL_VERSION="1.0.7"
+PANEL_VERSION="1.0.8"
 EXPECTED_ATLAS_SHA256="df3c6f95784ae109f12df57c438afaa88c3e4a786145066c3d93fbf32000b3a0"
 CODEX_ONLY_MARKER="$ROOT/CODEX-ONLY.txt"
 MARKET_PRICES_ENABLED="true"
@@ -146,8 +147,9 @@ ARCH="$(/usr/bin/uname -m)"
   || fail "不支持当前 Mac 架构：$ARCH。"
 /usr/bin/lipo "$APP_SOURCE/Contents/MacOS/BubuQuotaPanel" -verify_arch "$ARCH" \
   || fail "额度面板不包含 $ARCH 架构。"
-/usr/bin/codesign --verify --deep --strict "$APP_SOURCE" \
-  || fail "额度面板签名校验失败，请重新下载分享包。"
+if ! /usr/bin/codesign --verify --deep --strict "$APP_SOURCE" >/dev/null 2>&1; then
+  echo "检测到分享或解压过程改变了临时签名，安装器将自动修复。"
+fi
 
 mkdir -p "${PET_DEST:h}" "$HOME/Applications" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" "$HEALTH_DIR"
 
@@ -174,11 +176,14 @@ done
 /usr/bin/ditto "$APP_SOURCE" "$APP_DEST"
 /usr/bin/xattr -dr com.apple.quarantine "$APP_DEST" 2>/dev/null || true
 /usr/bin/codesign --force --deep --sign - "$APP_DEST" >/dev/null
+/usr/bin/codesign --verify --deep --strict "$APP_DEST" \
+  || fail "额度面板自动签名失败，请重新下载分享包。"
 /bin/rm -f "$HEALTH_PATH"
 
 /bin/cp "$PLIST_SOURCE" "$PLIST_DEST"
 /usr/bin/plutil -replace ProgramArguments.0 -string "$APP_BINARY" "$PLIST_DEST"
 /usr/bin/plutil -replace EnvironmentVariables.BUBU_PANEL_HEALTH_FILE -string "$HEALTH_PATH" "$PLIST_DEST"
+/usr/bin/plutil -replace EnvironmentVariables.BUBU_CODEX_STATE_FILE -string "$STATE_PATH" "$PLIST_DEST"
 if [[ "$MARKET_PRICES_ENABLED" == "false" ]]; then
   /usr/bin/plutil -replace EnvironmentVariables.BUBU_SHOW_MARKET_PRICES -string false "$PLIST_DEST"
 fi

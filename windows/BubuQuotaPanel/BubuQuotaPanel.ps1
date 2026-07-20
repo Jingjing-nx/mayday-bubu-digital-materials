@@ -6,7 +6,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "1.0.2"
+$script:PanelVersion = "1.0.3"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $script:MarketPricesEnabled = $true
@@ -150,6 +150,9 @@ namespace BubuPanel {
         private static extern uint GetDpiForWindow(IntPtr hWnd);
 
         [DllImport("user32.dll")]
+        private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
+
+        [DllImport("user32.dll")]
         private static extern bool SetWindowPos(
             IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int width, int height, uint flags);
 
@@ -198,6 +201,17 @@ namespace BubuPanel {
                 return dpi == 0 ? 96u : dpi;
             } catch (EntryPointNotFoundException) {
                 return 96u;
+            }
+        }
+
+        public static bool EnablePerMonitorV2() {
+            try {
+                // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2. Keeping the UI
+                // thread in this context makes GetWindowRect and SetWindowPos
+                // use the same physical coordinate system on every monitor.
+                return SetThreadDpiAwarenessContext(new IntPtr(-4)) != IntPtr.Zero;
+            } catch (EntryPointNotFoundException) {
+                return false;
             }
         }
 
@@ -254,6 +268,9 @@ namespace BubuPanel {
 }
 "@
 
+$script:PerMonitorDpiEnabled = [BubuPanel.NativeWindows]::EnablePerMonitorV2()
+Write-PanelLog ("DPI per-monitor-v2=" + $script:PerMonitorDpiEnabled)
+
 $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -302,7 +319,7 @@ $xaml = @"
 
     <Grid>
         <Canvas x:Name="ExpandedRoot" Width="224" Height="$($script:ExpandedHeight)">
-            <Polygon Points="104,$($script:ExpandedBodyHeight) 112,$($script:ExpandedPointerTipY) 120,$($script:ExpandedBodyHeight)"
+            <Polygon x:Name="ExpandedPointer" Points="104,$($script:ExpandedBodyHeight) 112,$($script:ExpandedPointerTipY) 120,$($script:ExpandedBodyHeight)"
                      Fill="#F7080B17" Stroke="#38FFFFFF" StrokeThickness="1"/>
             <Border Canvas.Left="3" Canvas.Top="3" Width="218" Height="$($script:ExpandedBodyHeight)"
                     CornerRadius="17" Background="#F7080B17"
@@ -382,7 +399,7 @@ $xaml = @"
 
         <Canvas x:Name="CollapsedRoot" Width="64" Height="44" Visibility="Collapsed"
                 HorizontalAlignment="Left" VerticalAlignment="Top">
-            <Polygon Points="24,31 32,43 40,31"
+            <Polygon x:Name="CollapsedPointer" Points="24,31 32,43 40,31"
                      Fill="#F7080B17" Stroke="#38FFFFFF" StrokeThickness="1"/>
             <Border Canvas.Left="3" Canvas.Top="3" Width="58" Height="31"
                     CornerRadius="13" Background="#F7080B17"
@@ -418,7 +435,8 @@ function Write-PanelHealth([bool]$force) {
             updatedAt = [DateTimeOffset]::Now.ToString("o")
             positionMode = $script:LastPositionMode
             trackingMode = if ($script:TrackingMode) { $script:TrackingMode } else { "starting" }
-            followEngine = "composition-rendering"
+            followEngine = "composition-rendering+33ms-fallback"
+            perMonitorDpiV2 = $script:PerMonitorDpiEnabled
             marketPricesEnabled = $script:MarketPricesEnabled
             panelHeightPoints = $script:ExpandedHeight
             lastPetMotionAt = if (-not $script:LastPetMotionAt -or
@@ -440,6 +458,8 @@ function Get-Control([string]$name) {
 
 $script:ExpandedRoot = Get-Control "ExpandedRoot"
 $script:CollapsedRoot = Get-Control "CollapsedRoot"
+$script:ExpandedPointer = Get-Control "ExpandedPointer"
+$script:CollapsedPointer = Get-Control "CollapsedPointer"
 $script:BackgroundBand = Get-Control "BackgroundBand"
 $script:RemainingText = Get-Control "RemainingText"
 $script:QuotaProgressFill = Get-Control "QuotaProgressFill"
@@ -714,7 +734,7 @@ function Start-QuotaRequest {
         $process.StartInfo = $info
         if (-not $process.Start()) { throw "Codex 本机服务启动失败" }
 
-        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"1.0.2"},"capabilities":{"experimentalApi":true}}}'
+        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"1.0.3"},"capabilities":{"experimentalApi":true}}}'
         $initialized = '{"method":"initialized","params":{}}'
         $readLimits = '{"method":"account/rateLimits/read","id":2}'
         $process.StandardInput.WriteLine($initialize)
@@ -960,7 +980,10 @@ $script:NextProcessScanAt = [DateTime]::MinValue
 
 function Refresh-OverlayState {
     if ([DateTime]::UtcNow -lt $script:NextStateCheckAt) { return }
-    $stateDelay = if ($script:TrackingMode -eq "none") { 250 } else { 2000 }
+    # Reading the timestamp is cheap; JSON is parsed only when it changes. A
+    # short interval is required because Codex updates mascot geometry while
+    # the user changes pet size, even when the overlay window itself stays put.
+    $stateDelay = if ($script:TrackingMode -eq "none") { 150 } else { 75 }
     $script:NextStateCheckAt = [DateTime]::UtcNow.AddMilliseconds($stateDelay)
     try {
         foreach ($candidatePath in @($script:StatePath) + @($script:StatePaths)) {
@@ -1024,6 +1047,8 @@ $script:TrackingBounds = $null
 $script:TrackingGeometry = $null
 $script:LastPetLeft = [int]::MinValue
 $script:LastPetTop = [int]::MinValue
+$script:LastPetWidth = [int]::MinValue
+$script:LastPetHeight = [int]::MinValue
 $script:LastPetMotionAt = [DateTime]::MinValue
 
 function Test-PetWindowSize($candidate, $bounds) {
@@ -1031,8 +1056,8 @@ function Test-PetWindowSize($candidate, $bounds) {
     $expectedWidth = [double]$bounds.width
     $expectedHeight = [double]$bounds.height
     if ($expectedWidth -le 0 -or $expectedHeight -le 0) { return $false }
-    if ($candidate.Width -lt 180 -or $candidate.Width -gt 1600) { return $false }
-    if ($candidate.Height -lt 170 -or $candidate.Height -gt 1600) { return $false }
+    if ($candidate.Width -lt 80 -or $candidate.Width -gt 2400) { return $false }
+    if ($candidate.Height -lt 72 -or $candidate.Height -gt 2400) { return $false }
     $windowSignature = ([string]$candidate.Title + " " + [string]$candidate.ClassName)
     if ($windowSignature -match '(?i)IME|Candidate|InputMethod|TextInput|Cicero|MSCTF') { return $false }
     $expectedRatio = $expectedWidth / $expectedHeight
@@ -1041,16 +1066,16 @@ function Test-PetWindowSize($candidate, $bounds) {
     if ($relativeRatio -lt 0.72 -or $relativeRatio -gt 1.38) { return $false }
     $scaleX = $candidate.Width / $expectedWidth
     $scaleY = $candidate.Height / $expectedHeight
-    if ($scaleX -lt 0.25 -or $scaleX -gt 6.0 -or $scaleY -lt 0.25 -or $scaleY -gt 6.0) { return $false }
-    if ([Math]::Abs($scaleX - $scaleY) -gt 0.35) { return $false }
+    if ($scaleX -lt 0.20 -or $scaleX -gt 8.0 -or $scaleY -lt 0.20 -or $scaleY -gt 8.0) { return $false }
+    if ([Math]::Abs([Math]::Log($scaleX / $scaleY)) -gt 0.30) { return $false }
     return $true
 }
 
 function Test-HeuristicPetWindow($candidate) {
     if (-not $candidate) { return $false }
     if (-not [string]::IsNullOrWhiteSpace($candidate.Title)) { return $false }
-    if ($candidate.Width -lt 180 -or $candidate.Width -gt 1600 -or
-        $candidate.Height -lt 170 -or $candidate.Height -gt 1600) { return $false }
+    if ($candidate.Width -lt 80 -or $candidate.Width -gt 2400 -or
+        $candidate.Height -lt 72 -or $candidate.Height -gt 2400) { return $false }
     $windowSignature = ([string]$candidate.Title + " " + [string]$candidate.ClassName)
     if ($windowSignature -match '(?i)IME|Candidate|InputMethod|TextInput|Cicero|MSCTF') { return $false }
 
@@ -1061,8 +1086,8 @@ function Test-HeuristicPetWindow($candidate) {
     $scaleY = $candidate.Height / $expectedHeight
     $candidateRatio = $candidate.Width / [double]$candidate.Height
     if ($candidateRatio -lt 0.80 -or $candidateRatio -gt 1.55) { return $false }
-    if ($scaleX -lt 0.55 -or $scaleX -gt 3.5 -or $scaleY -lt 0.55 -or $scaleY -gt 3.5) { return $false }
-    if ([Math]::Abs($scaleX - $scaleY) -gt 0.35) { return $false }
+    if ($scaleX -lt 0.20 -or $scaleX -gt 8.0 -or $scaleY -lt 0.20 -or $scaleY -gt 8.0) { return $false }
+    if ([Math]::Abs([Math]::Log($scaleX / $scaleY)) -gt 0.30) { return $false }
     return $true
 }
 
@@ -1092,13 +1117,22 @@ function Find-PetWindow($bounds) {
     foreach ($candidate in [BubuPanel.NativeWindows]::GetVisibleWindows()) {
         if (-not $script:ChatProcessIds.ContainsKey([uint32]$candidate.ProcessId)) { continue }
         if (-not (Test-PetWindowSize $candidate $bounds)) { continue }
-        $scaleX = $candidate.Width / $expectedWidth
-        $scaleY = $candidate.Height / $expectedHeight
+        $dpiScale = [BubuPanel.NativeWindows]::GetWindowDpi($candidate.Handle) / 96.0
+        $expectedPhysicalWidth = $expectedWidth * $dpiScale
+        $expectedPhysicalHeight = $expectedHeight * $dpiScale
+        $scaleX = $candidate.Width / $expectedPhysicalWidth
+        $scaleY = $candidate.Height / $expectedPhysicalHeight
         $ratioScore = [Math]::Abs(($candidate.Width / [double]$candidate.Height) - $expectedRatio) * 1200.0
         $scaleScore = [Math]::Abs($scaleX - $scaleY) * 900.0
-        $positionScore = [Math]::Abs($candidate.Left - $expectedX) + [Math]::Abs($candidate.Top - $expectedY)
+        # Electron persists logical coordinates while the native API returns
+        # physical coordinates in per-monitor-v2 mode. Position is therefore
+        # only a weak tie breaker; physical size and aspect identify the overlay.
+        $positionScore = [Math]::Abs($candidate.Left - $expectedX * $dpiScale) +
+            [Math]::Abs($candidate.Top - $expectedY * $dpiScale)
+        $sizeScore = [Math]::Abs($candidate.Width - $expectedPhysicalWidth) +
+            [Math]::Abs($candidate.Height - $expectedPhysicalHeight)
         $titlePenalty = if ([string]::IsNullOrWhiteSpace($candidate.Title)) { 0 } else { 4000 }
-        $score = $ratioScore + $scaleScore + $positionScore * 0.035 + $titlePenalty
+        $score = $ratioScore + $scaleScore + $sizeScore * 0.4 + $positionScore * 0.01 + $titlePenalty
         if ($score -lt $bestScore) {
             $bestScore = $score
             $best = $candidate
@@ -1196,6 +1230,63 @@ function Get-MascotGeometry($bounds) {
     }
 }
 
+$script:LastPointerCenter = [double]::NaN
+function Set-PanelPointer([double]$centerPhysical, [double]$panelPhysicalWidth) {
+    if ($panelPhysicalWidth -le 0) { return }
+    $logicalWidth = [double]$script:Window.Width
+    $logicalCenter = $centerPhysical * $logicalWidth / $panelPhysicalWidth
+    $safeInset = if ($script:IsCollapsed) { 12.0 } else { 18.0 }
+    $logicalCenter = [Math]::Max($safeInset, [Math]::Min($logicalWidth - $safeInset, $logicalCenter))
+    if (-not [double]::IsNaN($script:LastPointerCenter) -and
+        [Math]::Abs($script:LastPointerCenter - $logicalCenter) -lt 0.25) { return }
+    $script:LastPointerCenter = $logicalCenter
+
+    $points = [Windows.Media.PointCollection]::new()
+    if ($script:IsCollapsed) {
+        $points.Add([Windows.Point]::new($logicalCenter - 8, 31))
+        $points.Add([Windows.Point]::new($logicalCenter, 43))
+        $points.Add([Windows.Point]::new($logicalCenter + 8, 31))
+        $script:CollapsedPointer.Points = $points
+    } else {
+        $points.Add([Windows.Point]::new($logicalCenter - 8, $script:ExpandedBodyHeight))
+        $points.Add([Windows.Point]::new($logicalCenter, $script:ExpandedPointerTipY))
+        $points.Add([Windows.Point]::new($logicalCenter + 8, $script:ExpandedBodyHeight))
+        $script:ExpandedPointer.Points = $points
+    }
+}
+
+function Get-NativePanelPlacement($petWindow, $bounds, $geometry, $panelWindow, [double]$dpi, $workArea) {
+    if (-not $petWindow -or -not $bounds -or -not $geometry -or -not $panelWindow) { return $null }
+    if ([double]$bounds.width -le 0 -or [double]$bounds.height -le 0 -or
+        $panelWindow.Width -le 0 -or $panelWindow.Height -le 0) { return $null }
+
+    $scaleX = $petWindow.Width / [double]$bounds.width
+    $scaleY = $petWindow.Height / [double]$bounds.height
+    $visualCenterX = $petWindow.Left + ($geometry.Left + $geometry.Width / 2.0) * $scaleX
+    $visualTop = $petWindow.Top + $geometry.Top * $scaleY
+    $gap = 14.0 * $dpi / 96.0
+    $left = [Math]::Round($visualCenterX - $panelWindow.Width / 2.0)
+    # The pointer tip is one physical pixel above the window's bottom edge.
+    # Position that tip, not the outer window edge, exactly 14 logical pixels
+    # above Bubu. Never clamp vertically because that would detach the panel.
+    $top = [Math]::Round($visualTop - $gap - ($panelWindow.Height - 1.0))
+
+    if ($workArea) {
+        $left = [Math]::Max($workArea.Left + 8,
+            [Math]::Min($workArea.Right - $panelWindow.Width - 8, $left))
+    }
+
+    $pointerCenterPhysical = $visualCenterX - $left
+    return [PSCustomObject]@{
+        Left = [int]$left
+        Top = [int]$top
+        PointerCenterPhysical = [double]$pointerCenterPhysical
+        GapPixels = [double]$gap
+        ActualGapPixels = [double]($visualTop - ($top + $panelWindow.Height - 1.0))
+        CenterErrorPixels = [double](($left + $pointerCenterPhysical) - $visualCenterX)
+    }
+}
+
 function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
     if (-not $script:Window.IsVisible) {
         $script:Window.Show()
@@ -1205,25 +1296,18 @@ function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
     $panelWindow = [BubuPanel.NativeWindows]::GetWindow($script:WindowHandle)
     if (-not $panelWindow) { return $false }
 
-    $scaleX = $petWindow.Width / [double]$bounds.width
-    $scaleY = $petWindow.Height / [double]$bounds.height
-    $visualCenterX = $petWindow.Left + ($geometry.Left + $geometry.Width / 2.0) * $scaleX
-    $visualTop = $petWindow.Top + $geometry.Top * $scaleY
     $dpi = [BubuPanel.NativeWindows]::GetWindowDpi($petWindow.Handle)
-    $gap = [Math]::Round(14.0 * $dpi / 96.0)
-    $left = [Math]::Round($visualCenterX - $panelWindow.Width / 2.0)
-    $top = [Math]::Round($visualTop - $gap - $panelWindow.Height)
-
     $workArea = [BubuPanel.NativeWindows]::GetMonitorWorkArea($petWindow.Handle)
-    if ($workArea) {
-        $left = [Math]::Max($workArea.Left + 8, [Math]::Min($workArea.Right - $panelWindow.Width - 8, $left))
-        $top = [Math]::Max($workArea.Top + 8, [Math]::Min($workArea.Bottom - $panelWindow.Height - 8, $top))
-    }
+    $placement = Get-NativePanelPlacement $petWindow $bounds $geometry $panelWindow $dpi $workArea
+    if (-not $placement) { return $false }
 
-    if ([Math]::Abs($panelWindow.Left - $left) -gt 1 -or [Math]::Abs($panelWindow.Top - $top) -gt 1) {
-        [void][BubuPanel.NativeWindows]::MoveWindowNoActivate($script:WindowHandle, [int]$left, [int]$top)
+    if ([Math]::Abs($panelWindow.Left - $placement.Left) -gt 1 -or
+        [Math]::Abs($panelWindow.Top - $placement.Top) -gt 1) {
+        [void][BubuPanel.NativeWindows]::MoveWindowNoActivate(
+            $script:WindowHandle, $placement.Left, $placement.Top)
     }
-    Set-PositionMode "native-dpi"
+    Set-PanelPointer $placement.PointerCenterPhysical $panelWindow.Width
+    Set-PositionMode "native-dpi-v2"
     return $true
 }
 
@@ -1235,19 +1319,18 @@ function Show-PanelAtHeuristicWindow($petWindow) {
     $panelWindow = [BubuPanel.NativeWindows]::GetWindow($script:WindowHandle)
     if (-not $panelWindow) { return $false }
     $dpi = [BubuPanel.NativeWindows]::GetWindowDpi($petWindow.Handle)
-    $dpiScale = $dpi / 96.0
-    $visualCenterX = $petWindow.Left + $petWindow.Width * 0.692
-    $visualTop = $petWindow.Top + 15.0 * $dpiScale
-    $gap = [Math]::Round(14.0 * $dpiScale)
-    $left = [Math]::Round($visualCenterX - $panelWindow.Width / 2.0)
-    $top = [Math]::Round($visualTop - $gap - $panelWindow.Height)
+    $estimatedBounds = [PSCustomObject]@{ width = 356.0; height = 320.0 }
+    $estimatedGeometry = [PSCustomObject]@{ Left = 165.0; Top = 15.0; Width = 163.0 }
     $workArea = [BubuPanel.NativeWindows]::GetMonitorWorkArea($petWindow.Handle)
-    if ($workArea) {
-        $left = [Math]::Max($workArea.Left + 8, [Math]::Min($workArea.Right - $panelWindow.Width - 8, $left))
-        $top = [Math]::Max($workArea.Top + 8, [Math]::Min($workArea.Bottom - $panelWindow.Height - 8, $top))
+    $placement = Get-NativePanelPlacement $petWindow $estimatedBounds $estimatedGeometry $panelWindow $dpi $workArea
+    if (-not $placement) { return $false }
+    if ([Math]::Abs($panelWindow.Left - $placement.Left) -gt 1 -or
+        [Math]::Abs($panelWindow.Top - $placement.Top) -gt 1) {
+        [void][BubuPanel.NativeWindows]::MoveWindowNoActivate(
+            $script:WindowHandle, $placement.Left, $placement.Top)
     }
-    [void][BubuPanel.NativeWindows]::MoveWindowNoActivate($script:WindowHandle, [int]$left, [int]$top)
-    Set-PositionMode "native-heuristic"
+    Set-PanelPointer $placement.PointerCenterPhysical $panelWindow.Width
+    Set-PositionMode "native-heuristic-dpi-v2"
     return $true
 }
 
@@ -1268,6 +1351,10 @@ function Show-PanelAtSavedState($bounds, $geometry) {
     $script:Window.Left = [Math]::Round($left)
     $script:Window.Top = [Math]::Round($top)
     if (-not $script:Window.IsVisible) { $script:Window.Show() }
+    $panelWindow = [BubuPanel.NativeWindows]::GetWindow($script:WindowHandle)
+    if ($panelWindow) {
+        Set-PanelPointer ($panelWindow.Width / 2.0) $panelWindow.Width
+    }
     Set-PositionMode "saved-state-fallback"
 }
 
@@ -1300,9 +1387,14 @@ function Follow-PetWindowFast {
         return
     }
 
-    if ($petWindow.Left -ne $script:LastPetLeft -or $petWindow.Top -ne $script:LastPetTop) {
+    if ($petWindow.Left -ne $script:LastPetLeft -or
+        $petWindow.Top -ne $script:LastPetTop -or
+        $petWindow.Width -ne $script:LastPetWidth -or
+        $petWindow.Height -ne $script:LastPetHeight) {
         $script:LastPetLeft = $petWindow.Left
         $script:LastPetTop = $petWindow.Top
+        $script:LastPetWidth = $petWindow.Width
+        $script:LastPetHeight = $petWindow.Height
         $script:LastPetMotionAt = [DateTime]::UtcNow
     }
 
@@ -1392,11 +1484,40 @@ if ($ValidateTrackingFilters) {
     $imeClassRejected = -not (Test-PetWindowSize $imeClassWindow $testBounds) -and
         -not (Test-HeuristicPetWindow $imeClassWindow)
     $noActivateApplied = [BubuPanel.NativeWindows]::HasNoActivateStyle($script:WindowHandle)
+    $placementSamples = 0
+    $geometry = [PSCustomObject]@{ Left = 165.0; Top = 15.0; Width = 163.0 }
+    foreach ($dpi in @(96.0, 120.0, 144.0, 192.0, 288.0)) {
+        foreach ($petScale in @(0.5, 1.0, 1.75, 2.5)) {
+            $combinedScale = ($dpi / 96.0) * $petScale
+            $syntheticPet = [PSCustomObject]@{
+                Left = -640; Top = 26
+                Width = [int][Math]::Round(356.0 * $combinedScale)
+                Height = [int][Math]::Round(320.0 * $combinedScale)
+            }
+            $syntheticPanel = [PSCustomObject]@{
+                Width = [int][Math]::Round(224.0 * $dpi / 96.0)
+                Height = [int][Math]::Round(116.0 * $dpi / 96.0)
+            }
+            $syntheticWorkArea = [PSCustomObject]@{
+                Left = -1920; Top = 0; Right = 1920; Bottom = 2160
+            }
+            $placement = Get-NativePanelPlacement $syntheticPet $testBounds $geometry `
+                $syntheticPanel $dpi $syntheticWorkArea
+            $expectedGap = 14.0 * $dpi / 96.0
+            if (-not $placement -or
+                [Math]::Abs($placement.ActualGapPixels - $expectedGap) -gt 0.51 -or
+                [Math]::Abs($placement.CenterErrorPixels) -gt 0.01) {
+                throw "Placement matrix failed at dpi=$dpi petScale=$petScale."
+            }
+            $placementSamples++
+        }
+    }
     if (-not $petAccepted -or -not $imeRejected -or -not $imeClassRejected -or
         -not $noActivateApplied) {
         throw "Pet-window tracking filters failed validation."
     }
-    Write-Output "tracking-filter-validation: pet=True ime-size=True ime-class=True no-activate=True"
+    Write-Output ("tracking-filter-validation: pet=True ime-size=True ime-class=True " +
+        "no-activate=True placement-matrix=" + $placementSamples)
     $script:Window.Close()
     exit 0
 }
@@ -1404,6 +1525,7 @@ if ($ValidateTrackingFilters) {
 $script:IsCollapsed = $false
 function Set-Collapsed([bool]$collapsed) {
     $script:IsCollapsed = $collapsed
+    $script:LastPointerCenter = [double]::NaN
     if ($collapsed) {
         $script:ExpandedRoot.Visibility = [Windows.Visibility]::Collapsed
         $script:CollapsedRoot.Visibility = [Windows.Visibility]::Visible
@@ -1427,6 +1549,7 @@ $script:Window.Add_Closed({
     if ($script:FastFollowHandler) {
         [Windows.Media.CompositionTarget]::remove_Rendering($script:FastFollowHandler)
     }
+    if ($script:FollowFallbackTimer) { $script:FollowFallbackTimer.Stop() }
     if ($script:TargetTimer) { $script:TargetTimer.Stop() }
     if ($script:ServiceTimer) { $script:ServiceTimer.Stop() }
     Stop-QuotaProcess
@@ -1442,24 +1565,36 @@ $script:Window.Add_Closed({
 # background-priority timers so they cannot make the panel trail during a drag.
 $script:FastFollowHandler = [EventHandler]{
     param($sender, $eventArgs)
+    $script:LastCompositionFollowAt = [DateTime]::UtcNow
     Follow-PetWindowFast
 }
+$script:LastCompositionFollowAt = [DateTime]::MinValue
 [Windows.Media.CompositionTarget]::add_Rendering($script:FastFollowHandler)
+
+# CompositionTarget is the lowest-latency path when desktop composition is
+# active. A 33 ms dispatcher fallback keeps tracking alive on software-rendered,
+# remote-desktop, battery-saver and low-refresh configurations where rendering
+# callbacks can be sparse or paused.
+$script:FollowFallbackTimer = [Windows.Threading.DispatcherTimer]::new(
+    [Windows.Threading.DispatcherPriority]::Input
+)
+$script:FollowFallbackTimer.Interval = [TimeSpan]::FromMilliseconds(33)
+$script:FollowFallbackTimer.Add_Tick({
+    if (([DateTime]::UtcNow - $script:LastCompositionFollowAt).TotalMilliseconds -ge 24) {
+        Follow-PetWindowFast
+    }
+})
 
 $script:NextTargetRefreshAt = [DateTime]::UtcNow
 $script:TargetTimer = [Windows.Threading.DispatcherTimer]::new(
-    [Windows.Threading.DispatcherPriority]::Background
+    [Windows.Threading.DispatcherPriority]::Input
 )
-$script:TargetTimer.Interval = [TimeSpan]::FromMilliseconds(100)
+$script:TargetTimer.Interval = [TimeSpan]::FromMilliseconds(50)
 $script:TargetTimer.Add_Tick({
     $now = [DateTime]::UtcNow
     if ($now -ge $script:NextTargetRefreshAt) {
-        if ($script:TrackingMode -ne "none" -and (Test-PetIsMoving)) {
-            $script:NextTargetRefreshAt = $now.AddMilliseconds(150)
-            return
-        }
         Update-PetTarget
-        $nextDelay = if ($script:TrackingMode -eq "none") { 100 } else { 1000 }
+        $nextDelay = if ($script:TrackingMode -eq "none") { 100 } else { 75 }
         $script:NextTargetRefreshAt = $now.AddMilliseconds($nextDelay)
     }
 })
@@ -1492,6 +1627,7 @@ $script:ServiceTimer.Add_Tick({
 })
 
 $script:TargetTimer.Start()
+$script:FollowFallbackTimer.Start()
 $script:ServiceTimer.Start()
 Write-PanelHealth $true
 Update-PetTarget
