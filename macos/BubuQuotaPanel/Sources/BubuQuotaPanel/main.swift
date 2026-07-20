@@ -4,7 +4,7 @@ import Foundation
 
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
-private let panelVersion = "1.0.9"
+private let panelVersion = "1.0.10"
 private let marketPricesEnabled: Bool = {
     guard let rawValue = ProcessInfo.processInfo.environment["BUBU_SHOW_MARKET_PRICES"] else {
         return true
@@ -14,8 +14,8 @@ private let marketPricesEnabled: Bool = {
 // Track fast enough that the panel preserves its 14 px visual gap while the
 // pet window is moving between animation positions.
 private let followInterval: TimeInterval = 0.03
+private let desktopClientCheckInterval: TimeInterval = 0.20
 private let expandedPanelSize = NSSize(width: 224, height: marketPricesEnabled ? 160 : 116)
-private let collapsedPanelSize = NSSize(width: 64, height: 44)
 private let panelPetGap: CGFloat = 14
 private let panelScreenMargin: CGFloat = 8
 private let pointerTipBottomInset: CGFloat = 1
@@ -80,6 +80,48 @@ private func normalizedPanelScale(_ value: CGFloat) -> CGFloat {
 private func scaledPanelSize(_ baseSize: NSSize, scale: CGFloat) -> NSSize {
     let safeScale = normalizedPanelScale(scale)
     return NSSize(width: baseSize.width * safeScale, height: baseSize.height * safeScale)
+}
+
+private func isCodexDesktopApplication(
+    bundleIdentifier: String?,
+    localizedName: String?,
+    bundleURL: URL?,
+    activationPolicy: NSApplication.ActivationPolicy
+) -> Bool {
+    guard activationPolicy == .regular else { return false }
+
+    let normalizedIdentifier = bundleIdentifier?.lowercased() ?? ""
+    if ["com.openai.codex", "com.openai.chatgpt", "com.openai.chat"].contains(normalizedIdentifier) {
+        return true
+    }
+
+    let normalizedName = localizedName?.lowercased() ?? ""
+    let normalizedBundleName = bundleURL?
+        .deletingPathExtension()
+        .lastPathComponent
+        .lowercased() ?? ""
+    let knownName = normalizedName == "codex" || normalizedName == "chatgpt"
+    let knownBundle = normalizedBundleName == "codex" || normalizedBundleName == "chatgpt"
+    return knownName && knownBundle
+}
+
+private func isCodexDesktopRunning() -> Bool {
+    NSWorkspace.shared.runningApplications.contains { application in
+        isCodexDesktopApplication(
+            bundleIdentifier: application.bundleIdentifier,
+            localizedName: application.localizedName,
+            bundleURL: application.bundleURL,
+            activationPolicy: application.activationPolicy
+        )
+    }
+}
+
+private func shouldPresentPanel(
+    codexDesktopRunning: Bool,
+    hiddenByUser: Bool,
+    hasPetLocation: Bool
+) -> Bool {
+    codexDesktopRunning && !hiddenByUser && hasPetLocation
 }
 
 private final class RuntimeHealthWriter {
@@ -433,13 +475,7 @@ private final class QuotaPanelView: NSView {
             needsDisplay = true
         }
     }
-    var isCollapsed = false {
-        didSet {
-            needsDisplay = true
-            window?.invalidateCursorRects(for: self)
-        }
-    }
-    var onToggleCollapsed: (() -> Void)?
+    var onRequestHide: (() -> Void)?
     private var hideButtonTrackingArea: NSTrackingArea?
     private var isHideButtonHovered = false
 
@@ -470,7 +506,7 @@ private final class QuotaPanelView: NSView {
         background.setFill()
         bodyPath.fill()
 
-        if !isCollapsed, let backgroundImage {
+        if let backgroundImage {
             NSGraphicsContext.saveGraphicsState()
             bodyPath.addClip()
             drawFiveBallBand(backgroundImage, in: bodyRect)
@@ -513,17 +549,6 @@ private final class QuotaPanelView: NSView {
         arrow.stroke()
 
         NSShadow().set()
-
-        if isCollapsed {
-            drawText(
-                "显示",
-                in: NSRect(x: bodyRect.minX, y: 8, width: bodyRect.width, height: 18),
-                font: .systemFont(ofSize: 11, weight: .semibold),
-                color: NSColor.white.withAlphaComponent(0.92),
-                alignment: .center
-            )
-            return
-        }
 
         let contentX = bodyRect.minX + 14
         let contentWidth = bodyRect.width - 28
@@ -608,10 +633,6 @@ private final class QuotaPanelView: NSView {
         if let hideButtonTrackingArea {
             removeTrackingArea(hideButtonTrackingArea)
         }
-        guard !isCollapsed else {
-            hideButtonTrackingArea = nil
-            return
-        }
         let trackingArea = NSTrackingArea(
             rect: hideButtonRect(in: panelBodyRect()),
             options: [.mouseEnteredAndExited, .activeAlways],
@@ -635,8 +656,8 @@ private final class QuotaPanelView: NSView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let bodyRect = panelBodyRect()
-        if isCollapsed || hideButtonRect(in: bodyRect).contains(point) {
-            onToggleCollapsed?()
+        if hideButtonRect(in: bodyRect).contains(point) {
+            onRequestHide?()
             return
         }
         super.mouseDown(with: event)
@@ -648,8 +669,7 @@ private final class QuotaPanelView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        let clickableRect = isCollapsed ? bounds : hideButtonRect(in: panelBodyRect())
-        addCursorRect(clickableRect, cursor: .pointingHand)
+        addCursorRect(hideButtonRect(in: panelBodyRect()), cursor: .pointingHand)
     }
 
     private func panelBodyRect() -> NSRect {
@@ -1422,6 +1442,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let healthWriter = RuntimeHealthWriter()
     private let quotaView = QuotaPanelView(frame: NSRect(origin: .zero, size: expandedPanelSize))
     private var panel: NSPanel!
+    private var statusItem: NSStatusItem?
     private var refreshTimer: Timer?
     private var btcRefreshTimer: Timer?
     private var followTimer: Timer?
@@ -1433,10 +1454,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastLocatedPet: LocatedPet?
     private var lastLocatedAt: CFAbsoluteTime = 0
     private var currentPanelScale: CGFloat = 1
+    private var isPanelHiddenByUser = false
+    private var cachedCodexDesktopRunning = false
+    private var lastCodexDesktopCheckAt: CFAbsoluteTime = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         makePanel()
+        makeStatusItem()
         healthWriter.write(status: "started", panelVisible: false, locationSource: nil, force: true)
         followPet()
         refreshQuota()
@@ -1463,6 +1488,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTimer?.invalidate()
         btcRefreshTimer?.invalidate()
         followTimer?.invalidate()
+        if let statusItem {
+            NSStatusBar.system.removeStatusItem(statusItem)
+        }
         healthWriter.write(status: "terminated", panelVisible: false, locationSource: nil, force: true)
     }
 
@@ -1485,18 +1513,71 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.isFloatingPanel = true
         panel.becomesKeyOnlyIfNeeded = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        quotaView.onToggleCollapsed = { [weak self] in
-            self?.toggleCollapsed()
+        quotaView.onRequestHide = { [weak self] in
+            self?.hidePanelByUser()
         }
     }
 
-    private func toggleCollapsed() {
-        quotaView.isCollapsed.toggle()
+    private func makeStatusItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.button?.title = "卜卜"
+        item.button?.toolTip = "显示卜卜额度面板"
+        item.button?.target = self
+        item.button?.action = #selector(showPanelFromStatusItem)
+        item.isVisible = false
+        statusItem = item
+    }
+
+    private func hidePanelByUser() {
+        isPanelHiddenByUser = true
+        panel.orderOut(nil)
+        statusItem?.isVisible = true
+        healthWriter.write(
+            status: "hidden-by-user",
+            panelVisible: false,
+            locationSource: nil,
+            panelScale: currentPanelScale,
+            panelSize: scaledPanelSize(expandedPanelSize, scale: currentPanelScale),
+            force: true
+        )
+    }
+
+    @objc private func showPanelFromStatusItem() {
+        isPanelHiddenByUser = false
+        statusItem?.isVisible = false
         followPet()
+    }
+
+    private func codexDesktopRunning(at now: CFAbsoluteTime) -> Bool {
+        if lastCodexDesktopCheckAt == 0
+            || now - lastCodexDesktopCheckAt >= desktopClientCheckInterval
+        {
+            lastCodexDesktopCheckAt = now
+            cachedCodexDesktopRunning = isCodexDesktopRunning()
+        }
+        return cachedCodexDesktopRunning
     }
 
     private func followPet() {
         let now = CFAbsoluteTimeGetCurrent()
+        guard codexDesktopRunning(at: now) else {
+            lastLocatedPet = nil
+            lastLocatedAt = 0
+            panel.orderOut(nil)
+            healthWriter.write(
+                status: "waiting-for-codex",
+                panelVisible: false,
+                locationSource: nil,
+                panelScale: currentPanelScale,
+                panelSize: scaledPanelSize(expandedPanelSize, scale: currentPanelScale)
+            )
+            return
+        }
+        guard !isPanelHiddenByUser else {
+            panel.orderOut(nil)
+            return
+        }
+
         let pet: LocatedPet
         if let located = locator.locate() {
             lastLocatedPet = located
@@ -1508,18 +1589,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             pet = recent
         } else {
             panel.orderOut(nil)
-            let baseSize = quotaView.isCollapsed ? collapsedPanelSize : expandedPanelSize
             healthWriter.write(
                 status: "waiting-for-pet-location",
                 panelVisible: false,
                 locationSource: nil,
                 panelScale: currentPanelScale,
-                panelSize: scaledPanelSize(baseSize, scale: currentPanelScale)
+                panelSize: scaledPanelSize(expandedPanelSize, scale: currentPanelScale)
             )
             return
         }
 
-        let basePanelSize = quotaView.isCollapsed ? collapsedPanelSize : expandedPanelSize
+        let basePanelSize = expandedPanelSize
         currentPanelScale = normalizedPanelScale(pet.panelScale)
         let currentPanelSize = scaledPanelSize(basePanelSize, scale: currentPanelScale)
         let placement = panelPlacement(
@@ -1547,7 +1627,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         quotaView.bounds = NSRect(origin: .zero, size: basePanelSize)
         quotaView.needsDisplay = true
         panel.invalidateCursorRects(for: quotaView)
-        if !panel.isVisible {
+        if shouldPresentPanel(
+            codexDesktopRunning: true,
+            hiddenByUser: isPanelHiddenByUser,
+            hasPetLocation: true
+        ), !panel.isVisible {
             panel.orderFrontRegardless()
         }
         healthWriter.write(
@@ -1786,9 +1870,9 @@ private func runPlacementSelfTest() -> Never {
             screenRect: NSRect(x: 0, y: 0, width: 1_920, height: 1_080)
         ),
         TestCase(
-            name: "collapsed-panel",
+            name: "three-quarter-scale",
             petRect: NSRect(x: 280, y: 210, width: 122.25, height: 127.5),
-            panelSize: scaledPanelSize(collapsedPanelSize, scale: 0.75),
+            panelSize: scaledPanelSize(expandedPanelSize, scale: 0.75),
             panelScale: 0.75,
             screenRect: NSRect(x: 0, y: 0, width: 1_280, height: 720)
         ),
@@ -1819,7 +1903,7 @@ private func runPlacementSelfTest() -> Never {
             fputs("\(test.name): gap=\(placement.actualGap), expected=\(panelPetGap)\n", stderr)
             exit(1)
         }
-        let baseSize = test.name == "collapsed-panel" ? collapsedPanelSize : expandedPanelSize
+        let baseSize = expandedPanelSize
         guard abs(test.panelSize.width - baseSize.width * test.panelScale) <= 0.01,
               abs(test.panelSize.height - baseSize.height * test.panelScale) <= 0.01
         else {
@@ -1838,6 +1922,88 @@ private func runPlacementSelfTest() -> Never {
     }
 
     print("placement-self-test: 6/6 passed; mascot-scaling=6/6; panel-scaling=6/6; gap=14.0; centerError=0.0")
+    exit(0)
+}
+
+private func runLifecycleSelfTest() -> Never {
+    struct DesktopCase {
+        let bundleIdentifier: String?
+        let localizedName: String?
+        let bundlePath: String?
+        let activationPolicy: NSApplication.ActivationPolicy
+        let expected: Bool
+    }
+
+    let desktopCases = [
+        DesktopCase(
+            bundleIdentifier: "com.openai.codex",
+            localizedName: "ChatGPT",
+            bundlePath: "/Applications/ChatGPT.app",
+            activationPolicy: .regular,
+            expected: true
+        ),
+        DesktopCase(
+            bundleIdentifier: "com.openai.chatgpt",
+            localizedName: "ChatGPT",
+            bundlePath: "/Applications/ChatGPT.app",
+            activationPolicy: .regular,
+            expected: true
+        ),
+        DesktopCase(
+            bundleIdentifier: nil,
+            localizedName: "Codex",
+            bundlePath: "/Applications/Codex.app",
+            activationPolicy: .regular,
+            expected: true
+        ),
+        DesktopCase(
+            bundleIdentifier: "io.github.mayday-materials.bubu-quota-panel",
+            localizedName: "卜卜额度面板",
+            bundlePath: "/Applications/卜卜额度面板.app",
+            activationPolicy: .accessory,
+            expected: false
+        ),
+        DesktopCase(
+            bundleIdentifier: nil,
+            localizedName: "codex",
+            bundlePath: "/usr/local/bin/codex",
+            activationPolicy: .prohibited,
+            expected: false
+        ),
+    ]
+
+    for (index, test) in desktopCases.enumerated() {
+        let actual = isCodexDesktopApplication(
+            bundleIdentifier: test.bundleIdentifier,
+            localizedName: test.localizedName,
+            bundleURL: test.bundlePath.map { URL(fileURLWithPath: $0) },
+            activationPolicy: test.activationPolicy
+        )
+        guard actual == test.expected else {
+            fputs("desktop lifecycle case \(index + 1) failed\n", stderr)
+            exit(1)
+        }
+    }
+
+    let visibilityCases = [
+        (true, false, true, true),
+        (false, false, true, false),
+        (true, true, true, false),
+        (true, false, false, false),
+    ]
+    for (index, test) in visibilityCases.enumerated() {
+        let actual = shouldPresentPanel(
+            codexDesktopRunning: test.0,
+            hiddenByUser: test.1,
+            hasPetLocation: test.2
+        )
+        guard actual == test.3 else {
+            fputs("panel visibility case \(index + 1) failed\n", stderr)
+            exit(1)
+        }
+    }
+
+    print("lifecycle-self-test: desktop-app=5/5 visibility=4/4 hidden-window=orderOut status-item=restore")
     exit(0)
 }
 
@@ -1916,6 +2082,10 @@ if CommandLine.arguments.contains("--print-saved-panel-location") {
 
 if CommandLine.arguments.contains("--self-test-placement") {
     runPlacementSelfTest()
+}
+
+if CommandLine.arguments.contains("--self-test-lifecycle") {
+    runLifecycleSelfTest()
 }
 
 if CommandLine.arguments.contains("--print-panel-config") {

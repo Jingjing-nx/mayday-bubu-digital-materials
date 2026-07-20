@@ -41,6 +41,8 @@ jobs:
           BIN='macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel'
           "$BIN" --self-test-placement
           BUBU_SHOW_MARKET_PRICES=false "$BIN" --self-test-placement
+          "$BIN" --self-test-lifecycle | grep 'desktop-app=5/5 visibility=4/4 hidden-window=orderOut status-item=restore'
+          ! grep -q 'collapsedPanelSize\|isCollapsed\|onToggleCollapsed' macos/BubuQuotaPanel/Sources/BubuQuotaPanel/main.swift
       - name: Verify Gatekeeper help entries
         run: |
           plutil -lint 'macos/package/如果仍无法打开-Apple官方步骤.webloc'
@@ -50,8 +52,8 @@ jobs:
       - name: Verify panel runtime health
         run: |
           BIN='macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel'
-          "$BIN" --print-panel-config | grep 'version=1.0.9 marketPricesEnabled=true width=224 height=160'
-          BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config | grep 'version=1.0.9 marketPricesEnabled=false width=224 height=116'
+          "$BIN" --print-panel-config | grep 'version=1.0.10 marketPricesEnabled=true width=224 height=160'
+          BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config | grep 'version=1.0.10 marketPricesEnabled=false width=224 height=116'
           HEALTH="$(mktemp)"
           rm -f "$HEALTH"
           BUBU_PANEL_HEALTH_FILE="$HEALTH" "$BIN" &
@@ -61,7 +63,7 @@ jobs:
             test -s "$HEALTH" && break
             sleep 0.1
           done
-          grep '"version":"1.0.9"' "$HEALTH"
+          grep '"version":"1.0.10"' "$HEALTH"
           grep '"marketPricesEnabled":true' "$HEALTH"
           kill "$PID" 2>/dev/null || true
           wait "$PID" 2>/dev/null || true
@@ -72,7 +74,7 @@ jobs:
             test -s "$HEALTH" && break
             sleep 0.1
           done
-          grep '"version":"1.0.9"' "$HEALTH"
+          grep '"version":"1.0.10"' "$HEALTH"
           grep '"marketPricesEnabled":false' "$HEALTH"
           grep '"panelHeightPoints":116' "$HEALTH"
           kill "$PID" 2>/dev/null || true
@@ -80,15 +82,15 @@ jobs:
       - name: Build macOS Codex-only release
         run: |
           ./scripts/build-macos-release.sh --codex-only
-          test -f dist/Mayday-Bubu-macOS-Universal-Codex-Only-v1.0.9.zip
-          test ! -f dist/Mayday-Bubu-macOS-Universal-v1.0.9.zip
+          test -f dist/Mayday-Bubu-macOS-Universal-Codex-Only-v1.0.10.zip
+          test ! -f dist/Mayday-Bubu-macOS-Universal-v1.0.10.zip
           test -f build/release/卜卜-macOS-仅Codex额度/CODEX-ONLY.txt
           test ! -f build/release/卜卜-macOS-仅Codex额度/pet/bubu-office/spritesheet-win-v1.0.6.webp
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-codex-only-v1.0.9
+          name: macos-codex-only-v1.0.10
           if-no-files-found: error
-          path: dist/Mayday-Bubu-macOS-Universal-Codex-Only-v1.0.9.zip
+          path: dist/Mayday-Bubu-macOS-Universal-Codex-Only-v1.0.10.zip
       - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh
 
   windows-syntax:

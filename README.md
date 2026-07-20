@@ -22,7 +22,7 @@
 请在项目右侧的 **Releases** 中选择对应系统：
 
 - `Mayday-Bubu-macOS-Universal-v1.0.7.zip`：macOS 12.3+ 完整版，含 Codex 额度与 BTC/ETH 行情，支持 Apple 芯片与 Intel Mac。
-- `Mayday-Bubu-macOS-Universal-Codex-Only-v1.0.9.zip`：macOS 12.3+ 仅 Codex 额度版；面板会随卜卜同比放大缩小，并兼容多屏与 Retina，不显示、也不请求 BTC/ETH 行情。
+- `Mayday-Bubu-macOS-Universal-Codex-Only-v1.0.10.zip`：macOS 12.3+ 仅 Codex 额度版；面板会随卜卜同比放大缩小，并兼容多屏与 Retina。退出 Codex 后面板会自动消失，点击“隐藏”会完全收起，可从菜单栏“卜卜”重新显示；不显示、也不请求 BTC/ETH 行情。
 - `Mayday-Bubu-Windows-10-11-v1.0.1.zip`：Windows 10/11 完整版，含 Codex 额度与 BTC/ETH 行情，支持 x64 与 ARM64。
 - `Mayday-Bubu-Windows-10-11-Codex-Only-v1.0.6.zip`：Windows 10/11 仅 Codex 额度版；面板会随卜卜同比放大缩小并固定在头顶正中，兼容多显示器 DPI、同尺寸透明辅助窗口与低帧率环境，同时抑制折叠按钮的单帧跳位，不显示、也不请求 BTC/ETH 行情。
 
