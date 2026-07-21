@@ -8,7 +8,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "1.1.3"
+$script:PanelVersion = "1.1.4"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $script:MarketPricesEnabled = $true
@@ -230,6 +230,18 @@ namespace BubuPanel {
         [DllImport("user32.dll")]
         private static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
 
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int virtualKey);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetCursorPos(out POINT point);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetDoubleClickTime();
+
+        [DllImport("user32.dll")]
+        private static extern int GetSystemMetrics(int index);
+
         private static NativeWindowInfo ReadWindow(IntPtr hWnd) {
             if (hWnd == IntPtr.Zero || !IsWindow(hWnd) || !IsWindowVisible(hWnd)) return null;
             RECT rect;
@@ -255,6 +267,28 @@ namespace BubuPanel {
 
         public static NativeWindowInfo GetWindow(IntPtr hWnd) {
             return ReadWindow(hWnd);
+        }
+
+        public static bool IsLeftMouseButtonDown() {
+            const int VK_LBUTTON = 0x01;
+            return (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+        }
+
+        public static Point GetCursorPosition() {
+            POINT point;
+            return GetCursorPos(out point) ? new Point(point.X, point.Y) : Point.Empty;
+        }
+
+        public static int GetDoubleClickTimeMilliseconds() {
+            uint value = GetDoubleClickTime();
+            return value > 0 && value <= Int32.MaxValue ? (int)value : 500;
+        }
+
+        public static Size GetDoubleClickSize() {
+            const int SM_CXDOUBLECLK = 36;
+            const int SM_CYDOUBLECLK = 37;
+            return new Size(Math.Max(1, GetSystemMetrics(SM_CXDOUBLECLK)),
+                Math.Max(1, GetSystemMetrics(SM_CYDOUBLECLK)));
         }
 
         public static NativeVisualInfo CaptureVisibleBounds(IntPtr hWnd) {
@@ -944,7 +978,7 @@ function Start-QuotaRequest {
         $process.StartInfo = $info
         if (-not $process.Start()) { throw "Codex 本机服务启动失败" }
 
-        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"1.1.3"},"capabilities":{"experimentalApi":true}}}'
+        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"1.1.4"},"capabilities":{"experimentalApi":true}}}'
         $initialized = '{"method":"initialized","params":{}}'
         $readLimits = '{"method":"account/rateLimits/read","id":2}'
         $process.StandardInput.WriteLine($initialize)
@@ -2316,6 +2350,7 @@ function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
     $visualMetrics = Get-NativePetVisualMetrics $petWindow
     $panelScale = Get-NativePetScale $petWindow $bounds $geometry $dpi $visualMetrics
     [void](Set-PanelScale $panelScale)
+    if ($script:IsPanelHiddenByUser) { return $true }
     if (-not $script:Window.IsVisible) {
         $script:Window.Show()
         $script:Window.UpdateLayout()
@@ -2361,6 +2396,7 @@ function Show-PanelAtHeuristicWindow($petWindow) {
     $panelScale = Get-NativePetScale `
         $petWindow $estimatedBounds $estimatedGeometry $dpi $visualMetrics
     [void](Set-PanelScale $panelScale)
+    if ($script:IsPanelHiddenByUser) { return $true }
     if (-not $script:Window.IsVisible) {
         $script:Window.Show()
         $script:Window.UpdateLayout()
@@ -2394,6 +2430,7 @@ function Show-PanelAtHeuristicWindow($petWindow) {
 function Show-PanelAtSavedState($bounds, $geometry) {
     $panelScale = Limit-PanelScale ([double]$geometry.Width / $script:CanonicalPetWidth)
     [void](Set-PanelScale $panelScale)
+    if ($script:IsPanelHiddenByUser) { return }
     $visualCenterX = [double]$bounds.x + $geometry.Left + $geometry.Width / 2.0
     $visualTop = [double]$bounds.y + $geometry.Top
     $left = $visualCenterX - $script:Window.Width / 2.0
@@ -2580,6 +2617,110 @@ function Update-PetPosition {
     # Kept as a compatibility entry point for click handlers and older repair logic.
     Update-PetTarget
     Follow-PetWindowFast
+}
+
+function Test-PointInsidePetRect($point, $rect) {
+    return $point -and $rect -and
+        [double]$point.X -ge [double]$rect.Left -and
+        [double]$point.X -le [double]$rect.Right -and
+        [double]$point.Y -ge [double]$rect.Top -and
+        [double]$point.Y -le [double]$rect.Bottom
+}
+
+function Test-PetDoubleClickGesture(
+    $firstPoint,
+    $secondPoint,
+    [double]$elapsedMilliseconds,
+    [double]$maximumMilliseconds,
+    $maximumMovement
+) {
+    if (-not $firstPoint -or -not $secondPoint -or -not $maximumMovement) { return $false }
+    return $elapsedMilliseconds -ge 0 -and
+        $elapsedMilliseconds -le $maximumMilliseconds -and
+        [Math]::Abs([double]$secondPoint.X - [double]$firstPoint.X) -le
+            [double]$maximumMovement.Width -and
+        [Math]::Abs([double]$secondPoint.Y - [double]$firstPoint.Y) -le
+            [double]$maximumMovement.Height
+}
+
+function Get-CurrentPetHitRect {
+    if ($script:PetWindowHandle -eq [IntPtr]::Zero) { return $null }
+    $petWindow = [BubuPanel.NativeWindows]::GetWindow($script:PetWindowHandle)
+    if (-not $petWindow) { return $null }
+
+    $visualMetrics = Get-NativePetVisualMetrics $petWindow
+    if ($visualMetrics -and $visualMetrics.Width -gt 0 -and $visualMetrics.Height -gt 0) {
+        return [PSCustomObject]@{
+            Left = [double]($petWindow.Left + $visualMetrics.Left)
+            Top = [double]($petWindow.Top + $visualMetrics.Top)
+            Right = [double]($petWindow.Left + $visualMetrics.Left + $visualMetrics.Width)
+            Bottom = [double]($petWindow.Top + $visualMetrics.Top + $visualMetrics.Height)
+        }
+    }
+
+    $bounds = $script:TrackingBounds
+    $geometry = $script:TrackingGeometry
+    if (-not $bounds -or -not $geometry) {
+        $bounds = [PSCustomObject]@{ width = 356.0; height = 320.0 }
+        $geometry = [PSCustomObject]@{ Left = 165.0; Top = 15.0; Width = 163.0 }
+    }
+    $anchor = Get-NativePetAnchor $petWindow $bounds $geometry `
+        $script:TrackingAlignmentX $script:TrackingAlignmentY
+    if (-not $anchor) { return $null }
+    $dpi = [BubuPanel.NativeWindows]::GetWindowDpi($petWindow.Handle)
+    $petScale = Get-NativePetScale $petWindow $bounds $geometry $dpi
+    $dpiScale = [Math]::Max(0.1, $dpi / 96.0)
+    $width = $script:CanonicalPetWidth * $petScale * $dpiScale
+    $height = $script:CanonicalPetHeight * $petScale * $dpiScale
+    return [PSCustomObject]@{
+        Left = [double]($anchor.CenterX - $width / 2.0)
+        Top = [double]$anchor.Top
+        Right = [double]($anchor.CenterX + $width / 2.0)
+        Bottom = [double]($anchor.Top + $height)
+    }
+}
+
+$script:LeftMouseWasDown = $false
+$script:LastPetClickAt = [DateTime]::MinValue
+$script:LastPetClickPoint = $null
+$script:PetDoubleClickMilliseconds = [BubuPanel.NativeWindows]::GetDoubleClickTimeMilliseconds()
+$script:PetDoubleClickMovement = [BubuPanel.NativeWindows]::GetDoubleClickSize()
+
+function Update-PetDoubleClickToggle {
+    $isDown = [BubuPanel.NativeWindows]::IsLeftMouseButtonDown()
+    if (-not $isDown) {
+        $script:LeftMouseWasDown = $false
+        return
+    }
+    if ($script:LeftMouseWasDown) { return }
+    $script:LeftMouseWasDown = $true
+
+    $point = [BubuPanel.NativeWindows]::GetCursorPosition()
+    $petRect = Get-CurrentPetHitRect
+    if (-not (Test-PointInsidePetRect $point $petRect)) {
+        $script:LastPetClickAt = [DateTime]::MinValue
+        $script:LastPetClickPoint = $null
+        return
+    }
+
+    $now = [DateTime]::UtcNow
+    $elapsed = if ($script:LastPetClickAt -eq [DateTime]::MinValue) {
+        [double]::PositiveInfinity
+    } else {
+        ($now - $script:LastPetClickAt).TotalMilliseconds
+    }
+    if (Test-PetDoubleClickGesture `
+        $script:LastPetClickPoint $point $elapsed $script:PetDoubleClickMilliseconds `
+        $script:PetDoubleClickMovement) {
+        $script:LastPetClickAt = [DateTime]::MinValue
+        $script:LastPetClickPoint = $null
+        Set-PanelHiddenByUser (-not $script:IsPanelHiddenByUser)
+        Write-PanelLog ("INTERACTION pet-double-click hidden=" + $script:IsPanelHiddenByUser)
+        return
+    }
+
+    $script:LastPetClickAt = $now
+    $script:LastPetClickPoint = $point
 }
 
 if ($PrintTaskProgress) {
@@ -2877,8 +3018,18 @@ if ($ValidateTrackingFilters) {
     if (-not $singleFrameMissHeld -or $sustainedMissReleased) {
         throw "Native fallback grace did not suppress only transient tracking misses."
     }
+    $petHitRect = [PSCustomObject]@{ Left = 100; Top = 200; Right = 263; Bottom = 377 }
+    $firstPetClick = [Drawing.Point]::new(180, 280)
+    $secondPetClick = [Drawing.Point]::new(182, 282)
+    $outsidePetClick = [Drawing.Point]::new(264, 280)
+    $doubleClickMovement = [Drawing.Size]::new(4, 4)
+    $doubleClickValid = (Test-PointInsidePetRect $firstPetClick $petHitRect) -and
+        (Test-PointInsidePetRect $secondPetClick $petHitRect) -and
+        -not (Test-PointInsidePetRect $outsidePetClick $petHitRect) -and
+        (Test-PetDoubleClickGesture $firstPetClick $secondPetClick 300 500 $doubleClickMovement) -and
+        -not (Test-PetDoubleClickGesture $firstPetClick $secondPetClick 501 500 $doubleClickMovement)
     if (-not $petAccepted -or -not $imeRejected -or -not $imeClassRejected -or
-        -not $noActivateApplied) {
+        -not $noActivateApplied -or -not $doubleClickValid) {
         throw "Pet-window tracking filters failed validation."
     }
     Write-Output ("tracking-filter-validation: pet=True ime-size=True ime-class=True " +
@@ -2887,12 +3038,13 @@ if ($ValidateTrackingFilters) {
         " visual-scale-matrix=" + $visualScaleSamples +
         " layout-scale-matrix=" + $layoutScaleSamples +
         " state-aware-selection=True center-calibration=True drag-center=True" +
-        " anchor-monitor=True flicker-grace=True")
+        " anchor-monitor=True flicker-grace=True pet-double-click=True")
     $script:Window.Close()
     exit 0
 }
 
 $script:IsCollapsed = $false
+$script:IsPanelHiddenByUser = $false
 function Set-Collapsed([bool]$collapsed) {
     $script:IsCollapsed = $collapsed
     $script:LastPointerCenter = [double]::NaN
@@ -2907,8 +3059,19 @@ function Set-Collapsed([bool]$collapsed) {
     Update-PetPosition
 }
 
-$script:HideButton.Add_Click({ Set-Collapsed $true })
-$script:ShowButton.Add_Click({ Set-Collapsed $false })
+function Set-PanelHiddenByUser([bool]$hidden) {
+    $script:IsPanelHiddenByUser = $hidden
+    if ($hidden) {
+        Hide-PanelWindow
+        Write-PanelHealth $true
+        return
+    }
+    Update-PetPosition
+    Write-PanelHealth $true
+}
+
+$script:HideButton.Add_Click({ Set-PanelHiddenByUser $true })
+$script:ShowButton.Add_Click({ Set-PanelHiddenByUser $false })
 $script:Window.Add_Closed({
     $script:LastPositionMode = "closed"
     Write-PanelHealth $true
@@ -2933,6 +3096,7 @@ $script:Window.Add_Closed({
 $script:FastFollowHandler = [EventHandler]{
     param($sender, $eventArgs)
     $script:LastCompositionFollowAt = [DateTime]::UtcNow
+    Update-PetDoubleClickToggle
     Follow-PetWindowFast
 }
 $script:LastCompositionFollowAt = [DateTime]::MinValue
@@ -2948,6 +3112,7 @@ $script:FollowFallbackTimer = [Windows.Threading.DispatcherTimer]::new(
 $script:FollowFallbackTimer.Interval = [TimeSpan]::FromMilliseconds(33)
 $script:FollowFallbackTimer.Add_Tick({
     if (([DateTime]::UtcNow - $script:LastCompositionFollowAt).TotalMilliseconds -ge 24) {
+        Update-PetDoubleClickToggle
         Follow-PetWindowFast
     }
 })

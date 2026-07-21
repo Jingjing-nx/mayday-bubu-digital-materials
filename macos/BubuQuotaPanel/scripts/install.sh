@@ -24,7 +24,8 @@ rm -rf "$DEST_APP"
   "$ROOT/Resources/$LABEL.plist.in" > "$PLIST"
 
 for EXISTING_PLIST in "$HOME/Library/LaunchAgents"/*.plist(N); do
-  if /usr/bin/grep -q '卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel' "$EXISTING_PLIST" 2>/dev/null; then
+  if [[ "$EXISTING_PLIST" != "$PLIST" ]] \
+    && /usr/bin/grep -q '卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel' "$EXISTING_PLIST" 2>/dev/null; then
     /bin/launchctl bootout "$DOMAIN" "$EXISTING_PLIST" 2>/dev/null || true
     /bin/rm -f "$EXISTING_PLIST"
   fi
