@@ -29,12 +29,14 @@
 
 请在项目右侧的 **Releases** 中选择对应系统：
 
-- `Mayday-Bubu-macOS-Universal-v1.1.4.zip`：macOS 12.3+ 完整版，含 Codex 额度、任务进度与 BTC/ETH 行情，支持 Apple 芯片与 Intel Mac。
-- `Mayday-Bubu-macOS-Universal-Codex-Only-v1.1.4.zip`：macOS 12.3+ 仅 Codex 版；保留额度和任务进度，不显示、也不请求 BTC/ETH 行情。
-- `Mayday-Bubu-Windows-10-11-v1.1.4.zip`：Windows 10/11 完整版，含 Codex 额度、任务进度与 BTC/ETH 行情，支持 x64 与 ARM64。
-- `Mayday-Bubu-Windows-10-11-Codex-Only-v1.1.4.zip`：Windows 10/11 仅 Codex 版；保留额度和任务进度，不显示、也不请求 BTC/ETH 行情。
+- `Mayday-Bubu-macOS-Universal-5.zip`：macOS 12.3+ 完整版，含 Codex 额度、任务进度与 BTC/ETH 行情，支持 Apple 芯片与 Intel Mac。
+- `Mayday-Bubu-macOS-Universal-Codex-Only-5.zip`：macOS 12.3+ 仅 Codex 版；保留额度和任务进度，不显示、也不请求 BTC/ETH 行情。
+- `Mayday-Bubu-Windows-10-11-5.zip`：Windows 10/11 完整版，含 Codex 额度、任务进度与 BTC/ETH 行情，支持 x64 与 ARM64。
+- `Mayday-Bubu-Windows-10-11-Codex-Only-5.zip`：Windows 10/11 仅 Codex 版；保留额度和任务进度，不显示、也不请求 BTC/ETH 行情。
 
 四个压缩包的名称、根目录和安装入口都明确标注了系统或版本，不能混用。
+
+版本使用纯数字流水号：当前为 **5**，以后每次发布依次更新为 **6、7、8……**。
 
 ## 使用方法
 

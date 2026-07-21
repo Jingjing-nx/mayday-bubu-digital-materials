@@ -5,7 +5,7 @@ import Foundation
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
 private let taskProgressRefreshInterval: TimeInterval = 2
-private let panelVersion = "1.1.4"
+private let panelVersion = "5"
 private let marketPricesEnabled: Bool = {
     guard let rawValue = ProcessInfo.processInfo.environment["BUBU_SHOW_MARKET_PRICES"] else {
         return true

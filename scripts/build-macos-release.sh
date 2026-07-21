@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-VERSION="1.1.4"
+VERSION="5"
 CODEX_ONLY_RELEASE="false"
 if [[ "${1:-}" == "--codex-only" ]]; then
   CODEX_ONLY_RELEASE="true"
@@ -10,8 +10,8 @@ fi
 STAGE_ROOT="$ROOT/build/release"
 FULL_STAGE="$STAGE_ROOT/卜卜-macOS"
 CODEX_ONLY_STAGE="$STAGE_ROOT/卜卜-macOS-仅Codex额度"
-FULL_OUT="$ROOT/dist/Mayday-Bubu-macOS-Universal-v$VERSION.zip"
-CODEX_ONLY_OUT="$ROOT/dist/Mayday-Bubu-macOS-Universal-Codex-Only-v$VERSION.zip"
+FULL_OUT="$ROOT/dist/Mayday-Bubu-macOS-Universal-$VERSION.zip"
+CODEX_ONLY_OUT="$ROOT/dist/Mayday-Bubu-macOS-Universal-Codex-Only-$VERSION.zip"
 APP_PROJECT="$ROOT/macos/BubuQuotaPanel"
 LABEL="io.github.mayday-materials.bubu-quota-panel"
 
