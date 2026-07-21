@@ -29,14 +29,14 @@
 
 请在项目右侧的 **Releases** 中选择对应系统：
 
-- `Mayday-Bubu-macOS-Universal-14.zip`：macOS 12.3+ 完整版，含 Codex 额度、任务进度与 BTC/ETH 行情，支持 Apple 芯片与 Intel Mac。
-- `Mayday-Bubu-macOS-Universal-Codex-Only-14.zip`：macOS 12.3+ 仅 Codex 版；保留额度和任务进度，不显示、也不请求 BTC/ETH 行情。
-- `Mayday-Bubu-Windows-10-11-14.zip`：Windows 10/11 完整版，含 Codex 额度、任务进度与 BTC/ETH 行情，支持 x64 与 ARM64。
-- `Mayday-Bubu-Windows-10-11-Codex-Only-14.zip`：Windows 10/11 仅 Codex 版；保留额度和任务进度，不显示、也不请求 BTC/ETH 行情。
+- `Mayday-Bubu-macOS-Universal-15.zip`：macOS 12.3+ 完整版，含 Codex 额度、任务进度与 BTC/ETH 行情，支持 Apple 芯片与 Intel Mac。
+- `Mayday-Bubu-macOS-Universal-Codex-Only-15.zip`：macOS 12.3+ 仅 Codex 版；保留额度和任务进度，不显示、也不请求 BTC/ETH 行情。
+- `Mayday-Bubu-Windows-10-11-15.zip`：Windows 10/11 完整版，含 Codex 额度、任务进度与 BTC/ETH 行情，支持 x64 与 ARM64。
+- `Mayday-Bubu-Windows-10-11-Codex-Only-15.zip`：Windows 10/11 仅 Codex 版；保留额度和任务进度，不显示、也不请求 BTC/ETH 行情。
 
 四个压缩包的名称、根目录和安装入口都明确标注了系统或版本，不能混用。
 
-版本使用纯数字流水号：当前为 **14**，以后每次发布依次更新为 **15、16、17……**。
+版本使用纯数字流水号：当前为 **15**，以后每次发布依次更新为 **16、17、18……**。
 
 ## 使用方法
 
@@ -74,7 +74,7 @@
 
 - 宠物图集固定为 Codex v2 的 8×11、1536×2288 WebP；Mac 与 Windows 使用同一份已验证图集，避免跨平台动作变形。
 - macOS 面板使用原生 AppKit，30 ms 跟随；除读取位置记录外，还会测量卜卜实际可见图像的大小，因此即使透明外层窗口没变，面板外框、文字、五个球、进度条、任务行、按钮和箭头也会随卜卜同比缩放。箭头始终对准可见中心并保持 14 个逻辑像素，兼容 Retina、外接屏和旧版 `anchor` 状态。
-- Windows 面板使用每显示器 DPI v2 坐标，并测量透明窗口内卜卜的实际可见边界；系统 DPI 与宠物缩放分开计算后，再对整套 WPF 设计坐标做一次统一变换。桌面合成器逐帧跟随，并在软件渲染、远程桌面或低刷新率环境下启用 33 ms 定时兜底。
+- Windows 面板使用每显示器 DPI v2 坐标，并自动识别 Electron 截图返回的是物理像素还是 96-DPI 逻辑像素；系统 DPI 与宠物缩放分开计算后，再对整套 WPF 设计坐标做一次统一变换。缩放值需连续三次一致才会生效，单个异常画面不会让看板或卜卜组合忽大忽小。桌面合成器逐帧跟随，并在软件渲染、远程桌面或低刷新率环境下启用 33 ms 定时兜底。
 - 两个平台都不需要管理员权限，也不需要 API Key。
 
 ## 源码目录

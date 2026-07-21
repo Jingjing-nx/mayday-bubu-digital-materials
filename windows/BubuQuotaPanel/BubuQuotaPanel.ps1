@@ -8,7 +8,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "14"
+$script:PanelVersion = "15"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $script:MarketPricesEnabled = $true
@@ -48,10 +48,15 @@ $script:MinimumPanelScale = 0.20
 $script:MaximumPanelScale = 8.0
 $script:VisualScaleTolerance = 0.12
 $script:VisualProbeIntervalMilliseconds = 120
+$script:VisualScaleConfirmationSamples = 3
+$script:VisualScalePendingTolerance = 0.045
 $script:CachedVisualMetrics = $null
 $script:CachedVisualWindowHandle = [IntPtr]::Zero
 $script:LastVisualProbeAt = [DateTime]::MinValue
 $script:CachedVisualAt = [DateTime]::MinValue
+$script:PendingPanelScale = [double]::NaN
+$script:PendingPanelScaleSamples = 0
+$script:PendingPanelScaleWindowHandle = [IntPtr]::Zero
 
 if ($PrintConfiguration) {
     Write-Output (
@@ -978,7 +983,7 @@ function Start-QuotaRequest {
         $process.StartInfo = $info
         if (-not $process.Start()) { throw "Codex 本机服务启动失败" }
 
-        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"14"},"capabilities":{"experimentalApi":true}}}'
+        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"15"},"capabilities":{"experimentalApi":true}}}'
         $initialized = '{"method":"initialized","params":{}}'
         $readLimits = '{"method":"account/rateLimits/read","id":2}'
         $process.StandardInput.WriteLine($initialize)
@@ -2138,6 +2143,93 @@ function Get-NativePetVisualMetrics($petWindow) {
     return $null
 }
 
+function Get-VisualCaptureCoordinateScale(
+    $petWindow,
+    $bounds,
+    $geometry,
+    $visualMetrics,
+    [double]$dpi
+) {
+    if (-not $petWindow -or -not $bounds -or -not $geometry -or -not $visualMetrics -or
+        [double]$bounds.width -le 0 -or [double]$bounds.height -le 0) { return 1.0 }
+    $dpiScale = [Math]::Max(0.1, $dpi / 96.0)
+    if ($dpiScale -le 1.05) { return 1.0 }
+
+    # Depending on the Windows/Electron build, PrintWindow can return either
+    # physical pixels or Chromium's 96-DPI logical pixels inside a physical
+    # bitmap. Compare the visible mascot anchor against both coordinate spaces
+    # before using the capture for scale or placement.
+    $windowScaleX = [double]$petWindow.Width / [double]$bounds.width
+    $windowScaleY = [double]$petWindow.Height / [double]$bounds.height
+    $physicalCenterX = ($geometry.Left + $geometry.Width / 2.0) * $windowScaleX
+    $physicalTop = $geometry.Top * $windowScaleY
+    $logicalCenterX = $physicalCenterX / $dpiScale
+    $logicalTop = $physicalTop / $dpiScale
+    $observedCenterX = [double]$visualMetrics.Left + [double]$visualMetrics.Width / 2.0
+    $observedTop = [double]$visualMetrics.Top
+    $normalizerX = [Math]::Max(24.0, $geometry.Width * $windowScaleX)
+    $normalizerY = [Math]::Max(24.0, $script:CanonicalPetHeight * $windowScaleY)
+    $physicalError = [Math]::Abs($observedCenterX - $physicalCenterX) / $normalizerX +
+        [Math]::Abs($observedTop - $physicalTop) / $normalizerY
+    $logicalError = [Math]::Abs($observedCenterX - $logicalCenterX) / $normalizerX +
+        [Math]::Abs($observedTop - $logicalTop) / $normalizerY
+    if ($logicalError + 0.08 -lt $physicalError) { return $dpiScale }
+    return 1.0
+}
+
+function ConvertTo-PhysicalPetVisualMetrics(
+    $petWindow,
+    $bounds,
+    $geometry,
+    $visualMetrics,
+    [double]$dpi
+) {
+    if (-not $visualMetrics) { return $null }
+    $coordinateScale = Get-VisualCaptureCoordinateScale `
+        $petWindow $bounds $geometry $visualMetrics $dpi
+    return [PSCustomObject]@{
+        Left = [double]$visualMetrics.Left * $coordinateScale
+        Top = [double]$visualMetrics.Top * $coordinateScale
+        Width = [double]$visualMetrics.Width * $coordinateScale
+        Height = [double]$visualMetrics.Height * $coordinateScale
+        VisibleFraction = [double]$visualMetrics.VisibleFraction
+        CoordinateScale = [double]$coordinateScale
+    }
+}
+
+function Reset-PanelScaleStabilizer {
+    $script:PendingPanelScale = [double]::NaN
+    $script:PendingPanelScaleSamples = 0
+    $script:PendingPanelScaleWindowHandle = [IntPtr]::Zero
+}
+
+function Get-StabilizedPanelScale([double]$candidateScale, [IntPtr]$windowHandle) {
+    $safeCandidate = Limit-PanelScale $candidateScale
+    $currentScale = Limit-PanelScale $script:PanelScale
+    if ([Math]::Abs([Math]::Log($safeCandidate / $currentScale)) -le 0.035) {
+        Reset-PanelScaleStabilizer
+        return $currentScale
+    }
+
+    $sameWindow = $script:PendingPanelScaleWindowHandle -eq $windowHandle
+    $sameCandidate = -not [double]::IsNaN($script:PendingPanelScale) -and
+        [Math]::Abs([Math]::Log($safeCandidate / $script:PendingPanelScale)) -le
+            $script:VisualScalePendingTolerance
+    if (-not $sameWindow -or -not $sameCandidate) {
+        $script:PendingPanelScale = $safeCandidate
+        $script:PendingPanelScaleSamples = 1
+        $script:PendingPanelScaleWindowHandle = $windowHandle
+        return $currentScale
+    }
+
+    $script:PendingPanelScaleSamples++
+    if ($script:PendingPanelScaleSamples -lt $script:VisualScaleConfirmationSamples) {
+        return $currentScale
+    }
+    Reset-PanelScaleStabilizer
+    return $safeCandidate
+}
+
 function Get-VisualPetScaleCandidates($visualMetrics, [double]$dpi) {
     if (-not $visualMetrics -or [double]$visualMetrics.Width -le 0 -or
         [double]$visualMetrics.Height -le 0) { return @() }
@@ -2347,8 +2439,12 @@ function Get-NativePanelPlacement(
 
 function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
     $dpi = [BubuPanel.NativeWindows]::GetWindowDpi($petWindow.Handle)
-    $visualMetrics = Get-NativePetVisualMetrics $petWindow
-    $panelScale = Get-NativePetScale $petWindow $bounds $geometry $dpi $visualMetrics
+    $capturedVisualMetrics = Get-NativePetVisualMetrics $petWindow
+    $visualMetrics = ConvertTo-PhysicalPetVisualMetrics `
+        $petWindow $bounds $geometry $capturedVisualMetrics $dpi
+    $candidatePanelScale = Get-NativePetScale `
+        $petWindow $bounds $geometry $dpi $visualMetrics
+    $panelScale = Get-StabilizedPanelScale $candidatePanelScale $petWindow.Handle
     [void](Set-PanelScale $panelScale)
     if ($script:IsPanelHiddenByUser) { return $true }
     if (-not $script:Window.IsVisible) {
@@ -2392,9 +2488,12 @@ function Show-PanelAtHeuristicWindow($petWindow) {
     $dpi = [BubuPanel.NativeWindows]::GetWindowDpi($petWindow.Handle)
     $estimatedBounds = [PSCustomObject]@{ width = 356.0; height = 320.0 }
     $estimatedGeometry = [PSCustomObject]@{ Left = 165.0; Top = 15.0; Width = 163.0 }
-    $visualMetrics = Get-NativePetVisualMetrics $petWindow
-    $panelScale = Get-NativePetScale `
+    $capturedVisualMetrics = Get-NativePetVisualMetrics $petWindow
+    $visualMetrics = ConvertTo-PhysicalPetVisualMetrics `
+        $petWindow $estimatedBounds $estimatedGeometry $capturedVisualMetrics $dpi
+    $candidatePanelScale = Get-NativePetScale `
         $petWindow $estimatedBounds $estimatedGeometry $dpi $visualMetrics
+    $panelScale = Get-StabilizedPanelScale $candidatePanelScale $petWindow.Handle
     [void](Set-PanelScale $panelScale)
     if ($script:IsPanelHiddenByUser) { return $true }
     if (-not $script:Window.IsVisible) {
@@ -2481,6 +2580,9 @@ function Set-NativeTrackingTarget([string]$mode, $bounds, $geometry, $petWindow 
     $script:TrackingMode = $mode
     $script:TrackingBounds = $bounds
     $script:TrackingGeometry = $geometry
+    if ($targetChanged) {
+        Reset-PanelScaleStabilizer
+    }
     if ($bounds -and $geometry -and $petWindow) {
         Update-NativeTrackingAlignment $petWindow $bounds $geometry $targetChanged
     } elseif ($mode -eq "heuristic") {
@@ -2499,6 +2601,7 @@ function Clear-NativeTrackingTarget {
     $script:TrackingAlignmentY = 0.0
     $script:TrackingAlignmentHandle = [IntPtr]::Zero
     $script:TrackingAlignmentStateWrite = [DateTime]::MinValue
+    Reset-PanelScaleStabilizer
 }
 
 function Test-NativeFallbackGraceAt(
@@ -2866,6 +2969,7 @@ if ($ValidateTrackingFilters) {
     $placementSamples = 0
     $scaleSamples = 0
     $visualScaleSamples = 0
+    $captureCoordinateSamples = 0
     $geometry = [PSCustomObject]@{ Left = 165.0; Top = 15.0; Width = 163.0 }
     foreach ($dpi in @(96.0, 120.0, 144.0, 192.0, 288.0)) {
         foreach ($petScale in @(0.5, 1.0, 1.75, 2.5)) {
@@ -2953,6 +3057,76 @@ if ($ValidateTrackingFilters) {
         }
         $visualScaleSamples++
     }
+    # PrintWindow is inconsistent across Electron and Windows DPI combinations:
+    # some systems capture physical pixels, while others paint 96-DPI logical
+    # pixels into the physical bitmap. Both forms must normalize to the same
+    # Bubu size before the panel follows it.
+    foreach ($dpi in @(144.0, 192.0, 240.0)) {
+        $dpiScale = $dpi / 96.0
+        $syntheticPet = [PSCustomObject]@{
+            Left = 400; Top = 240
+            Width = [int][Math]::Round(356.0 * $dpiScale)
+            Height = [int][Math]::Round(320.0 * $dpiScale)
+        }
+        $windowScaleX = [double]$syntheticPet.Width / [double]$testBounds.width
+        $windowScaleY = [double]$syntheticPet.Height / [double]$testBounds.height
+        $physicalCenterX = ($geometry.Left + $geometry.Width / 2.0) * $windowScaleX
+        $physicalTop = $geometry.Top * $windowScaleY
+        foreach ($captureMode in @("physical", "logical")) {
+            $captureDivisor = if ($captureMode -eq "logical") { $dpiScale } else { 1.0 }
+            foreach ($visibleScale in @(0.5, 1.5)) {
+                $rawWidth = 161.0 * $script:CanonicalPetWidth /
+                    $script:PetAtlasFrameWidth * $visibleScale * $dpiScale / $captureDivisor
+                $rawHeight = 198.0 * $script:CanonicalPetHeight /
+                    $script:PetAtlasFrameHeight * $visibleScale * $dpiScale / $captureDivisor
+                $rawMetrics = [PSCustomObject]@{
+                    Left = $physicalCenterX / $captureDivisor - $rawWidth / 2.0
+                    Top = $physicalTop / $captureDivisor
+                    Width = $rawWidth
+                    Height = $rawHeight
+                    VisibleFraction = 0.25
+                }
+                $physicalMetrics = ConvertTo-PhysicalPetVisualMetrics `
+                    $syntheticPet $testBounds $geometry $rawMetrics $dpi
+                $expectedCoordinateScale = if ($captureMode -eq "logical") { $dpiScale } else { 1.0 }
+                if ([Math]::Abs($physicalMetrics.CoordinateScale - $expectedCoordinateScale) -gt 0.01) {
+                    throw "Capture coordinate mode failed at dpi=$dpi mode=$captureMode."
+                }
+                $derivedScale = Get-NativePetScale `
+                    $syntheticPet $testBounds $geometry $dpi $physicalMetrics
+                if ([Math]::Abs($derivedScale - $visibleScale) -gt 0.02) {
+                    throw ("Normalized capture scale failed at dpi=$dpi mode=$captureMode " +
+                        "visibleScale=$visibleScale derived=$derivedScale.")
+                }
+                $captureCoordinateSamples++
+            }
+        }
+    }
+
+    # A single incomplete Chromium frame must not resize the whole panel. Only
+    # commit a materially different size after three matching observations.
+    [void](Set-PanelScale 1.0)
+    Reset-PanelScaleStabilizer
+    $stabilityHandle = [IntPtr]101
+    foreach ($sampleNumber in 1..3) {
+        $stabilizedScale = Get-StabilizedPanelScale 0.4 $stabilityHandle
+        $expectedScale = if ($sampleNumber -lt 3) { 1.0 } else { 0.4 }
+        if ([Math]::Abs($stabilizedScale - $expectedScale) -gt 0.01) {
+            throw "Panel scale stabilizer committed on sample $sampleNumber."
+        }
+        [void](Set-PanelScale $stabilizedScale)
+    }
+    [void](Set-PanelScale 1.0)
+    Reset-PanelScaleStabilizer
+    $singleSmallFrame = Get-StabilizedPanelScale 0.4 $stabilityHandle
+    $singleLargeFrame = Get-StabilizedPanelScale 1.7 $stabilityHandle
+    $differentWindowFrame = Get-StabilizedPanelScale 0.4 ([IntPtr]202)
+    if ([Math]::Abs($singleSmallFrame - 1.0) -gt 0.01 -or
+        [Math]::Abs($singleLargeFrame - 1.0) -gt 0.01 -or
+        [Math]::Abs($differentWindowFrame - 1.0) -gt 0.01) {
+        throw "Panel scale stabilizer accepted a transient or cross-window sample."
+    }
+    Reset-PanelScaleStabilizer
     # Reproduce the affected Windows layout: a same-size auxiliary Chrome
     # window sits 90 physical pixels left of the real overlay. The selector must
     # prefer the state-aligned window, while center calibration must also keep a
@@ -3036,9 +3210,10 @@ if ($ValidateTrackingFilters) {
         "no-activate=True placement-matrix=" + $placementSamples +
         " scale-matrix=" + $scaleSamples +
         " visual-scale-matrix=" + $visualScaleSamples +
+        " capture-coordinate-matrix=" + $captureCoordinateSamples +
         " layout-scale-matrix=" + $layoutScaleSamples +
         " state-aware-selection=True center-calibration=True drag-center=True" +
-        " anchor-monitor=True flicker-grace=True pet-double-click=True")
+        " anchor-monitor=True flicker-grace=True scale-stability=True pet-double-click=True")
     $script:Window.Close()
     exit 0
 }
