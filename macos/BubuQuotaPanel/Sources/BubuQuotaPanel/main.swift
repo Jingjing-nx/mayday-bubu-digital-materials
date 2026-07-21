@@ -5,7 +5,7 @@ import Foundation
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
 private let taskProgressRefreshInterval: TimeInterval = 2
-private let panelVersion = "1.1.3"
+private let panelVersion = "1.1.4"
 private let marketPricesEnabled: Bool = {
     guard let rawValue = ProcessInfo.processInfo.environment["BUBU_SHOW_MARKET_PRICES"] else {
         return true
@@ -166,6 +166,14 @@ private func shouldPresentPanel(
     hasPetLocation: Bool
 ) -> Bool {
     codexDesktopRunning && !hiddenByUser && hasPetLocation
+}
+
+private func shouldTogglePanelForPetDoubleClick(
+    clickCount: Int,
+    clickLocation: NSPoint,
+    petVisibleRect: NSRect
+) -> Bool {
+    clickCount == 2 && petVisibleRect.contains(clickLocation)
 }
 
 private final class RuntimeHealthWriter {
@@ -2255,6 +2263,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var taskProgressTimer: Timer?
     private var btcRefreshTimer: Timer?
     private var followTimer: Timer?
+    private var globalMouseMonitor: Any?
     private var isRefreshing = false
     private var isRefreshingTaskProgress = false
     private var isRefreshingBTCPrice = false
@@ -2273,6 +2282,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         makePanel()
         makeStatusItem()
+        startPetDoubleClickMonitor()
         healthWriter.write(status: "started", panelVisible: false, locationSource: nil, force: true)
         followPet()
         refreshQuota()
@@ -2307,6 +2317,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         taskProgressTimer?.invalidate()
         btcRefreshTimer?.invalidate()
         followTimer?.invalidate()
+        if let globalMouseMonitor {
+            NSEvent.removeMonitor(globalMouseMonitor)
+        }
         if let statusItem {
             NSStatusBar.system.removeStatusItem(statusItem)
         }
@@ -2345,6 +2358,36 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.action = #selector(showPanelFromStatusItem)
         item.isVisible = false
         statusItem = item
+    }
+
+    private func startPetDoubleClickMonitor() {
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) {
+            [weak self] event in
+            guard event.clickCount == 2 else { return }
+            let clickCount = event.clickCount
+            let clickLocation = NSEvent.mouseLocation
+            DispatchQueue.main.async {
+                self?.handlePetDoubleClick(at: clickLocation, clickCount: clickCount)
+            }
+        }
+    }
+
+    private func handlePetDoubleClick(at location: NSPoint, clickCount: Int) {
+        let now = CFAbsoluteTimeGetCurrent()
+        guard codexDesktopRunning(at: now), let pet = locator.locate() else { return }
+        guard shouldTogglePanelForPetDoubleClick(
+            clickCount: clickCount,
+            clickLocation: location,
+            petVisibleRect: pet.visibleRect
+        ) else { return }
+
+        lastLocatedPet = pet
+        lastLocatedAt = now
+        if isPanelHiddenByUser {
+            showPanelFromStatusItem()
+        } else {
+            hidePanelByUser()
+        }
     }
 
     private func hidePanelByUser() {
@@ -2849,7 +2892,30 @@ private func runLifecycleSelfTest() -> Never {
         }
     }
 
-    print("lifecycle-self-test: desktop-app=5/5 visibility=4/4 hidden-window=orderOut status-item=restore")
+    let petRect = NSRect(x: 400, y: 260, width: 163, height: 177)
+    let doubleClickCases = [
+        shouldTogglePanelForPetDoubleClick(
+            clickCount: 2,
+            clickLocation: NSPoint(x: petRect.midX, y: petRect.midY),
+            petVisibleRect: petRect
+        ),
+        !shouldTogglePanelForPetDoubleClick(
+            clickCount: 1,
+            clickLocation: NSPoint(x: petRect.midX, y: petRect.midY),
+            petVisibleRect: petRect
+        ),
+        !shouldTogglePanelForPetDoubleClick(
+            clickCount: 2,
+            clickLocation: NSPoint(x: petRect.maxX + 1, y: petRect.midY),
+            petVisibleRect: petRect
+        ),
+    ]
+    guard doubleClickCases.allSatisfy({ $0 }) else {
+        fputs("pet double-click hit testing failed\n", stderr)
+        exit(1)
+    }
+
+    print("lifecycle-self-test: desktop-app=5/5 visibility=4/4 pet-double-click=3/3 hidden-window=orderOut status-item=restore")
     exit(0)
 }
 

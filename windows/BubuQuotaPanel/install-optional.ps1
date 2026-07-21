@@ -172,7 +172,7 @@ try {
                 $health = [IO.File]::ReadAllText($oldHealthPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
                 $healthProcess = Get-Process -Id ([int]$health.processId) -ErrorAction SilentlyContinue
                 $healthAge = [DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($oldHealthPath)
-                if ($health.version -eq "1.1.3" -and
+                if ($health.version -eq "1.1.4" -and
                     [bool]$health.marketPricesEnabled -eq $marketPricesEnabled -and
                     [int]$health.panelHeightPoints -eq $expectedPanelHeight -and
                     $healthProcess -and

@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = "1.1.3"
+$Version = "1.1.4"
 $StageRoot = Join-Path $Root "build\release"
 $FullStage = Join-Path $StageRoot "卜卜-Windows"
 $CodexOnlyStage = Join-Path $StageRoot "卜卜-Windows-仅Codex额度"

@@ -1,15 +1,23 @@
-<p align="center">
-  <img src="shared/community/bubu-wechat-group.jpg" alt="卜卜电子物料交流群二维码" width="420">
-</p>
-
-<p align="center">
-  老师们可以加群<br>
-  突然好多人找我要，我估计会有 bug<br>
-  有问题在群里问我就行，如果有版本更新我也会在群里说<br>
-  我无限 token，随便改<br>
-  下周抽空再做个 MaydayLand Codex 看板皮肤<br>
-  想要什么也都可以跟我说 有空我就可以做
-</p>
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <img src="shared/community/bubu-wechat-group.jpg" alt="卜卜电子物料交流群二维码" width="360"><br><br>
+      老师们可以加群<br>
+      突然好多人找我要，我估计会有 bug<br>
+      有问题在群里问我就行，如果有版本更新我也会在群里说<br>
+      我无限 token，随便改<br>
+      下周抽空再做个 MaydayLand Codex 看板皮肤<br>
+      想要什么也都可以跟我说 有空我就可以做
+    </td>
+    <td width="50%" align="center" valign="top">
+      <img src="shared/community/bubu-wechat-personal.png" alt="作者个人微信二维码" width="360"><br><br>
+      现在群聊马上200人了<br>
+      如果不能通过扫码加入了<br>
+      麻烦老师加我微信 备注一下<br>
+      然后我给你拉群聊
+    </td>
+  </tr>
+</table>
 
 # mayday卜卜电子物料
 
@@ -21,10 +29,10 @@
 
 请在项目右侧的 **Releases** 中选择对应系统：
 
-- `Mayday-Bubu-macOS-Universal-v1.1.3.zip`：macOS 12.3+ 完整版，含 Codex 额度、任务进度与 BTC/ETH 行情，支持 Apple 芯片与 Intel Mac。
-- `Mayday-Bubu-macOS-Universal-Codex-Only-v1.1.3.zip`：macOS 12.3+ 仅 Codex 版；保留额度和任务进度，不显示、也不请求 BTC/ETH 行情。
-- `Mayday-Bubu-Windows-10-11-v1.1.3.zip`：Windows 10/11 完整版，含 Codex 额度、任务进度与 BTC/ETH 行情，支持 x64 与 ARM64。
-- `Mayday-Bubu-Windows-10-11-Codex-Only-v1.1.3.zip`：Windows 10/11 仅 Codex 版；保留额度和任务进度，不显示、也不请求 BTC/ETH 行情。
+- `Mayday-Bubu-macOS-Universal-v1.1.4.zip`：macOS 12.3+ 完整版，含 Codex 额度、任务进度与 BTC/ETH 行情，支持 Apple 芯片与 Intel Mac。
+- `Mayday-Bubu-macOS-Universal-Codex-Only-v1.1.4.zip`：macOS 12.3+ 仅 Codex 版；保留额度和任务进度，不显示、也不请求 BTC/ETH 行情。
+- `Mayday-Bubu-Windows-10-11-v1.1.4.zip`：Windows 10/11 完整版，含 Codex 额度、任务进度与 BTC/ETH 行情，支持 x64 与 ARM64。
+- `Mayday-Bubu-Windows-10-11-Codex-Only-v1.1.4.zip`：Windows 10/11 仅 Codex 版；保留额度和任务进度，不显示、也不请求 BTC/ETH 行情。
 
 四个压缩包的名称、根目录和安装入口都明确标注了系统或版本，不能混用。
 
@@ -55,6 +63,7 @@
 - 鼠标悬停：卜卜拿起咖啡杯喝咖啡。
 - 向左拖动：保留头顶三瓣装饰，变成无手脚圆球，在立式麦克风前唱歌。
 - 向右拖动：变成无手脚圆球，弹奏深蓝色电吉他。
+- 双击卜卜：在“显示面板”和“隐藏面板”之间循环切换；只识别卜卜本体范围，普通单击与拖动不会误触。
 - 额度面板：跟随在卜卜头顶约 14 px，并随卜卜同比放大缩小；额度每 5 分钟更新，可隐藏和显示。
 - 任务进度：约每 2 秒读取本机 Codex 任务索引，用每个任务的唯一 ID 对应左侧任务列表里的正式名称，并显示“正在执行”、“等你确认”或“已完成”；带蓝点、尚未查看的已完成任务会保留在面板底部，用户在 Codex 中点开该任务、蓝点消失后，面板同步移除该行。多个任务按开始时间依次向下排列，最多显示 5 行，超出部分合并提示。任务名称与已读状态只在本机读取和显示，不写入面板日志，也不上传；旧版 Codex 没有相关索引时才会回退到任务消息摘要与短时完成提示。
 - 完整版另含每 5 秒更新的 BTC/ETH；`Codex-Only` 版会缩短面板并完全关闭行情请求。

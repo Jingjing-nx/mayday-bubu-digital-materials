@@ -41,7 +41,7 @@ jobs:
           BIN='macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel'
           "$BIN" --self-test-placement | grep 'visual-scaling=6/6; panel-scaling=6/6'
           BUBU_SHOW_MARKET_PRICES=false "$BIN" --self-test-placement | grep 'visual-scaling=6/6; panel-scaling=6/6'
-          "$BIN" --self-test-lifecycle | grep 'desktop-app=5/5 visibility=4/4 hidden-window=orderOut status-item=restore'
+          "$BIN" --self-test-lifecycle | grep 'desktop-app=5/5 visibility=4/4 pet-double-click=3/3 hidden-window=orderOut status-item=restore'
           "$BIN" --self-test-task-progress | grep '6/6; title=1/1; index=1/1; read-state=4/4; list=5+overflow'
           ! grep -q 'collapsedPanelSize\|isCollapsed\|onToggleCollapsed' macos/BubuQuotaPanel/Sources/BubuQuotaPanel/main.swift
       - name: Verify Gatekeeper help entries
@@ -53,8 +53,8 @@ jobs:
       - name: Verify panel runtime health
         run: |
           BIN='macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel'
-          "$BIN" --print-panel-config | grep 'version=1.1.3 marketPricesEnabled=true width=224 height=183'
-          BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config | grep 'version=1.1.3 marketPricesEnabled=false width=224 height=139'
+          "$BIN" --print-panel-config | grep 'version=1.1.4 marketPricesEnabled=true width=224 height=183'
+          BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config | grep 'version=1.1.4 marketPricesEnabled=false width=224 height=139'
           HEALTH="$(mktemp)"
           rm -f "$HEALTH"
           BUBU_PANEL_HEALTH_FILE="$HEALTH" "$BIN" &
@@ -64,7 +64,7 @@ jobs:
             test -s "$HEALTH" && break
             sleep 0.1
           done
-          grep '"version":"1.1.3"' "$HEALTH"
+          grep '"version":"1.1.4"' "$HEALTH"
           grep '"marketPricesEnabled":true' "$HEALTH"
           kill "$PID" 2>/dev/null || true
           wait "$PID" 2>/dev/null || true
@@ -75,7 +75,7 @@ jobs:
             test -s "$HEALTH" && break
             sleep 0.1
           done
-          grep '"version":"1.1.3"' "$HEALTH"
+          grep '"version":"1.1.4"' "$HEALTH"
           grep '"marketPricesEnabled":false' "$HEALTH"
           grep '"panelHeightPoints":139' "$HEALTH"
           kill "$PID" 2>/dev/null || true
@@ -83,17 +83,17 @@ jobs:
       - name: Build macOS releases
         run: |
           ./scripts/build-macos-release.sh
-          test -f dist/Mayday-Bubu-macOS-Universal-Codex-Only-v1.1.3.zip
-          test -f dist/Mayday-Bubu-macOS-Universal-v1.1.3.zip
+          test -f dist/Mayday-Bubu-macOS-Universal-Codex-Only-v1.1.4.zip
+          test -f dist/Mayday-Bubu-macOS-Universal-v1.1.4.zip
           test -f build/release/卜卜-macOS-仅Codex额度/CODEX-ONLY.txt
           test ! -f build/release/卜卜-macOS-仅Codex额度/pet/bubu-office/spritesheet-win-v1.1.0.webp
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-v1.1.3
+          name: macos-v1.1.4
           if-no-files-found: error
           path: |
-            dist/Mayday-Bubu-macOS-Universal-v1.1.3.zip
-            dist/Mayday-Bubu-macOS-Universal-Codex-Only-v1.1.3.zip
+            dist/Mayday-Bubu-macOS-Universal-v1.1.4.zip
+            dist/Mayday-Bubu-macOS-Universal-Codex-Only-v1.1.4.zip
       - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh
 
   windows-syntax:
@@ -118,7 +118,7 @@ jobs:
         run: |
           $panel = ".\windows\BubuQuotaPanel\BubuQuotaPanel.ps1"
           $fullConfig = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
-          if ($LASTEXITCODE -ne 0 -or $fullConfig -notmatch "version=1.1.3 marketPricesEnabled=true width=224 height=183") {
+          if ($LASTEXITCODE -ne 0 -or $fullConfig -notmatch "version=1.1.4 marketPricesEnabled=true width=224 height=183") {
             throw "Unexpected full panel configuration: $fullConfig"
           }
           $fullXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
@@ -128,7 +128,7 @@ jobs:
 
           $env:BUBU_SHOW_MARKET_PRICES = "false"
           $onlyConfig = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
-          if ($LASTEXITCODE -ne 0 -or $onlyConfig -notmatch "version=1.1.3 marketPricesEnabled=false width=224 height=139") {
+          if ($LASTEXITCODE -ne 0 -or $onlyConfig -notmatch "version=1.1.4 marketPricesEnabled=false width=224 height=139") {
             throw "Unexpected Codex-only panel configuration: $onlyConfig"
           }
           $onlyXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
@@ -136,7 +136,7 @@ jobs:
             throw "Codex-only panel XAML validation failed: $onlyXaml"
           }
           $trackingFilters = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateTrackingFilters
-          if ($LASTEXITCODE -ne 0 -or $trackingFilters -notmatch "pet=True ime-size=True ime-class=True no-activate=True placement-matrix=20 scale-matrix=20 visual-scale-matrix=11 layout-scale-matrix=2 state-aware-selection=True center-calibration=True drag-center=True anchor-monitor=True flicker-grace=True") {
+          if ($LASTEXITCODE -ne 0 -or $trackingFilters -notmatch "pet=True ime-size=True ime-class=True no-activate=True placement-matrix=20 scale-matrix=20 visual-scale-matrix=11 layout-scale-matrix=2 state-aware-selection=True center-calibration=True drag-center=True anchor-monitor=True flicker-grace=True pet-double-click=True") {
             throw "Tracking-filter validation failed: $trackingFilters"
           }
           $taskProgress = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateTaskProgress
@@ -148,9 +148,9 @@ jobs:
         shell: powershell
         run: |
           .\scripts\build-windows-release.ps1
-          $zip = "dist\Mayday-Bubu-Windows-10-11-Codex-Only-v1.1.3.zip"
+          $zip = "dist\Mayday-Bubu-Windows-10-11-Codex-Only-v1.1.4.zip"
           if (-not (Test-Path -LiteralPath $zip)) { throw "Codex-only ZIP missing" }
-          if (-not (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-v1.1.3.zip")) { throw "Full ZIP missing" }
+          if (-not (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-v1.1.4.zip")) { throw "Full ZIP missing" }
 
           $extractRoot = Join-Path $env:RUNNER_TEMP "bubu-windows-release-extracted"
           Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -188,8 +188,8 @@ jobs:
           Remove-Item Env:BUBU_INSTALL_NONINTERACTIVE
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-v1.1.3
+          name: windows-v1.1.4
           if-no-files-found: error
           path: |
-            dist/Mayday-Bubu-Windows-10-11-v1.1.3.zip
-            dist/Mayday-Bubu-Windows-10-11-Codex-Only-v1.1.3.zip
+            dist/Mayday-Bubu-Windows-10-11-v1.1.4.zip
+            dist/Mayday-Bubu-Windows-10-11-Codex-Only-v1.1.4.zip

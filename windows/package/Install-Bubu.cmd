@@ -16,7 +16,7 @@ if defined CODEX_HOME (
 set "PET_DEST=%CODEX_DIR%\pets\bubu-office"
 set "PET_STAGE=%CODEX_DIR%\pets\.bubu-office-installing"
 
->"%LOG%" echo Bubu Windows installer open-source V1.1.3
+>"%LOG%" echo Bubu Windows installer open-source V1.1.4
 >>"%LOG%" echo Started: %DATE% %TIME%
 >>"%LOG%" echo OS: %OS%
 >>"%LOG%" echo Architecture: %PROCESSOR_ARCHITECTURE%
@@ -24,7 +24,7 @@ set "PET_STAGE=%CODEX_DIR%\pets\.bubu-office-installing"
 >>"%LOG%" echo Codex home: configured for current user
 
 echo.
-echo Bubu Windows installer V1.1.3
+echo Bubu Windows installer V1.1.4
 echo ----------------------
 if exist "%ROOT%\CODEX-ONLY.txt" (
   echo Panel: Codex quota only ^(no BTC/ETH^)
