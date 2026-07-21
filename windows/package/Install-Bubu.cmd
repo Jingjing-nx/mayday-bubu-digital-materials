@@ -6,7 +6,7 @@ set "ROOT=%~dp0"
 if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 set "LOG=%TEMP%\BubuPet-install.log"
 set "PET_SOURCE=%ROOT%\pet\bubu-office"
-set "PET_SPRITE=spritesheet-win-5.webp"
+set "PET_SPRITE=spritesheet-win-14.webp"
 
 if defined CODEX_HOME (
   set "CODEX_DIR=%CODEX_HOME%"
@@ -16,7 +16,7 @@ if defined CODEX_HOME (
 set "PET_DEST=%CODEX_DIR%\pets\bubu-office"
 set "PET_STAGE=%CODEX_DIR%\pets\.bubu-office-installing"
 
->"%LOG%" echo Bubu Windows installer open-source 5
+>"%LOG%" echo Bubu Windows installer open-source 14
 >>"%LOG%" echo Started: %DATE% %TIME%
 >>"%LOG%" echo OS: %OS%
 >>"%LOG%" echo Architecture: %PROCESSOR_ARCHITECTURE%
@@ -24,7 +24,7 @@ set "PET_STAGE=%CODEX_DIR%\pets\.bubu-office-installing"
 >>"%LOG%" echo Codex home: configured for current user
 
 echo.
-echo Bubu Windows installer 5
+echo Bubu Windows installer 14
 echo ----------------------
 if exist "%ROOT%\CODEX-ONLY.txt" (
   echo Panel: Codex quota only ^(no BTC/ETH^)

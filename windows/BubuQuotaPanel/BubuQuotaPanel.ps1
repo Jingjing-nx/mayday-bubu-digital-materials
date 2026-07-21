@@ -8,7 +8,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "5"
+$script:PanelVersion = "14"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $script:MarketPricesEnabled = $true
@@ -978,7 +978,7 @@ function Start-QuotaRequest {
         $process.StartInfo = $info
         if (-not $process.Start()) { throw "Codex 本机服务启动失败" }
 
-        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"5"},"capabilities":{"experimentalApi":true}}}'
+        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"14"},"capabilities":{"experimentalApi":true}}}'
         $initialized = '{"method":"initialized","params":{}}'
         $readLimits = '{"method":"account/rateLimits/read","id":2}'
         $process.StandardInput.WriteLine($initialize)

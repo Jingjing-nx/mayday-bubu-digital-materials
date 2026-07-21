@@ -1,5 +1,5 @@
 Package: Bubu Windows
-Version: 5
+Version: 14
 System: Windows 10/11
 Architecture: x64 + ARM64
 Variants: Full / Codex Only (no BTC or ETH)
