@@ -2,7 +2,7 @@
 
 ## 安装
 
-1. 按需要完整解压 `Mayday-Bubu-macOS-Universal-14.zip` 或 `Mayday-Bubu-macOS-Universal-Codex-Only-14.zip`。
+1. 按需要完整解压 `Mayday-Bubu-macOS-Universal-15.zip` 或 `Mayday-Bubu-macOS-Universal-Codex-Only-15.zip`。
 2. 双击 `安装卜卜-macOS.command`。
 3. 如果出现“Apple 无法验证”提示，点“完成”，不要点“移到废纸篓”。
 4. 双击 `安装被拦截-打开隐私与安全.html`；页面会尝试自动跳转，如果没跳转就点蓝色按钮。

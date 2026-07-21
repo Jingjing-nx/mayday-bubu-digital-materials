@@ -5,7 +5,7 @@ chcp 65001 >nul 2>&1
 set "REPORT=%USERPROFILE%\Desktop\Bubu-Windows-Check.txt"
 set "ROOT=%~dp0"
 
->"%REPORT%" echo Bubu Windows compatibility check 14
+>"%REPORT%" echo Bubu Windows compatibility check 15
 >>"%REPORT%" echo Date: %DATE% %TIME%
 >>"%REPORT%" echo Windows: %OS%
 >>"%REPORT%" echo Architecture: %PROCESSOR_ARCHITECTURE%
@@ -17,7 +17,7 @@ if exist "%ROOT%pet\bubu-office\pet.json" (
 ) else (
   >>"%REPORT%" echo Package pet.json: MISSING
 )
-if exist "%ROOT%pet\bubu-office\spritesheet-win-14.webp" (
+if exist "%ROOT%pet\bubu-office\spritesheet-win-15.webp" (
   >>"%REPORT%" echo Package versioned spritesheet: OK
 ) else (
   >>"%REPORT%" echo Package versioned spritesheet: MISSING
