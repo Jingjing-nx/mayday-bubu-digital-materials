@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-VERSION="1.1.4"
+VERSION="5"
 CODEX_ONLY_RELEASE="false"
 if [[ "${1:-}" == "--codex-only" ]]; then
   CODEX_ONLY_RELEASE="true"
@@ -11,9 +11,9 @@ fi
 STAGE_ROOT="$ROOT/build/release"
 FULL_STAGE="$STAGE_ROOT/卜卜-Windows"
 CODEX_ONLY_STAGE="$STAGE_ROOT/卜卜-Windows-仅Codex额度"
-FULL_OUT="$ROOT/dist/Mayday-Bubu-Windows-10-11-v$VERSION.zip"
-CODEX_ONLY_OUT="$ROOT/dist/Mayday-Bubu-Windows-10-11-Codex-Only-v$VERSION.zip"
-ATLAS_NAME="spritesheet-win-v1.1.0.webp"
+FULL_OUT="$ROOT/dist/Mayday-Bubu-Windows-10-11-$VERSION.zip"
+CODEX_ONLY_OUT="$ROOT/dist/Mayday-Bubu-Windows-10-11-Codex-Only-$VERSION.zip"
+ATLAS_NAME="spritesheet-win-$VERSION.webp"
 
 command -v jq >/dev/null || {
   print -u2 "缺少 jq，无法生成 Windows 发布包。"
