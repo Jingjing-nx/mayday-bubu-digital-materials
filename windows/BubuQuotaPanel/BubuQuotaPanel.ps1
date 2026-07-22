@@ -9,7 +9,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "16"
+$script:PanelVersion = "17"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $script:MarketPricesEnabled = $true
@@ -207,6 +207,10 @@ namespace BubuPanel {
         [DllImport("user32.dll")]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
 
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmGetWindowAttribute(
+            IntPtr hWnd, int dwAttribute, out RECT attribute, int cbAttribute);
+
         [DllImport("user32.dll")]
         private static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint flags);
 
@@ -259,10 +263,28 @@ namespace BubuPanel {
         [DllImport("user32.dll")]
         private static extern int GetSystemMetrics(int index);
 
+        private static bool TryGetPhysicalWindowRect(IntPtr hWnd, out RECT rect) {
+            // GetWindowRect is DPI-virtualized when the hosting PowerShell/WPF
+            // thread is not per-monitor aware. DWM always reports physical
+            // screen pixels, so a 250% display cannot make the panel derive a
+            // 0.4x/0.2x pet scale from an otherwise full-size overlay.
+            const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+            try {
+                int result = DwmGetWindowAttribute(hWnd,
+                    DWMWA_EXTENDED_FRAME_BOUNDS, out rect, Marshal.SizeOf(typeof(RECT)));
+                if (result == 0 && rect.Right > rect.Left && rect.Bottom > rect.Top) {
+                    return true;
+                }
+            } catch (DllNotFoundException) {
+            } catch (EntryPointNotFoundException) {
+            }
+            return GetWindowRect(hWnd, out rect);
+        }
+
         private static NativeWindowInfo ReadWindow(IntPtr hWnd) {
             if (hWnd == IntPtr.Zero || !IsWindow(hWnd) || !IsWindowVisible(hWnd)) return null;
             RECT rect;
-            if (!GetWindowRect(hWnd, out rect)) return null;
+            if (!TryGetPhysicalWindowRect(hWnd, out rect)) return null;
             if (rect.Right <= rect.Left || rect.Bottom <= rect.Top) return null;
             uint processId;
             GetWindowThreadProcessId(hWnd, out processId);
@@ -284,6 +306,21 @@ namespace BubuPanel {
 
         public static NativeWindowInfo GetWindow(IntPtr hWnd) {
             return ReadWindow(hWnd);
+        }
+
+        public static bool HasPhysicalWindowBounds(IntPtr hWnd) {
+            RECT rect;
+            if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return false;
+            const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+            try {
+                return DwmGetWindowAttribute(hWnd, DWMWA_EXTENDED_FRAME_BOUNDS,
+                    out rect, Marshal.SizeOf(typeof(RECT))) == 0 &&
+                    rect.Right > rect.Left && rect.Bottom > rect.Top;
+            } catch (DllNotFoundException) {
+                return false;
+            } catch (EntryPointNotFoundException) {
+                return false;
+            }
         }
 
         public static bool IsLeftMouseButtonDown() {
@@ -311,7 +348,7 @@ namespace BubuPanel {
         public static NativeVisualInfo CaptureVisibleBounds(IntPtr hWnd) {
             RECT rect;
             if (hWnd == IntPtr.Zero || !IsWindow(hWnd) ||
-                !GetWindowRect(hWnd, out rect)) return null;
+                !TryGetPhysicalWindowRect(hWnd, out rect)) return null;
             int width = rect.Right - rect.Left;
             int height = rect.Bottom - rect.Top;
             if (width < 40 || height < 40 || width > 2000 || height > 2000) return null;
@@ -648,7 +685,7 @@ test = true
     exit 0
 }
 
-# Release 16 is the blue Bubu edition. Clear any orange preview selection
+# Release 17 is the blue Bubu edition. Clear any orange preview selection
 # left by an earlier local build before the panel starts following the pet.
 $script:SelectedSkin = "blue"
 [void](Set-BubuSkinSelection "blue")
@@ -3495,6 +3532,8 @@ if ($ValidateTrackingFilters) {
     $imeClassRejected = -not (Test-PetWindowSize $imeClassWindow $testBounds) -and
         -not (Test-HeuristicPetWindow $imeClassWindow)
     $noActivateApplied = [BubuPanel.NativeWindows]::HasNoActivateStyle($script:WindowHandle)
+    $physicalWindowBounds = [BubuPanel.NativeWindows]::HasPhysicalWindowBounds(
+        $script:WindowHandle)
     $placementSamples = 0
     $scaleSamples = 0
     $visualScaleSamples = 0
@@ -3734,11 +3773,12 @@ if ($ValidateTrackingFilters) {
         (Test-PetDoubleClickGesture $firstPetClick $secondPetClick 300 500 $doubleClickMovement) -and
         -not (Test-PetDoubleClickGesture $firstPetClick $secondPetClick 501 500 $doubleClickMovement)
     if (-not $petAccepted -or -not $imeRejected -or -not $imeClassRejected -or
-        -not $noActivateApplied -or -not $doubleClickValid) {
+        -not $noActivateApplied -or -not $physicalWindowBounds -or
+        -not $doubleClickValid) {
         throw "Pet-window tracking filters failed validation."
     }
     Write-Output ("tracking-filter-validation: pet=True ime-size=True ime-class=True " +
-        "no-activate=True placement-matrix=" + $placementSamples +
+        "no-activate=True physical-window-bounds=True placement-matrix=" + $placementSamples +
         " scale-matrix=" + $scaleSamples +
         " visual-scale-matrix=" + $visualScaleSamples +
         " capture-coordinate-matrix=" + $captureCoordinateSamples +

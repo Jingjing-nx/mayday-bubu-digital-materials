@@ -5,14 +5,14 @@ chcp 65001 >nul 2>&1
 set "ROOT=%~dp0"
 if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 set "LOG=%TEMP%\BubuPet-install.log"
-set "PET_SPRITE=spritesheet-win-16.webp"
+set "PET_SPRITE=spritesheet-win-17.webp"
 
 if defined CODEX_HOME (
   set "CODEX_DIR=%CODEX_HOME%"
 ) else (
   set "CODEX_DIR=%USERPROFILE%\.codex"
 )
->"%LOG%" echo Bubu Windows installer open-source 16
+>"%LOG%" echo Bubu Windows installer open-source 17
 >>"%LOG%" echo Started: %DATE% %TIME%
 >>"%LOG%" echo OS: %OS%
 >>"%LOG%" echo Architecture: %PROCESSOR_ARCHITECTURE%
@@ -20,7 +20,7 @@ if defined CODEX_HOME (
 >>"%LOG%" echo Codex home: configured for current user
 
 echo.
-echo Bubu Windows installer 16
+echo Bubu Windows installer 17
 echo ----------------------
 if exist "%ROOT%\CODEX-ONLY.txt" (
   echo Panel: Codex quota only ^(no BTC^)
