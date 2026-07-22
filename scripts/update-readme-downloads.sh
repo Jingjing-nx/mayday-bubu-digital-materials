@@ -30,7 +30,7 @@ BLOCK="$START
   <tbody>
     <tr>
       <td rowspan=\"2\"><strong>蓝色卜卜</strong></td>
-      <td rowspan=\"2\" align=\"center\"><img src=\"shared/preview/blue-bubu-static.png\" alt=\"蓝色卜卜静态示意图\" width=\"80\"></td>
+      <td rowspan=\"2\" align=\"center\"><img src=\"shared/preview/blue-bubu-panel-preview.png\" alt=\"蓝色卜卜额度与任务看板示意图\" width=\"140\"></td>
       <td>Web3 版</td>
       <td><a href=\"$BASE_URL/Mayday-Bubu-macOS-Universal-$VERSION.zip\">版本 $VERSION 下载</a></td>
       <td><a href=\"$BASE_URL/Mayday-Bubu-Windows-10-11-$VERSION.zip\">版本 $VERSION 下载</a></td>
