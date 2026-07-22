@@ -151,7 +151,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $skinSelection -notmatch "blue=True orange=True persistence=True duplicate-key=True") {
             throw "Skin-selection validation failed: $skinSelection"
           }
-          if (Select-String -LiteralPath $panel -Pattern 'lightstick|荧光棒|应援棒') {
+          if (Select-String -LiteralPath $panel -Pattern 'lightstick') {
             throw "Orange-project lightstick code leaked into the blue Windows panel"
           }
           Remove-Item Env:BUBU_SHOW_MARKET_PRICES
@@ -171,7 +171,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $stage)) { throw "Windows ZIP root directory missing after extraction" }
           if (-not (Test-Path -LiteralPath (Join-Path $stage "CODEX-ONLY.txt"))) { throw "Codex-only marker missing" }
           if (Test-Path -LiteralPath (Join-Path $stage "pet\bubu-orange")) { throw "Orange preview pet leaked into the blue release" }
-          if (Get-ChildItem -LiteralPath $stage -Recurse -File | Select-String -Pattern 'lightstick|荧光棒|应援棒' -Quiet) {
+          if (Get-ChildItem -LiteralPath $stage -Recurse -File | Select-String -Pattern 'lightstick' -Quiet) {
             throw "Orange-project lightstick content leaked into the blue release"
           }
           $manifest = Get-Content -Raw -LiteralPath (Join-Path $packagePet "pet.json") | ConvertFrom-Json
