@@ -21,6 +21,7 @@ BLOCK="$START
   <thead>
     <tr>
       <th>皮肤</th>
+      <th>示意图</th>
       <th>版本</th>
       <th>macOS</th>
       <th>Windows</th>
@@ -29,17 +30,19 @@ BLOCK="$START
   <tbody>
     <tr>
       <td rowspan=\"2\"><strong>蓝色卜卜</strong></td>
+      <td rowspan=\"2\" align=\"center\"><img src=\"shared/preview/blue-bubu-static.png\" alt=\"蓝色卜卜静态示意图\" width=\"80\"></td>
       <td>Web3 版</td>
-      <td><a href=\"$BASE_URL/Mayday-Bubu-macOS-Universal-$VERSION.zip\">最新版本下载</a></td>
-      <td><a href=\"$BASE_URL/Mayday-Bubu-Windows-10-11-$VERSION.zip\">最新版本下载</a></td>
+      <td><a href=\"$BASE_URL/Mayday-Bubu-macOS-Universal-$VERSION.zip\">版本 $VERSION 下载</a></td>
+      <td><a href=\"$BASE_URL/Mayday-Bubu-Windows-10-11-$VERSION.zip\">版本 $VERSION 下载</a></td>
     </tr>
     <tr>
       <td>普通版</td>
-      <td><a href=\"$BASE_URL/Mayday-Bubu-macOS-Universal-Codex-Only-$VERSION.zip\">最新版本下载</a></td>
-      <td><a href=\"$BASE_URL/Mayday-Bubu-Windows-10-11-Codex-Only-$VERSION.zip\">最新版本下载</a></td>
+      <td><a href=\"$BASE_URL/Mayday-Bubu-macOS-Universal-Codex-Only-$VERSION.zip\">版本 $VERSION 下载</a></td>
+      <td><a href=\"$BASE_URL/Mayday-Bubu-Windows-10-11-Codex-Only-$VERSION.zip\">版本 $VERSION 下载</a></td>
     </tr>
     <tr>
       <td rowspan=\"2\"><strong>橙色卜卜</strong></td>
+      <td rowspan=\"2\" align=\"center\"><img src=\"shared/preview/orange-bubu-static.png\" alt=\"橙色卜卜静态示意图\" width=\"80\"></td>
       <td>Web3 版</td>
       <td>制作中</td>
       <td>制作中</td>
@@ -52,8 +55,8 @@ BLOCK="$START
   </tbody>
 </table>
 
-- **Web3 版**：包含 Codex 额度、任务进度与 BTC/ETH 行情。
-- **普通版**：保留 Codex 额度和任务进度，不显示、也不请求 BTC/ETH 行情。
+- **Web3 版**：包含 Codex 额度、任务进度与 BTC 行情。
+- **普通版**：保留 Codex 额度和任务进度，不显示、也不请求 BTC 行情。
 - 当前流水版本为 **$VERSION**；每次发布新 Release 后，表格中的蓝色卜卜下载链接会自动更新。
 $END"
 

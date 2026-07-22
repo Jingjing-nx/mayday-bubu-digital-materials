@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-VERSION="15"
+VERSION="16"
 CODEX_ONLY_RELEASE="false"
 if [[ "${1:-}" == "--codex-only" ]]; then
   CODEX_ONLY_RELEASE="true"
@@ -23,13 +23,13 @@ command -v jq >/dev/null || {
 stage_package() {
   local stage="$1"
   local codex_only="$2"
-  local pet_dir="$stage/pet/bubu-office"
+  local pet_dir
   local temporary_json
 
   /bin/rm -rf "$stage"
   mkdir -p "$stage"
 
-  /usr/bin/ditto "$ROOT/shared/pet" "$stage/pet"
+  /usr/bin/ditto "$ROOT/shared/pet/bubu-office" "$stage/pet/bubu-office"
   /usr/bin/ditto "$ROOT/shared/preview" "$stage/preview"
   /usr/bin/ditto "$ROOT/windows/BubuQuotaPanel" "$stage/windows"
   /usr/bin/ditto "$ROOT/windows/package" "$stage"
@@ -40,18 +40,21 @@ stage_package() {
     /bin/cp "$ROOT/windows/CODEX-ONLY.txt" "$stage/CODEX-ONLY.txt"
   fi
 
-  /bin/mv "$pet_dir/spritesheet.webp" "$pet_dir/$ATLAS_NAME"
-  temporary_json="$pet_dir/pet.json.tmp"
-  jq --arg atlas "$ATLAS_NAME" '.spritesheetPath = $atlas' \
-    "$pet_dir/pet.json" > "$temporary_json"
-  /bin/mv "$temporary_json" "$pet_dir/pet.json"
+  for pet_dir in "$stage"/pet/*(N/); do
+    [[ -f "$pet_dir/spritesheet.webp" && -f "$pet_dir/pet.json" ]] || continue
+    /bin/mv "$pet_dir/spritesheet.webp" "$pet_dir/$ATLAS_NAME"
+    temporary_json="$pet_dir/pet.json.tmp"
+    jq --arg atlas "$ATLAS_NAME" '.spritesheetPath = $atlas' \
+      "$pet_dir/pet.json" > "$temporary_json"
+    /bin/mv "$temporary_json" "$pet_dir/pet.json"
 
-  if [[ -f "$pet_dir/validation.json" ]]; then
-    temporary_json="$pet_dir/validation.json.tmp"
-    jq --arg atlas "$ATLAS_NAME" '.file = $atlas' \
-      "$pet_dir/validation.json" > "$temporary_json"
-    /bin/mv "$temporary_json" "$pet_dir/validation.json"
-  fi
+    if [[ -f "$pet_dir/validation.json" ]]; then
+      temporary_json="$pet_dir/validation.json.tmp"
+      jq --arg atlas "$ATLAS_NAME" '.file = $atlas' \
+        "$pet_dir/validation.json" > "$temporary_json"
+      /bin/mv "$temporary_json" "$pet_dir/validation.json"
+    fi
+  done
 
   (
     cd "$stage"

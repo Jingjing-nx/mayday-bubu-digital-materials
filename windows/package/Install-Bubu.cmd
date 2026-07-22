@@ -5,18 +5,14 @@ chcp 65001 >nul 2>&1
 set "ROOT=%~dp0"
 if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 set "LOG=%TEMP%\BubuPet-install.log"
-set "PET_SOURCE=%ROOT%\pet\bubu-office"
-set "PET_SPRITE=spritesheet-win-15.webp"
+set "PET_SPRITE=spritesheet-win-16.webp"
 
 if defined CODEX_HOME (
   set "CODEX_DIR=%CODEX_HOME%"
 ) else (
   set "CODEX_DIR=%USERPROFILE%\.codex"
 )
-set "PET_DEST=%CODEX_DIR%\pets\bubu-office"
-set "PET_STAGE=%CODEX_DIR%\pets\.bubu-office-installing"
-
->"%LOG%" echo Bubu Windows installer open-source 15
+>"%LOG%" echo Bubu Windows installer open-source 16
 >>"%LOG%" echo Started: %DATE% %TIME%
 >>"%LOG%" echo OS: %OS%
 >>"%LOG%" echo Architecture: %PROCESSOR_ARCHITECTURE%
@@ -24,17 +20,17 @@ set "PET_STAGE=%CODEX_DIR%\pets\.bubu-office-installing"
 >>"%LOG%" echo Codex home: configured for current user
 
 echo.
-echo Bubu Windows installer 15
+echo Bubu Windows installer 16
 echo ----------------------
 if exist "%ROOT%\CODEX-ONLY.txt" (
-  echo Panel: Codex quota only ^(no BTC/ETH^)
+  echo Panel: Codex quota only ^(no BTC^)
 ) else (
-  echo Panel: Codex quota + BTC/ETH
+  echo Panel: Codex quota + BTC
 )
 
 if not defined USERPROFILE goto :no_profile
-if not exist "%PET_SOURCE%\pet.json" goto :missing_files
-if not exist "%PET_SOURCE%\%PET_SPRITE%" goto :missing_files
+if not exist "%ROOT%\pet\bubu-office\pet.json" goto :missing_files
+if not exist "%ROOT%\pet\bubu-office\%PET_SPRITE%" goto :missing_files
 
 echo Closing ChatGPT/Codex so the new pet selection cannot be overwritten...
 >>"%LOG%" echo Closing running desktop clients before pet replacement
@@ -46,37 +42,17 @@ cmd.exe /d /c exit 0
 
 if not exist "%CODEX_DIR%\pets" mkdir "%CODEX_DIR%\pets" >>"%LOG%" 2>&1
 if errorlevel 1 goto :copy_failed
-if exist "%PET_STAGE%" rmdir /S /Q "%PET_STAGE%" >>"%LOG%" 2>&1
-if exist "%PET_STAGE%" goto :copy_failed
-mkdir "%PET_STAGE%" >>"%LOG%" 2>&1
+call :install_pet bubu-office
 if errorlevel 1 goto :copy_failed
-
-xcopy "%PET_SOURCE%\*" "%PET_STAGE%\" /E /I /H /R /Y >>"%LOG%" 2>&1
-if errorlevel 1 goto :copy_failed
-
-if not exist "%PET_STAGE%\pet.json" goto :copy_failed
-if not exist "%PET_STAGE%\%PET_SPRITE%" goto :copy_failed
-fc.exe /B "%PET_SOURCE%\pet.json" "%PET_STAGE%\pet.json" >nul 2>&1
-if errorlevel 1 goto :copy_failed
-fc.exe /B "%PET_SOURCE%\%PET_SPRITE%" "%PET_STAGE%\%PET_SPRITE%" >nul 2>&1
-if errorlevel 1 goto :copy_failed
-
-if exist "%PET_DEST%" rmdir /S /Q "%PET_DEST%" >>"%LOG%" 2>&1
-if exist "%PET_DEST%" goto :copy_failed
-move /Y "%PET_STAGE%" "%PET_DEST%" >>"%LOG%" 2>&1
-if errorlevel 1 goto :copy_failed
-if not exist "%PET_DEST%\pet.json" goto :copy_failed
-if not exist "%PET_DEST%\%PET_SPRITE%" goto :copy_failed
-
-echo [OK] Bubu pet files were replaced and verified.
->>"%LOG%" echo Pet install: replaced and binary verified
+echo [OK] Blue Bubu pet files were replaced and verified.
+>>"%LOG%" echo Pet install: blue replaced and binary verified
 
 where powershell.exe >nul 2>&1
 if errorlevel 1 goto :selection_skipped
 if not exist "%ROOT%\windows\select-pet.ps1" goto :selection_skipped
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\windows\select-pet.ps1" -CodexHome "%CODEX_DIR%" >>"%LOG%" 2>&1
 if errorlevel 1 goto :selection_skipped
-echo [OK] Bubu was selected as the active pet.
+echo [OK] Blue Bubu was selected as the active pet.
 >>"%LOG%" echo Pet selection: OK
 goto :selection_done
 
@@ -144,7 +120,7 @@ echo Do not run the installer from inside the ZIP preview.
 goto :finish_error
 
 :copy_failed
-if exist "%PET_STAGE%" rmdir /S /Q "%PET_STAGE%" >>"%LOG%" 2>&1
+if defined PET_STAGE if exist "%PET_STAGE%" rmdir /S /Q "%PET_STAGE%" >>"%LOG%" 2>&1
 echo [ERROR] Bubu could not be copied to the Codex pet folder.
 echo Check free disk space and folder permissions.
 >>"%LOG%" echo ERROR: pet copy failed with code %ERRORLEVEL%
@@ -156,3 +132,28 @@ echo.
 if /I "%BUBU_INSTALL_NONINTERACTIVE%"=="1" exit /b 1
 pause
 exit /b 1
+
+:install_pet
+set "PET_ID=%~1"
+set "PET_SOURCE=%ROOT%\pet\%PET_ID%"
+set "PET_DEST=%CODEX_DIR%\pets\%PET_ID%"
+set "PET_STAGE=%CODEX_DIR%\pets\.%PET_ID%-installing"
+if exist "%PET_STAGE%" rmdir /S /Q "%PET_STAGE%" >>"%LOG%" 2>&1
+if exist "%PET_STAGE%" exit /b 1
+mkdir "%PET_STAGE%" >>"%LOG%" 2>&1
+if errorlevel 1 exit /b 1
+xcopy "%PET_SOURCE%\*" "%PET_STAGE%\" /E /I /H /R /Y >>"%LOG%" 2>&1
+if errorlevel 1 exit /b 1
+if not exist "%PET_STAGE%\pet.json" exit /b 1
+if not exist "%PET_STAGE%\%PET_SPRITE%" exit /b 1
+fc.exe /B "%PET_SOURCE%\pet.json" "%PET_STAGE%\pet.json" >nul 2>&1
+if errorlevel 1 exit /b 1
+fc.exe /B "%PET_SOURCE%\%PET_SPRITE%" "%PET_STAGE%\%PET_SPRITE%" >nul 2>&1
+if errorlevel 1 exit /b 1
+if exist "%PET_DEST%" rmdir /S /Q "%PET_DEST%" >>"%LOG%" 2>&1
+if exist "%PET_DEST%" exit /b 1
+move /Y "%PET_STAGE%" "%PET_DEST%" >>"%LOG%" 2>&1
+if errorlevel 1 exit /b 1
+if not exist "%PET_DEST%\pet.json" exit /b 1
+if not exist "%PET_DEST%\%PET_SPRITE%" exit /b 1
+exit /b 0

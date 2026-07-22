@@ -3,9 +3,8 @@ emulate -L zsh
 setopt ERR_EXIT PIPE_FAIL NO_UNSET
 
 ROOT="${0:A:h}"
-PET_ID="bubu-office"
-PET_SOURCE="$ROOT/pet/$PET_ID"
-PET_DEST="${CODEX_HOME:-$HOME/.codex}/pets/$PET_ID"
+PET_IDS=(bubu-office)
+PETS_DEST_ROOT="${CODEX_HOME:-$HOME/.codex}/pets"
 APP_SOURCE="$ROOT/quota-panel/卜卜额度面板.app"
 APP_DEST="$HOME/Applications/卜卜额度面板.app"
 APP_BINARY="$APP_DEST/Contents/MacOS/BubuQuotaPanel"
@@ -18,14 +17,14 @@ HEALTH_PATH="$HEALTH_DIR/panel-health.json"
 CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
 STATE_PATH="${CODEX_HOME:-$HOME/.codex}/.codex-global-state.json"
 DOMAIN="gui/$(id -u)"
-PANEL_VERSION="15"
-EXPECTED_ATLAS_SHA256="df3c6f95784ae109f12df57c438afaa88c3e4a786145066c3d93fbf32000b3a0"
+PANEL_VERSION="16"
+EXPECTED_BLUE_ATLAS_SHA256="df3c6f95784ae109f12df57c438afaa88c3e4a786145066c3d93fbf32000b3a0"
 CODEX_ONLY_MARKER="$ROOT/CODEX-ONLY.txt"
 MARKET_PRICES_ENABLED="true"
-PANEL_FEATURE_NAME="Codex 额度 + BTC/ETH 面板"
+PANEL_FEATURE_NAME="Codex 额度 + BTC 面板"
 if [[ -f "$CODEX_ONLY_MARKER" ]]; then
   MARKET_PRICES_ENABLED="false"
-  PANEL_FEATURE_NAME="仅 Codex 额度面板（无 BTC/ETH）"
+  PANEL_FEATURE_NAME="仅 Codex 额度面板（无 BTC）"
 fi
 
 pause_before_exit() {
@@ -68,6 +67,13 @@ wait_for_panel_health() {
     /bin/sleep 0.1
   done
   return 1
+}
+
+expected_atlas_sha256() {
+  case "$1" in
+    bubu-office) echo "$EXPECTED_BLUE_ATLAS_SHA256" ;;
+    *) return 1 ;;
+  esac
 }
 
 select_bubu_in_codex() {
@@ -133,14 +139,17 @@ MACOS_MINOR="${MACOS_REMAINDER%%.*}"
 if (( MACOS_MAJOR < 12 || (MACOS_MAJOR == 12 && MACOS_MINOR < 3) )); then
   fail "需要 macOS 12.3 或更高版本，当前版本为 $MACOS_VERSION。"
 fi
-[[ -f "$PET_SOURCE/pet.json" && -f "$PET_SOURCE/spritesheet.webp" ]] \
-  || fail "宠物文件不完整，请重新解压整个分享包。"
+for PET_ID in "${PET_IDS[@]}"; do
+  PET_SOURCE="$ROOT/pet/$PET_ID"
+  [[ -f "$PET_SOURCE/pet.json" && -f "$PET_SOURCE/spritesheet.webp" ]] \
+    || fail "宠物文件不完整（$PET_ID），请重新解压整个分享包。"
+  ACTUAL_ATLAS_SHA256="$(/usr/bin/shasum -a 256 "$PET_SOURCE/spritesheet.webp" | /usr/bin/awk '{print $1}')"
+  EXPECTED_ATLAS_SHA256="$(expected_atlas_sha256 "$PET_ID")"
+  [[ "$ACTUAL_ATLAS_SHA256" == "$EXPECTED_ATLAS_SHA256" ]] \
+    || fail "宠物图集校验失败（$PET_ID），请重新下载分享包。"
+done
 [[ -d "$APP_SOURCE" && -f "$PLIST_SOURCE" ]] \
   || fail "额度面板文件不完整，请重新解压整个分享包。"
-
-ACTUAL_ATLAS_SHA256="$(/usr/bin/shasum -a 256 "$PET_SOURCE/spritesheet.webp" | /usr/bin/awk '{print $1}')"
-[[ "$ACTUAL_ATLAS_SHA256" == "$EXPECTED_ATLAS_SHA256" ]] \
-  || fail "宠物图集校验失败，请重新下载分享包。"
 
 ARCH="$(/usr/bin/uname -m)"
 [[ "$ARCH" == "arm64" || "$ARCH" == "x86_64" ]] \
@@ -151,14 +160,18 @@ if ! /usr/bin/codesign --verify --deep --strict "$APP_SOURCE" >/dev/null 2>&1; t
   echo "检测到分享或解压过程改变了临时签名，安装器将自动修复。"
 fi
 
-mkdir -p "${PET_DEST:h}" "$HOME/Applications" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" "$HEALTH_DIR"
+mkdir -p "$PETS_DEST_ROOT" "$HOME/Applications" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" "$HEALTH_DIR"
 
-if [[ -e "$PET_DEST" ]]; then
-  PET_BACKUP="$PET_DEST.backup-$(date +%Y%m%d-%H%M%S)"
-  /bin/mv "$PET_DEST" "$PET_BACKUP"
-  echo "已有同名宠物已备份到：$PET_BACKUP"
-fi
-/usr/bin/ditto "$PET_SOURCE" "$PET_DEST"
+for PET_ID in "${PET_IDS[@]}"; do
+  PET_SOURCE="$ROOT/pet/$PET_ID"
+  PET_DEST="$PETS_DEST_ROOT/$PET_ID"
+  if [[ -e "$PET_DEST" ]]; then
+    PET_BACKUP="$PET_DEST.backup-$(date +%Y%m%d-%H%M%S)"
+    /bin/mv "$PET_DEST" "$PET_BACKUP"
+    echo "已有同名宠物已备份到：$PET_BACKUP"
+  fi
+  /usr/bin/ditto "$PET_SOURCE" "$PET_DEST"
+done
 
 for EXISTING_PLIST in "$HOME/Library/LaunchAgents"/*.plist(N); do
   if /usr/bin/grep -q '卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel' "$EXISTING_PLIST" 2>/dev/null; then
@@ -215,9 +228,9 @@ select_bubu_in_codex
 
 echo ""
 echo "安装完成："
-echo "  ✓ 卜卜宠物"
+echo "  ✓ 蓝色卜卜宠物"
 echo "  ✓ $PANEL_FEATURE_NAME"
-echo "  ✓ 自动选中卜卜"
+echo "  ✓ 自动选中蓝色卜卜"
 echo "  ✓ 随登录自动启动"
 echo ""
 echo "请退出并重新打开 Codex。额度读取朋友自己的本机账号，不需要 API Key。"

@@ -21,7 +21,7 @@
 
 # mayday卜卜电子物料
 
-一个非官方、非商业的五月天歌迷桌面项目。目前包含 Codex 动态宠物“卜卜”和 Codex 剩余额度面板；macOS、Windows 都可选择带或不带 BTC/ETH 行情的版本。
+一个非官方、非商业的五月天歌迷桌面项目。目前发布蓝色 Codex 动态宠物“卜卜”和 Codex 剩余额度面板；macOS、Windows 都可选择带或不带 BTC 行情的版本。
 
 ![卜卜动作总览](shared/preview/卜卜动作总览.png)
 
@@ -34,6 +34,7 @@
   <thead>
     <tr>
       <th>皮肤</th>
+      <th>示意图</th>
       <th>版本</th>
       <th>macOS</th>
       <th>Windows</th>
@@ -42,17 +43,19 @@
   <tbody>
     <tr>
       <td rowspan="2"><strong>蓝色卜卜</strong></td>
+      <td rowspan="2" align="center"><img src="shared/preview/blue-bubu-static.png" alt="蓝色卜卜静态示意图" width="80"></td>
       <td>Web3 版</td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-macOS-Universal-15.zip">最新版本下载</a></td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-Windows-10-11-15.zip">最新版本下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/16/Mayday-Bubu-macOS-Universal-16.zip">版本 16 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/16/Mayday-Bubu-Windows-10-11-16.zip">版本 16 下载</a></td>
     </tr>
     <tr>
       <td>普通版</td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-macOS-Universal-Codex-Only-15.zip">最新版本下载</a></td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-Windows-10-11-Codex-Only-15.zip">最新版本下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/16/Mayday-Bubu-macOS-Universal-Codex-Only-16.zip">版本 16 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/16/Mayday-Bubu-Windows-10-11-Codex-Only-16.zip">版本 16 下载</a></td>
     </tr>
     <tr>
       <td rowspan="2"><strong>橙色卜卜</strong></td>
+      <td rowspan="2" align="center"><img src="shared/preview/orange-bubu-static.png" alt="橙色卜卜静态示意图" width="80"></td>
       <td>Web3 版</td>
       <td>制作中</td>
       <td>制作中</td>
@@ -65,9 +68,9 @@
   </tbody>
 </table>
 
-- **Web3 版**：包含 Codex 额度、任务进度与 BTC/ETH 行情。
-- **普通版**：保留 Codex 额度和任务进度，不显示、也不请求 BTC/ETH 行情。
-- 当前流水版本为 **15**；每次发布新 Release 后，表格中的蓝色卜卜下载链接会自动更新。
+- **Web3 版**：包含 Codex 额度、任务进度与 BTC 行情。
+- **普通版**：保留 Codex 额度和任务进度，不显示、也不请求 BTC 行情。
+- 当前流水版本为 **16**；每次发布新 Release 后，表格中的蓝色卜卜下载链接会自动更新。
 <!-- DOWNLOAD_TABLE:END -->
 
 macOS 支持 12.3+、Apple 芯片与 Intel Mac；Windows 支持 Windows 10/11、x64 与 ARM64。压缩包的系统和版本不能混用。
@@ -101,8 +104,8 @@ macOS 支持 12.3+、Apple 芯片与 Intel Mac；Windows 支持 Windows 10/11、
 - 向右拖动：变成无手脚圆球，弹奏深蓝色电吉他。
 - 双击卜卜：在“显示面板”和“隐藏面板”之间循环切换；只识别卜卜本体范围，普通单击与拖动不会误触。
 - 额度面板：跟随在卜卜头顶约 14 px，并随卜卜同比放大缩小；额度每 5 分钟更新，可隐藏和显示。
-- 任务进度：约每 2 秒读取本机 Codex 任务索引，用每个任务的唯一 ID 对应左侧任务列表里的正式名称，并显示“正在执行”、“等你确认”或“已完成”；带蓝点、尚未查看的已完成任务会保留在面板底部，用户在 Codex 中点开该任务、蓝点消失后，面板同步移除该行。多个任务按开始时间依次向下排列，最多显示 5 行，超出部分合并提示。任务名称与已读状态只在本机读取和显示，不写入面板日志，也不上传；旧版 Codex 没有相关索引时才会回退到任务消息摘要与短时完成提示。
-- 完整版另含每 5 秒更新的 BTC/ETH；`Codex-Only` 版会缩短面板并完全关闭行情请求。
+- 任务进度：约每 2 秒读取本机 Codex 任务索引，用每个任务的唯一 ID 对应左侧任务列表里的正式名称。四种状态使用同一套角色图标：正在执行为蓝色眼镜球与持续旋转的蓝色循环箭头，等你确认为橙色手机球与黄色问号，已完成为粉色球与绿色勾，执行失败为红色球与红色叉。Codex 自动化生成的定时任务不会计入面板。带蓝点、尚未查看的已完成或失败手动任务会保留在面板底部，用户在 Codex 中点开该任务、蓝点消失后，面板同步移除该行。多个手动任务按开始时间依次向下排列，最多显示前 5 个真实任务，不显示额外汇总行。任务名称与已读状态只在本机读取和显示，不写入面板日志，也不上传；旧版 Codex 没有相关索引时才会回退到任务消息摘要与短时完成提示。
+- 完整版另含每 5 秒更新的 BTC；`Codex-Only` 版会缩短面板并完全关闭行情请求。
 
 ## 性能与兼容性
 

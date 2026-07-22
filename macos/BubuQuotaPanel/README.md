@@ -6,8 +6,8 @@
 
 - 只显示 Codex 额度的剩余百分比和重置时间。
 - 启动时立即读取，之后每 5 分钟自动更新。
-- 面板底部显示 BTC/USDT 和 ETH/USDT 现货价格，每 5 秒更新；价格上涨时显绿、下跌时显红。
-- 设置环境变量 `BUBU_SHOW_MARKET_PRICES=false` 后，面板会缩短为仅 Codex 额度版，并停止自动请求 BTC/ETH。
+- 面板底部显示 BTC/USDT 现货价格，每 5 秒更新；价格上涨时显绿、下跌时显红。
+- 设置环境变量 `BUBU_SHOW_MARKET_PRICES=false` 后，面板会缩短为仅 Codex 额度版，并停止自动请求 BTC。
 - 高频跟随宠物窗口，箭头对齐可见宠物中心，尖端到头顶固定 14 个逻辑像素；真实窗口不可读时使用 Codex 保存的位置，退出 Codex 后面板自动消失。
 - 点击“隐藏”会完全收起窗口，不再保留桌面小方块；点击菜单栏“卜卜”可恢复显示。
 - 启动后写入不含个人数据的运行状态文件，供安装器确认进程确实已启动。
@@ -31,7 +31,6 @@
 ```bash
 ./build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --print-quota
 ./build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --print-btc
-./build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --print-eth
 ./build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --print-panel-location
 ./build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --print-saved-panel-location
 ./build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --self-test-placement

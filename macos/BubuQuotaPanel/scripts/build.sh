@@ -14,6 +14,10 @@ rm -rf "$APP"
 mkdir -p "$MACOS" "$RESOURCES"
 cp "$ROOT/Resources/Info.plist" "$CONTENTS/Info.plist"
 cp "$ROOT/Resources/quota-panel-background.png" "$RESOURCES/quota-panel-background.png"
+cp "$ROOT/Resources/task-completed-icon.png" "$RESOURCES/task-completed-icon.png"
+cp "$ROOT/Resources/task-running-icon.png" "$RESOURCES/task-running-icon.png"
+cp "$ROOT/Resources/task-waiting-icon.png" "$RESOURCES/task-waiting-icon.png"
+cp "$ROOT/Resources/task-failed-icon.png" "$RESOURCES/task-failed-icon.png"
 cp "$ROOT/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
 
 for ARCH in arm64 x86_64; do

@@ -5,7 +5,7 @@ chcp 65001 >nul 2>&1
 set "REPORT=%USERPROFILE%\Desktop\Bubu-Windows-Check.txt"
 set "ROOT=%~dp0"
 
->"%REPORT%" echo Bubu Windows compatibility check 15
+>"%REPORT%" echo Bubu Windows compatibility check 16
 >>"%REPORT%" echo Date: %DATE% %TIME%
 >>"%REPORT%" echo Windows: %OS%
 >>"%REPORT%" echo Architecture: %PROCESSOR_ARCHITECTURE%
@@ -17,12 +17,11 @@ if exist "%ROOT%pet\bubu-office\pet.json" (
 ) else (
   >>"%REPORT%" echo Package pet.json: MISSING
 )
-if exist "%ROOT%pet\bubu-office\spritesheet-win-15.webp" (
-  >>"%REPORT%" echo Package versioned spritesheet: OK
+if exist "%ROOT%pet\bubu-office\spritesheet-win-16.webp" (
+  >>"%REPORT%" echo Package blue versioned spritesheet: OK
 ) else (
-  >>"%REPORT%" echo Package versioned spritesheet: MISSING
+  >>"%REPORT%" echo Package blue versioned spritesheet: MISSING
 )
-
 where powershell.exe >>"%REPORT%" 2>&1
 if errorlevel 1 (
   >>"%REPORT%" echo PowerShell: UNAVAILABLE - the optional panel cannot run

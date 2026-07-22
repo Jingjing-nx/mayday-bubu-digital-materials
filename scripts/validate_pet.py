@@ -6,15 +6,17 @@ from PIL import Image
 
 
 root = pathlib.Path(__file__).resolve().parents[1]
-pet_dir = root / "shared" / "pet" / "bubu-office"
-manifest = json.loads((pet_dir / "pet.json").read_text(encoding="utf-8"))
-atlas = Image.open(pet_dir / "spritesheet.webp")
+pet_ids = ("bubu-office",)
 
-assert manifest["id"] == "bubu-office"
-assert manifest["spriteVersionNumber"] == 2
-assert manifest["spritesheetPath"] == "spritesheet.webp"
-assert atlas.size == (1536, 2288)
-assert atlas.mode == "RGBA"
-assert atlas.getextrema()[3][0] == 0, "atlas must contain transparent pixels"
+for pet_id in pet_ids:
+    pet_dir = root / "shared" / "pet" / pet_id
+    manifest = json.loads((pet_dir / "pet.json").read_text(encoding="utf-8"))
+    with Image.open(pet_dir / "spritesheet.webp") as atlas:
+        assert manifest["id"] == pet_id
+        assert manifest["spriteVersionNumber"] == 2
+        assert manifest["spritesheetPath"] == "spritesheet.webp"
+        assert atlas.size == (1536, 2288)
+        assert atlas.mode == "RGBA"
+        assert atlas.getextrema()[3][0] == 0, "atlas must contain transparent pixels"
 
-print("Pet manifest and 8x11 atlas geometry: OK")
+print("Blue Bubu manifest and 8x11 atlas geometry: OK")
