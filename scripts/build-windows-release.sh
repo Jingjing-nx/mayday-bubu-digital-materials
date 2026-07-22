@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-VERSION="18"
+VERSION="20"
 CODEX_ONLY_RELEASE="false"
 if [[ "${1:-}" == "--codex-only" ]]; then
   CODEX_ONLY_RELEASE="true"
@@ -30,12 +30,19 @@ stage_package() {
   mkdir -p "$stage"
 
   /usr/bin/ditto "$ROOT/shared/pet/bubu-office" "$stage/pet/bubu-office"
-  /usr/bin/ditto "$ROOT/shared/preview" "$stage/preview"
+  mkdir -p "$stage/preview"
+  for preview in \
+    Codex额度面板.png 任务状态图标总览.png 卜卜动作总览.png \
+    右拖电吉他.gif 左拖唱歌.gif 悬停喝咖啡.gif 默认办公.gif \
+    blue-bubu-static.png; do
+    /bin/cp "$ROOT/shared/preview/$preview" "$stage/preview/$preview"
+  done
   /usr/bin/ditto "$ROOT/windows/BubuQuotaPanel" "$stage/windows"
   /usr/bin/ditto "$ROOT/windows/package" "$stage"
   /bin/cp "$ROOT/windows/README.md" "$stage/README.md"
   /bin/cp "$ROOT/windows/VERSION.txt" "$stage/VERSION.txt"
-  /bin/cp "$ROOT/LICENSE" "$ROOT/ASSET-NOTICE.md" "$ROOT/PRIVACY.md" "$stage/"
+  /bin/cp "$ROOT/LICENSE" "$ROOT/ASSET-NOTICE.md" "$ROOT/PRIVACY.md" \
+    "$ROOT/BLUE-EDITION.txt" "$stage/"
   if [[ "$codex_only" == "true" ]]; then
     /bin/cp "$ROOT/windows/CODEX-ONLY.txt" "$stage/CODEX-ONLY.txt"
   fi

@@ -17,7 +17,9 @@ HEALTH_PATH="$HEALTH_DIR/panel-health.json"
 CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
 STATE_PATH="${CODEX_HOME:-$HOME/.codex}/.codex-global-state.json"
 DOMAIN="gui/$(id -u)"
-PANEL_VERSION="18"
+PANEL_VERSION="20"
+PANEL_EDITION="blue-bubu"
+BLUE_EDITION_MARKER="$ROOT/BLUE-EDITION.txt"
 EXPECTED_BLUE_ATLAS_SHA256="df3c6f95784ae109f12df57c438afaa88c3e4a786145066c3d93fbf32000b3a0"
 CODEX_ONLY_MARKER="$ROOT/CODEX-ONLY.txt"
 MARKET_PRICES_ENABLED="true"
@@ -55,6 +57,8 @@ panel_service_has_pid() {
 panel_health_is_current() {
   [[ -s "$HEALTH_PATH" ]] \
     && /usr/bin/grep -q '"version":"'"$PANEL_VERSION"'"' "$HEALTH_PATH" 2>/dev/null \
+    && /usr/bin/grep -q '"edition":"'"$PANEL_EDITION"'"' "$HEALTH_PATH" 2>/dev/null \
+    && /usr/bin/grep -q '"petID":"bubu-office"' "$HEALTH_PATH" 2>/dev/null \
     && /usr/bin/grep -q '"marketPricesEnabled":'"$MARKET_PRICES_ENABLED" "$HEALTH_PATH" 2>/dev/null
 }
 
@@ -150,6 +154,15 @@ for PET_ID in "${PET_IDS[@]}"; do
 done
 [[ -d "$APP_SOURCE" && -f "$PLIST_SOURCE" ]] \
   || fail "额度面板文件不完整，请重新解压整个分享包。"
+[[ -f "$BLUE_EDITION_MARKER" ]] \
+  && /usr/bin/grep -qx 'edition=blue-bubu' "$BLUE_EDITION_MARKER" \
+  || fail "安装包不是蓝色卜卜专用版，请重新下载正确的蓝色版。"
+[[ ! -e "$ROOT/pet/bubu-orange" ]] \
+  || fail "检测到橙色宠物资源混入蓝色安装包，请重新下载。"
+if /usr/bin/strings "$APP_SOURCE/Contents/MacOS/BubuQuotaPanel" \
+    | /usr/bin/grep -Eqi 'lightstick|bubu-orange'; then
+  fail "检测到其他项目代码混入蓝色面板，请重新下载。"
+fi
 
 ARCH="$(/usr/bin/uname -m)"
 [[ "$ARCH" == "arm64" || "$ARCH" == "x86_64" ]] \
@@ -184,6 +197,11 @@ for _ in {1..20}; do
   /bin/launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || break
   /bin/sleep 0.1
 done
+/usr/bin/pkill -x BubuQuotaPanel 2>/dev/null || true
+for _ in {1..20}; do
+  /usr/bin/pgrep -x BubuQuotaPanel >/dev/null 2>&1 || break
+  /bin/sleep 0.1
+done
 
 /bin/rm -rf "$APP_DEST"
 /usr/bin/ditto "$APP_SOURCE" "$APP_DEST"
@@ -191,6 +209,9 @@ done
 /usr/bin/codesign --force --deep --sign - "$APP_DEST" >/dev/null
 /usr/bin/codesign --verify --deep --strict "$APP_DEST" \
   || fail "额度面板自动签名失败，请重新下载分享包。"
+if /usr/bin/strings "$APP_BINARY" | /usr/bin/grep -Eqi 'lightstick|bubu-orange'; then
+  fail "安装后的蓝色面板仍包含其他项目代码。"
+fi
 /bin/rm -f "$HEALTH_PATH"
 
 /bin/cp "$PLIST_SOURCE" "$PLIST_DEST"

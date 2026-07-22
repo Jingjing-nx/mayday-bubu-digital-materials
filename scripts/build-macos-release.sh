@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-VERSION="18"
+VERSION="20"
 CODEX_ONLY_RELEASE="false"
 if [[ "${1:-}" == "--codex-only" ]]; then
   CODEX_ONLY_RELEASE="true"
@@ -25,12 +25,18 @@ stage_package() {
   mkdir -p "$stage/pet" "$stage/quota-panel" "$stage/preview"
 
   /usr/bin/ditto "$ROOT/shared/pet/bubu-office" "$stage/pet/bubu-office"
-  /usr/bin/ditto "$ROOT/shared/preview" "$stage/preview"
+  for preview in \
+    Codex额度面板.png 任务状态图标总览.png 卜卜动作总览.png \
+    右拖电吉他.gif 左拖唱歌.gif 悬停喝咖啡.gif 默认办公.gif \
+    blue-bubu-static.png; do
+    /bin/cp "$ROOT/shared/preview/$preview" "$stage/preview/$preview"
+  done
   /usr/bin/ditto "$APP_PROJECT/build/卜卜额度面板.app" "$stage/quota-panel/卜卜额度面板.app"
   /bin/cp "$APP_PROJECT/Resources/$LABEL.plist.in" "$stage/quota-panel/$LABEL.plist.in"
   /bin/cp "$ROOT/macos/README.md" "$stage/README.md"
   /bin/cp "$ROOT/macos/VERSION.txt" "$stage/VERSION.txt"
-  /bin/cp "$ROOT/LICENSE" "$ROOT/ASSET-NOTICE.md" "$ROOT/PRIVACY.md" "$stage/"
+  /bin/cp "$ROOT/LICENSE" "$ROOT/ASSET-NOTICE.md" "$ROOT/PRIVACY.md" \
+    "$ROOT/BLUE-EDITION.txt" "$stage/"
   /bin/cp "$ROOT/macos/package/安装卜卜.command" "$stage/安装卜卜-macOS.command"
   /bin/cp "$ROOT/macos/package/卸载卜卜.command" "$stage/卸载卜卜-macOS.command"
   /bin/cp "$ROOT/macos/package/检查卜卜.command" "$stage/检查卜卜-macOS.command"

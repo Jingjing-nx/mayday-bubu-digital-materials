@@ -5,7 +5,10 @@ import Foundation
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
 private let taskProgressRefreshInterval: TimeInterval = 2
-private let panelVersion = "18"
+private let panelVersion = "20"
+private let panelEdition = "blue-bubu"
+private let bluePetID = "bubu-office"
+private let bluePetAvatarID = "custom:\(bluePetID)"
 private let marketPricesEnabled: Bool = {
     guard let rawValue = ProcessInfo.processInfo.environment["BUBU_SHOW_MARKET_PRICES"] else {
         return true
@@ -65,27 +68,6 @@ private let petFrameVisiblePixelSizes: [NSSize] = [
     NSSize(width: 153, height: 198), NSSize(width: 154, height: 198),
     NSSize(width: 155, height: 198), NSSize(width: 157, height: 198),
     NSSize(width: 161, height: 198),
-    // Orange Bubu uses the same 192x208 cells, but the beach chair and the
-    // limbless singing pose create a second set of visible alpha bounds.
-    NSSize(width: 127, height: 198), NSSize(width: 128, height: 198),
-    NSSize(width: 129, height: 198), NSSize(width: 130, height: 198),
-    NSSize(width: 132, height: 182), NSSize(width: 132, height: 189),
-    NSSize(width: 133, height: 185), NSSize(width: 133, height: 186),
-    NSSize(width: 133, height: 191), NSSize(width: 133, height: 192),
-    NSSize(width: 133, height: 195), NSSize(width: 133, height: 196),
-    NSSize(width: 133, height: 197), NSSize(width: 134, height: 193),
-    NSSize(width: 134, height: 194), NSSize(width: 134, height: 195),
-    NSSize(width: 134, height: 196), NSSize(width: 134, height: 197),
-    NSSize(width: 134, height: 198), NSSize(width: 137, height: 198),
-    NSSize(width: 138, height: 198), NSSize(width: 139, height: 198),
-    NSSize(width: 140, height: 198), NSSize(width: 141, height: 198),
-    NSSize(width: 142, height: 198), NSSize(width: 146, height: 198),
-    NSSize(width: 151, height: 198), NSSize(width: 152, height: 198),
-    NSSize(width: 156, height: 198), NSSize(width: 158, height: 198),
-    NSSize(width: 163, height: 198), NSSize(width: 170, height: 198),
-    NSSize(width: 182, height: 165), NSSize(width: 182, height: 171),
-    NSSize(width: 182, height: 173), NSSize(width: 182, height: 174),
-    NSSize(width: 182, height: 177),
 ]
 private let visualScaleTolerance: CGFloat = 0.12
 private let minimumPanelScale: CGFloat = 0.20
@@ -94,21 +76,7 @@ private let maximumPanelScale: CGFloat = 8
 // mascot anchor. Add it so the panel measures from Bubu's visible top tuft.
 private let petSpriteTopPaddingInsideAnchor: CGFloat = 7
 
-private enum BubuSkin: String, CaseIterable {
-    case blue
-    case orange
-
-    var petID: String {
-        switch self {
-        case .blue: return "bubu-office"
-        case .orange: return "bubu-orange"
-        }
-    }
-
-    var avatarID: String { "custom:\(petID)" }
-}
-
-private final class PetSelectionStore {
+private final class BluePetSelectionStore {
     private let configURL: URL
 
     init(configURL: URL? = nil) {
@@ -124,9 +92,9 @@ private final class PetSelectionStore {
             .appendingPathComponent("config.toml")
     }
 
-    func selectedSkin() -> BubuSkin? {
+    func bluePetIsSelected() -> Bool {
         guard let text = try? String(contentsOf: configURL, encoding: .utf8) else {
-            return nil
+            return false
         }
         var section = ""
         for rawLine in text.components(separatedBy: .newlines) {
@@ -140,24 +108,23 @@ private final class PetSelectionStore {
             else { continue }
             let remainder = line[line.index(after: quoteStart)...]
             guard let quoteEnd = remainder.firstIndex(of: "\"") else { continue }
-            let avatarID = String(remainder[..<quoteEnd])
-            return BubuSkin.allCases.first { $0.avatarID == avatarID }
+            return String(remainder[..<quoteEnd]) == bluePetAvatarID
         }
-        return nil
+        return false
     }
 
     @discardableResult
-    func select(_ skin: BubuSkin) -> Bool {
+    func selectBluePet() -> Bool {
         do {
             let original = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
-            let updated = Self.updatingDesktopSelection(in: original, avatarID: skin.avatarID)
+            let updated = Self.updatingDesktopSelection(in: original, avatarID: bluePetAvatarID)
             try FileManager.default.createDirectory(
                 at: configURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
             guard let data = updated.data(using: .utf8) else { return false }
             try data.write(to: configURL, options: .atomic)
-            return selectedSkin() == skin
+            return bluePetIsSelected()
         } catch {
             return false
         }
@@ -365,6 +332,8 @@ private final class RuntimeHealthWriter {
 
         var payload: [String: Any] = [
             "version": panelVersion,
+            "edition": panelEdition,
+            "petID": bluePetID,
             "pid": ProcessInfo.processInfo.processIdentifier,
             "status": status,
             "panelVisible": panelVisible,
@@ -501,14 +470,13 @@ private struct TaskProgressSnapshot: Equatable {
     )])
 
     static func displaying(_ sourceItems: [TaskProgressItem]) -> TaskProgressSnapshot {
-        let activeItems = sourceItems.filter { $0.kind != .completed }
-        guard !activeItems.isEmpty else { return .idle }
+        guard !sourceItems.isEmpty else { return .idle }
 
         // Recurring Codex tasks create a new thread on every run. Multiple
         // rows with the same title are indistinguishable in this compact view,
         // so show the highest-priority/newest sorted instance only.
         var seenTitles = Set<String>()
-        let deduplicated = activeItems.filter { item in
+        let deduplicated = sourceItems.filter { item in
             let key = item.title
                 .components(separatedBy: .whitespacesAndNewlines)
                 .filter { !$0.isEmpty }
@@ -791,8 +759,7 @@ private final class CodexTaskProgressReader {
         unreadState: UnreadThreadState,
         fallbackVisibility: TimeInterval = 2 * 60
     ) -> Bool {
-        if kind == .completed { return false }
-        guard kind == .failed else { return true }
+        guard kind == .completed || kind == .failed else { return true }
         if unreadState.isAvailable, let threadID {
             return unreadState.ids.contains(threadID)
         }
@@ -1252,13 +1219,6 @@ private final class QuotaPanelView: NSView {
         }
     }
     var onRequestHide: (() -> Void)?
-    var onSelectSkin: ((BubuSkin) -> Bool)?
-    var selectedSkin: BubuSkin = .blue {
-        didSet {
-            guard selectedSkin != oldValue else { return }
-            needsDisplay = true
-        }
-    }
     private var hideButtonTrackingArea: NSTrackingArea?
     private var isHideButtonHovered = false
     private var runningArrowTimer: Timer?
@@ -1524,24 +1484,6 @@ private final class QuotaPanelView: NSView {
 
     private func hideButtonRect(in bodyRect: NSRect) -> NSRect {
         NSRect(x: bodyRect.maxX - 48, y: 10, width: 38, height: 18)
-    }
-
-    private func skinButtonRect(_ skin: BubuSkin, in bodyRect: NSRect) -> NSRect {
-        let centerFraction: CGFloat = skin == .blue ? 0.333 : 0.676
-        let bandHeight = min(93, bodyRect.height)
-        let center = NSPoint(
-            x: bodyRect.minX + bodyRect.width * centerFraction,
-            y: bodyRect.minY + bandHeight * 0.49
-        )
-        return NSRect(x: center.x - 17, y: center.y - 17, width: 34, height: 34)
-    }
-
-    private func drawSkinSelection(in bodyRect: NSRect) {
-        let rect = skinButtonRect(selectedSkin, in: bodyRect).insetBy(dx: 1, dy: 1)
-        let ring = NSBezierPath(roundedRect: rect, xRadius: rect.width / 2, yRadius: rect.height / 2)
-        NSColor(calibratedRed: 1.0, green: 0.20, blue: 0.31, alpha: 0.96).setStroke()
-        ring.lineWidth = 2
-        ring.stroke()
     }
 
     private func draw(row: QuotaRow, index: Int, x: CGFloat, width: CGFloat) {
@@ -2687,7 +2629,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let btcPriceClient = MarketPriceClient(symbol: "BTCUSDT")
     private let locator = PetWindowLocator()
     private let healthWriter = RuntimeHealthWriter()
-    private let petSelectionStore = PetSelectionStore()
+    private let petSelectionStore = BluePetSelectionStore()
     private let quotaView = QuotaPanelView(frame: NSRect(origin: .zero, size: expandedPanelSize))
     private var panel: NSPanel!
     private var statusItem: NSStatusItem?
@@ -2710,10 +2652,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        // Release 18 is the blue Bubu edition. Clear any orange preview
-        // selection left by an earlier local build before the panel appears.
-        _ = petSelectionStore.select(.blue)
-        quotaView.selectedSkin = .blue
+        // This executable is blue-only. Always restore the matching pet after
+        // replacing an older mixed experimental build.
+        _ = petSelectionStore.selectBluePet()
         makePanel()
         makeStatusItem()
         startPetDoubleClickMonitor()
@@ -2780,20 +2721,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         quotaView.onRequestHide = { [weak self] in
             self?.hidePanelByUser()
         }
-    }
-
-    private func selectSkin(_ skin: BubuSkin) -> Bool {
-        guard petSelectionStore.select(skin) else { return false }
-        quotaView.selectedSkin = skin
-        healthWriter.write(
-            status: "skin-selected-\(skin.rawValue)",
-            panelVisible: panel.isVisible,
-            locationSource: lastLocatedPet?.source,
-            panelScale: currentPanelScale,
-            panelSize: scaledPanelSize(currentBasePanelSize, scale: currentPanelScale),
-            force: true
-        )
-        return true
     }
 
     private func makeStatusItem() {
@@ -3102,6 +3029,7 @@ private func printMarketPriceOnce(symbol: String, label: String) -> Never {
 private func printPanelConfiguration() -> Never {
     print(
         "panel-config: version=\(panelVersion) "
+            + "edition=\(panelEdition) petID=\(bluePetID) "
             + "marketPricesEnabled=\(marketPricesEnabled) "
             + "width=\(Int(expandedPanelSize.width)) "
             + "height=\(Int(expandedPanelSize.height))"
@@ -3409,7 +3337,7 @@ private func runTaskProgressSelfTest() -> Never {
         isAvailable: false
     )
     let completedVisibilityCases = [
-        !CodexTaskProgressReader.shouldDisplay(
+        CodexTaskProgressReader.shouldDisplay(
             kind: .completed,
             threadID: indexedThreadID,
             modificationDate: now.addingTimeInterval(-3600),
@@ -3423,7 +3351,7 @@ private func runTaskProgressSelfTest() -> Never {
             now: now,
             unreadState: readState
         ),
-        !CodexTaskProgressReader.shouldDisplay(
+        CodexTaskProgressReader.shouldDisplay(
             kind: .completed,
             threadID: indexedThreadID,
             modificationDate: now,
@@ -3493,7 +3421,7 @@ private func runTaskProgressSelfTest() -> Never {
         exit(1)
     }
 
-    let completedFiltering = TaskProgressSnapshot.displaying([
+    let completedPresentation = TaskProgressSnapshot.displaying([
         TaskProgressItem(
             title: "AI 观点运营台 · Codex Chrome 单条发布与回复",
             kind: .completed,
@@ -3509,21 +3437,38 @@ private func runTaskProgressSelfTest() -> Never {
         TaskProgressItem(title: "相同标题的实时任务", kind: .running, startedAt: now),
         TaskProgressItem(title: "相同标题的实时任务", kind: .running, startedAt: now),
     ])
-    guard completedFiltering.items.count == 1,
-          completedFiltering.items[0].kind == .running,
-          completedFiltering.items[0].title == "相同标题的实时任务"
+    guard completedPresentation.items.count == 2,
+          completedPresentation.items[0].kind == .completed,
+          completedPresentation.items[0].statusText == "最新",
+          completedPresentation.items[1].kind == .running,
+          completedPresentation.items[1].title == "相同标题的实时任务"
     else {
         fputs("task presentation deduplication failed\n", stderr)
         exit(1)
     }
 
-    print("task-progress-self-test: lifecycle=7/7; title=1/1; index=1/1; completed-hidden=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; task-dedup=pass")
+    let taskIconNames = [
+        "task-running-icon.png",
+        "task-waiting-icon.png",
+        "task-completed-icon.png",
+        "task-failed-icon.png",
+    ]
+    guard let resourceURL = Bundle.main.resourceURL,
+          taskIconNames.allSatisfy({
+              NSImage(contentsOf: resourceURL.appendingPathComponent($0)) != nil
+          })
+    else {
+        fputs("task status icon assets failed\n", stderr)
+        exit(1)
+    }
+
+    print("task-progress-self-test: lifecycle=7/7; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; task-dedup=pass; status-icons=4/4")
     exit(0)
 }
 
-private func runSkinSelectionSelfTest() -> Never {
+private func runBlueEditionSelfTest() -> Never {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("bubu-skin-selection-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("bubu-blue-edition-\(UUID().uuidString)", isDirectory: true)
     let config = directory.appendingPathComponent("config.toml")
     defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -3540,32 +3485,29 @@ private func runSkinSelectionSelfTest() -> Never {
         test = true
         """
         try initial.data(using: .utf8)?.write(to: config, options: .atomic)
-        let store = PetSelectionStore(configURL: config)
-        guard store.select(.orange), store.selectedSkin() == .orange else {
-            throw NSError(domain: "BubuSkinSelfTest", code: 1)
+        let store = BluePetSelectionStore(configURL: config)
+        guard store.selectBluePet(), store.bluePetIsSelected() else {
+            throw NSError(domain: "BubuBlueEditionSelfTest", code: 1)
         }
-        let orangeText = try String(contentsOf: config, encoding: .utf8)
-        guard orangeText.components(separatedBy: "selected-avatar-id").count - 1 == 1,
-              orangeText.contains("selected-avatar-id = \"custom:bubu-orange\"")
+        let blueText = try String(contentsOf: config, encoding: .utf8)
+        guard blueText.components(separatedBy: "selected-avatar-id").count - 1 == 1,
+              blueText.contains("selected-avatar-id = \"custom:bubu-office\"")
         else {
-            throw NSError(domain: "BubuSkinSelfTest", code: 2)
+            throw NSError(domain: "BubuBlueEditionSelfTest", code: 2)
         }
-        guard store.select(.blue), store.selectedSkin() == .blue else {
-            throw NSError(domain: "BubuSkinSelfTest", code: 3)
-        }
-        let missingDesktop = PetSelectionStore.updatingDesktopSelection(
+        let missingDesktop = BluePetSelectionStore.updatingDesktopSelection(
             in: "[general]\nmodel = \"gpt\"\n",
-            avatarID: BubuSkin.orange.avatarID
+            avatarID: bluePetAvatarID
         )
-        guard missingDesktop.contains("[desktop]\nselected-avatar-id = \"custom:bubu-orange\"") else {
-            throw NSError(domain: "BubuSkinSelfTest", code: 4)
+        guard missingDesktop.contains("[desktop]\nselected-avatar-id = \"custom:bubu-office\"") else {
+            throw NSError(domain: "BubuBlueEditionSelfTest", code: 3)
         }
     } catch {
-        fputs("skin selection self-test failed: \(error)\n", stderr)
+        fputs("blue edition self-test failed: \(error)\n", stderr)
         exit(1)
     }
 
-    print("skin-selection-self-test: blue=pass orange=pass persistence=pass duplicate-key=pass")
+    print("blue-edition-self-test: edition=blue-bubu pet=bubu-office persistence=pass duplicate-key=pass")
     exit(0)
 }
 
@@ -3613,7 +3555,6 @@ private func renderPreviewOnce(to outputPath: String) -> Never {
     let previewPanelSize = panelSizeForTaskRows(previewTasks.rowCount)
     let view = QuotaPanelView(frame: NSRect(origin: .zero, size: previewPanelSize))
     view.pointerSide = .bottom
-    view.selectedSkin = CommandLine.arguments.contains("--preview-orange") ? .orange : .blue
     view.rows = [QuotaRow(
         name: "Codex",
         remainingPercent: 94,
@@ -3689,8 +3630,8 @@ if CommandLine.arguments.contains("--self-test-task-progress") {
     runTaskProgressSelfTest()
 }
 
-if CommandLine.arguments.contains("--self-test-skin-selection") {
-    runSkinSelectionSelfTest()
+if CommandLine.arguments.contains("--self-test-blue-edition") {
+    runBlueEditionSelfTest()
 }
 
 if CommandLine.arguments.contains("--print-panel-config") {
