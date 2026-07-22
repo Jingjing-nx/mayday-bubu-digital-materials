@@ -27,16 +27,50 @@
 
 ## 下载
 
-请在项目右侧的 **Releases** 中选择对应系统：
+请按皮肤、功能和系统选择版本：
 
-- `Mayday-Bubu-macOS-Universal-15.zip`：macOS 12.3+ 完整版，含 Codex 额度、任务进度与 BTC/ETH 行情，支持 Apple 芯片与 Intel Mac。
-- `Mayday-Bubu-macOS-Universal-Codex-Only-15.zip`：macOS 12.3+ 仅 Codex 版；保留额度和任务进度，不显示、也不请求 BTC/ETH 行情。
-- `Mayday-Bubu-Windows-10-11-15.zip`：Windows 10/11 完整版，含 Codex 额度、任务进度与 BTC/ETH 行情，支持 x64 与 ARM64。
-- `Mayday-Bubu-Windows-10-11-Codex-Only-15.zip`：Windows 10/11 仅 Codex 版；保留额度和任务进度，不显示、也不请求 BTC/ETH 行情。
+<!-- DOWNLOAD_TABLE:START -->
+<table>
+  <thead>
+    <tr>
+      <th>皮肤</th>
+      <th>版本</th>
+      <th>macOS</th>
+      <th>Windows</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td rowspan="2"><strong>蓝色卜卜</strong></td>
+      <td>Web3 版</td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-macOS-Universal-15.zip">最新版本下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-Windows-10-11-15.zip">最新版本下载</a></td>
+    </tr>
+    <tr>
+      <td>普通版</td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-macOS-Universal-Codex-Only-15.zip">最新版本下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-Windows-10-11-Codex-Only-15.zip">最新版本下载</a></td>
+    </tr>
+    <tr>
+      <td rowspan="2"><strong>橙色卜卜</strong></td>
+      <td>Web3 版</td>
+      <td>制作中</td>
+      <td>制作中</td>
+    </tr>
+    <tr>
+      <td>普通版</td>
+      <td>制作中</td>
+      <td>制作中</td>
+    </tr>
+  </tbody>
+</table>
 
-四个压缩包的名称、根目录和安装入口都明确标注了系统或版本，不能混用。
+- **Web3 版**：包含 Codex 额度、任务进度与 BTC/ETH 行情。
+- **普通版**：保留 Codex 额度和任务进度，不显示、也不请求 BTC/ETH 行情。
+- 当前流水版本为 **15**；每次发布新 Release 后，表格中的蓝色卜卜下载链接会自动更新。
+<!-- DOWNLOAD_TABLE:END -->
 
-版本使用纯数字流水号：当前为 **15**，以后每次发布依次更新为 **16、17、18……**。
+macOS 支持 12.3+、Apple 芯片与 Intel Mac；Windows 支持 Windows 10/11、x64 与 ARM64。压缩包的系统和版本不能混用。
 
 ## 使用方法
 
