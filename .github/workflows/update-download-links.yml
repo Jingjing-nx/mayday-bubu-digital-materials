@@ -1,0 +1,69 @@
+name: update-download-links
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "已经发布的纯数字 Release 版本"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Resolve release version
+        id: release
+        shell: bash
+        run: |
+          VERSION="${{ github.event.release.tag_name || inputs.version }}"
+          [[ "$VERSION" =~ ^[0-9]+$ ]] || {
+            echo "只支持纯数字 Release，收到：$VERSION" >&2
+            exit 1
+          }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify all four blue packages exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          ASSETS="$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          for NAME in \
+            "Mayday-Bubu-macOS-Universal-$VERSION.zip" \
+            "Mayday-Bubu-macOS-Universal-Codex-Only-$VERSION.zip" \
+            "Mayday-Bubu-Windows-10-11-$VERSION.zip" \
+            "Mayday-Bubu-Windows-10-11-Codex-Only-$VERSION.zip"
+          do
+            grep -Fxq "$NAME" <<< "$ASSETS" || {
+              echo "Release $VERSION 缺少安装包：$NAME" >&2
+              exit 1
+            }
+          done
+
+      - name: Update README download table
+        run: ./scripts/update-readme-downloads.sh "${{ steps.release.outputs.version }}"
+
+      - name: Commit updated links
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          if git diff --quiet -- README.md; then
+            echo "README 已经指向 Release $VERSION"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "更新 Release $VERSION 下载链接"
+          git push origin HEAD:main
