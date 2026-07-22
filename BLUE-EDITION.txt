@@ -1,0 +1,6 @@
+edition=blue-bubu
+pet-id=bubu-office
+accessories=none
+
+This marker belongs only to the blue office Bubu release packages.
+Orange Bubu must use its own runtime, assets, identifiers, and packages.

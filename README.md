@@ -45,13 +45,13 @@
       <td rowspan="2"><strong>蓝色卜卜</strong></td>
       <td rowspan="2" align="center"><img src="shared/preview/blue-bubu-panel-preview.png" alt="蓝色卜卜额度与任务看板示意图" width="140"></td>
       <td>Web3 版</td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/18/Mayday-Bubu-macOS-Universal-18.zip">版本 18 下载</a></td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/18/Mayday-Bubu-Windows-10-11-18.zip">版本 18 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-macOS-Universal-20.zip">版本 20 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-Windows-10-11-20.zip">版本 20 下载</a></td>
     </tr>
     <tr>
       <td>普通版</td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/18/Mayday-Bubu-macOS-Universal-Codex-Only-18.zip">版本 18 下载</a></td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/18/Mayday-Bubu-Windows-10-11-Codex-Only-18.zip">版本 18 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-macOS-Universal-Codex-Only-20.zip">版本 20 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-Windows-10-11-Codex-Only-20.zip">版本 20 下载</a></td>
     </tr>
     <tr>
       <td rowspan="2"><strong>橙色卜卜</strong></td>
@@ -70,7 +70,7 @@
 
 - **Web3 版**：包含 Codex 额度、任务进度与 BTC 行情。
 - **普通版**：保留 Codex 额度和任务进度，不显示、也不请求 BTC 行情。
-- 当前流水版本为 **18**；每次发布新 Release 后，表格中的蓝色卜卜下载链接会自动更新。
+- 当前流水版本为 **20**；每次发布新 Release 后，表格中的蓝色卜卜下载链接会自动更新。
 <!-- DOWNLOAD_TABLE:END -->
 
 macOS 支持 12.3+、Apple 芯片与 Intel Mac；Windows 支持 Windows 10/11、x64 与 ARM64。压缩包的系统和版本不能混用。

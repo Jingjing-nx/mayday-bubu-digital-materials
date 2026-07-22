@@ -42,10 +42,10 @@ jobs:
           "$BIN" --self-test-placement | grep 'visual-scaling=6/6; panel-scaling=6/6'
           BUBU_SHOW_MARKET_PRICES=false "$BIN" --self-test-placement | grep 'visual-scaling=6/6; panel-scaling=6/6'
           "$BIN" --self-test-lifecycle | grep 'desktop-app=5/5 visibility=4/4 pet-double-click=3/3 hidden-window=orderOut status-item=restore'
-          "$BIN" --self-test-task-progress | grep '7/7; title=1/1; index=1/1; completed-hidden=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated'
-          "$BIN" --self-test-skin-selection | grep 'blue=pass orange=pass persistence=pass duplicate-key=pass'
+          "$BIN" --self-test-task-progress | grep '7/7; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; task-dedup=pass; status-icons=4/4'
+          "$BIN" --self-test-blue-edition | grep 'edition=blue-bubu pet=bubu-office persistence=pass duplicate-key=pass'
           ! grep -q 'collapsedPanelSize\|isCollapsed\|onToggleCollapsed' macos/BubuQuotaPanel/Sources/BubuQuotaPanel/main.swift
-          ! grep -Eqi 'lightstick|荧光棒|应援棒' macos/BubuQuotaPanel/Sources/BubuQuotaPanel/main.swift
+          ! grep -Eqi 'lightstick|荧光棒|应援棒|bubu-orange' macos/BubuQuotaPanel/Sources/BubuQuotaPanel/main.swift
       - name: Verify Gatekeeper help entries
         run: |
           plutil -lint 'macos/package/如果仍无法打开-Apple官方步骤.webloc'
@@ -55,8 +55,8 @@ jobs:
       - name: Verify panel runtime health
         run: |
           BIN='macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel'
-          "$BIN" --print-panel-config | grep 'version=18 marketPricesEnabled=true width=224 height=160'
-          BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config | grep 'version=18 marketPricesEnabled=false width=224 height=139'
+          "$BIN" --print-panel-config | grep 'version=20 edition=blue-bubu petID=bubu-office marketPricesEnabled=true width=224 height=160'
+          BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config | grep 'version=20 edition=blue-bubu petID=bubu-office marketPricesEnabled=false width=224 height=139'
           HEALTH="$(mktemp)"
           rm -f "$HEALTH"
           BUBU_PANEL_HEALTH_FILE="$HEALTH" "$BIN" &
@@ -66,7 +66,9 @@ jobs:
             test -s "$HEALTH" && break
             sleep 0.1
           done
-          grep '"version":"18"' "$HEALTH"
+          grep '"version":"20"' "$HEALTH"
+          grep '"edition":"blue-bubu"' "$HEALTH"
+          grep '"petID":"bubu-office"' "$HEALTH"
           grep '"marketPricesEnabled":true' "$HEALTH"
           kill "$PID" 2>/dev/null || true
           wait "$PID" 2>/dev/null || true
@@ -77,7 +79,9 @@ jobs:
             test -s "$HEALTH" && break
             sleep 0.1
           done
-          grep '"version":"18"' "$HEALTH"
+          grep '"version":"20"' "$HEALTH"
+          grep '"edition":"blue-bubu"' "$HEALTH"
+          grep '"petID":"bubu-office"' "$HEALTH"
           grep '"marketPricesEnabled":false' "$HEALTH"
           grep '"panelHeightPoints":139' "$HEALTH"
           kill "$PID" 2>/dev/null || true
@@ -85,19 +89,21 @@ jobs:
       - name: Build macOS releases
         run: |
           ./scripts/build-macos-release.sh
-          test -f dist/Mayday-Bubu-macOS-Universal-Codex-Only-18.zip
-          test -f dist/Mayday-Bubu-macOS-Universal-18.zip
+          test -f dist/Mayday-Bubu-macOS-Universal-Codex-Only-20.zip
+          test -f dist/Mayday-Bubu-macOS-Universal-20.zip
+          test -f build/release/卜卜-macOS-仅Codex额度/BLUE-EDITION.txt
           test -f build/release/卜卜-macOS-仅Codex额度/CODEX-ONLY.txt
           test -f build/release/卜卜-macOS-仅Codex额度/pet/bubu-office/spritesheet.webp
           test ! -e build/release/卜卜-macOS-仅Codex额度/pet/bubu-orange
-          ! grep -ERqi 'lightstick|荧光棒|应援棒' build/release/卜卜-macOS-仅Codex额度
+          test ! -e build/release/卜卜-macOS-仅Codex额度/preview/orange-bubu-static.png
+          ! grep -ERqi 'lightstick|荧光棒|应援棒|bubu-orange' build/release/卜卜-macOS-仅Codex额度/quota-panel
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-18
+          name: macos-20
           if-no-files-found: error
           path: |
-            dist/Mayday-Bubu-macOS-Universal-18.zip
-            dist/Mayday-Bubu-macOS-Universal-Codex-Only-18.zip
+            dist/Mayday-Bubu-macOS-Universal-20.zip
+            dist/Mayday-Bubu-macOS-Universal-Codex-Only-20.zip
       - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh
 
   windows-syntax:
@@ -122,7 +128,7 @@ jobs:
         run: |
           $panel = ".\windows\BubuQuotaPanel\BubuQuotaPanel.ps1"
           $fullConfig = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
-          if ($LASTEXITCODE -ne 0 -or $fullConfig -notmatch "version=18 marketPricesEnabled=true width=224 height=160") {
+          if ($LASTEXITCODE -ne 0 -or $fullConfig -notmatch "version=20 edition=blue-bubu petID=bubu-office marketPricesEnabled=true width=224 height=160") {
             throw "Unexpected full panel configuration: $fullConfig"
           }
           $fullXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
@@ -132,7 +138,7 @@ jobs:
 
           $env:BUBU_SHOW_MARKET_PRICES = "false"
           $onlyConfig = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
-          if ($LASTEXITCODE -ne 0 -or $onlyConfig -notmatch "version=18 marketPricesEnabled=false width=224 height=139") {
+          if ($LASTEXITCODE -ne 0 -or $onlyConfig -notmatch "version=20 edition=blue-bubu petID=bubu-office marketPricesEnabled=false width=224 height=139") {
             throw "Unexpected Codex-only panel configuration: $onlyConfig"
           }
           $onlyXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
@@ -144,24 +150,24 @@ jobs:
             throw "Tracking-filter validation failed: $trackingFilters"
           }
           $taskProgress = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateTaskProgress
-          if ($LASTEXITCODE -ne 0 -or $taskProgress -notmatch "7/7; title=1/1; index=1/1; completed-hidden=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=3/3") {
+          if ($LASTEXITCODE -ne 0 -or $taskProgress -notmatch "7/7; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=4/4") {
             throw "Task-progress validation failed: $taskProgress"
           }
-          $skinSelection = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateSkinSelection
-          if ($LASTEXITCODE -ne 0 -or $skinSelection -notmatch "blue=True orange=True persistence=True duplicate-key=True") {
-            throw "Skin-selection validation failed: $skinSelection"
+          $blueEdition = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateBlueEdition
+          if ($LASTEXITCODE -ne 0 -or $blueEdition -notmatch "edition=blue-bubu pet=bubu-office persistence=True duplicate-key=True") {
+            throw "Blue-edition validation failed: $blueEdition"
           }
-          if (Select-String -LiteralPath $panel -Pattern 'lightstick') {
-            throw "Orange-project lightstick code leaked into the blue Windows panel"
+          if (Select-String -LiteralPath $panel -Pattern 'lightstick|bubu-orange') {
+            throw "Other-project code leaked into the blue Windows panel"
           }
           Remove-Item Env:BUBU_SHOW_MARKET_PRICES
       - name: Build and install-test Windows releases
         shell: powershell
         run: |
           .\scripts\build-windows-release.ps1
-          $zip = "dist\Mayday-Bubu-Windows-10-11-Codex-Only-18.zip"
+          $zip = "dist\Mayday-Bubu-Windows-10-11-Codex-Only-20.zip"
           if (-not (Test-Path -LiteralPath $zip)) { throw "Codex-only ZIP missing" }
-          if (-not (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-18.zip")) { throw "Full ZIP missing" }
+          if (-not (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-20.zip")) { throw "Full ZIP missing" }
 
           $extractRoot = Join-Path $env:RUNNER_TEMP "bubu-windows-release-extracted"
           Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -170,13 +176,15 @@ jobs:
           $packagePet = Join-Path $stage "pet\bubu-office"
           if (-not (Test-Path -LiteralPath $stage)) { throw "Windows ZIP root directory missing after extraction" }
           if (-not (Test-Path -LiteralPath (Join-Path $stage "CODEX-ONLY.txt"))) { throw "Codex-only marker missing" }
+          if (-not (Test-Path -LiteralPath (Join-Path $stage "BLUE-EDITION.txt"))) { throw "Blue-edition marker missing" }
           if (Test-Path -LiteralPath (Join-Path $stage "pet\bubu-orange")) { throw "Orange preview pet leaked into the blue release" }
+          if (Test-Path -LiteralPath (Join-Path $stage "preview\orange-bubu-static.png")) { throw "Orange preview leaked into the blue release" }
           $packagedPanel = Join-Path $stage "windows\BubuQuotaPanel.ps1"
-          if (Select-String -LiteralPath $packagedPanel -Pattern 'lightstick' -Quiet) {
-            throw "Orange-project lightstick content leaked into the blue release"
+          if (Select-String -LiteralPath $packagedPanel -Pattern 'lightstick|bubu-orange' -Quiet) {
+            throw "Other-project content leaked into the blue release"
           }
           $manifest = Get-Content -Raw -LiteralPath (Join-Path $packagePet "pet.json") | ConvertFrom-Json
-          if ($manifest.spritesheetPath -ne "spritesheet-win-18.webp") { throw "Versioned blue pet atlas path missing" }
+          if ($manifest.spritesheetPath -ne "spritesheet-win-20.webp") { throw "Versioned blue pet atlas path missing" }
           $packageAtlas = Join-Path $packagePet $manifest.spritesheetPath
           if (-not (Test-Path -LiteralPath $packageAtlas)) { throw "Versioned pet atlas missing" }
           if ((Get-FileHash -Algorithm SHA256 -LiteralPath $packageAtlas).Hash -ne
@@ -194,7 +202,7 @@ jobs:
           & (Join-Path $stage "Install-Bubu.cmd") /petonly
           if ($LASTEXITCODE -ne 0) { throw "Codex-only pet installer simulation failed" }
           if (Test-Path -LiteralPath (Join-Path $oldPet "spritesheet.webp")) { throw "Stale pet atlas was not removed" }
-          if (-not (Test-Path -LiteralPath (Join-Path $oldPet "spritesheet-win-18.webp"))) { throw "New blue pet atlas was not installed" }
+          if (-not (Test-Path -LiteralPath (Join-Path $oldPet "spritesheet-win-20.webp"))) { throw "New blue pet atlas was not installed" }
           $installedConfig = Get-Content -Raw -LiteralPath (Join-Path $testHome "config.toml")
           if ($installedConfig -notmatch '(?ms)^\s*\[desktop\].*?^\s*selected-avatar-id\s*=\s*"custom:bubu-office"\s*$') {
             throw "Bubu was not selected in the installed config"
@@ -205,8 +213,8 @@ jobs:
           Remove-Item Env:BUBU_INSTALL_NONINTERACTIVE
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-18
+          name: windows-20
           if-no-files-found: error
           path: |
-            dist/Mayday-Bubu-Windows-10-11-18.zip
-            dist/Mayday-Bubu-Windows-10-11-Codex-Only-18.zip
+            dist/Mayday-Bubu-Windows-10-11-20.zip
+            dist/Mayday-Bubu-Windows-10-11-Codex-Only-20.zip

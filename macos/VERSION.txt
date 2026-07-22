@@ -1,5 +1,5 @@
 Package: Bubu macOS
-Version: 18
+Version: 20
 System: macOS 12.3+
 Architecture: Universal 2 (arm64 + x86_64)
 Variants: Full / Codex Only (no BTC)

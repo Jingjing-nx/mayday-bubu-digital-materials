@@ -5,14 +5,14 @@ chcp 65001 >nul 2>&1
 set "ROOT=%~dp0"
 if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 set "LOG=%TEMP%\BubuPet-install.log"
-set "PET_SPRITE=spritesheet-win-18.webp"
+set "PET_SPRITE=spritesheet-win-20.webp"
 
 if defined CODEX_HOME (
   set "CODEX_DIR=%CODEX_HOME%"
 ) else (
   set "CODEX_DIR=%USERPROFILE%\.codex"
 )
->"%LOG%" echo Bubu Windows installer open-source 18
+>"%LOG%" echo Bubu Windows installer open-source 20
 >>"%LOG%" echo Started: %DATE% %TIME%
 >>"%LOG%" echo OS: %OS%
 >>"%LOG%" echo Architecture: %PROCESSOR_ARCHITECTURE%
@@ -20,7 +20,7 @@ if defined CODEX_HOME (
 >>"%LOG%" echo Codex home: configured for current user
 
 echo.
-echo Bubu Windows installer 18
+echo Bubu Windows installer 20
 echo ----------------------
 if exist "%ROOT%\CODEX-ONLY.txt" (
   echo Panel: Codex quota only ^(no BTC^)
@@ -29,6 +29,10 @@ if exist "%ROOT%\CODEX-ONLY.txt" (
 )
 
 if not defined USERPROFILE goto :no_profile
+if not exist "%ROOT%\BLUE-EDITION.txt" goto :wrong_edition
+findstr.exe /X /C:"edition=blue-bubu" "%ROOT%\BLUE-EDITION.txt" >nul 2>&1
+if errorlevel 1 goto :wrong_edition
+if exist "%ROOT%\pet\bubu-orange" goto :wrong_edition
 if not exist "%ROOT%\pet\bubu-office\pet.json" goto :missing_files
 if not exist "%ROOT%\pet\bubu-office\%PET_SPRITE%" goto :missing_files
 
@@ -117,6 +121,12 @@ goto :finish_error
 echo [ERROR] Package files are incomplete. Extract the whole ZIP first.
 echo Do not run the installer from inside the ZIP preview.
 >>"%LOG%" echo ERROR: package files missing
+goto :finish_error
+
+:wrong_edition
+echo [ERROR] This package is not the isolated blue Bubu edition.
+echo Download the blue edition again. Do not mix files from orange Bubu.
+>>"%LOG%" echo ERROR: wrong or mixed edition
 goto :finish_error
 
 :copy_failed

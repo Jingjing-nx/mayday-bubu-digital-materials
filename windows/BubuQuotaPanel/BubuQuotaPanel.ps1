@@ -3,13 +3,16 @@
     [switch]$ValidateXaml,
     [switch]$ValidateTrackingFilters,
     [switch]$ValidateTaskProgress,
-    [switch]$ValidateSkinSelection,
+    [switch]$ValidateBlueEdition,
     [switch]$PrintTaskProgress
 )
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "18"
+$script:PanelVersion = "20"
+$script:PanelEdition = "blue-bubu"
+$script:BluePetId = "bubu-office"
+$script:BluePetAvatarId = "custom:bubu-office"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $script:MarketPricesEnabled = $true
@@ -44,16 +47,7 @@ $script:PetFrameVisiblePixelSizes = @(
     '122x191', '122x192', '122x194', '123x185', '123x196', '123x198',
     '124x191', '124x194', '124x198', '125x198', '132x198', '133x198',
     '136x198', '138x196', '141x196', '144x198', '153x198', '154x198',
-    '155x198', '157x198', '161x198',
-    # Orange Bubu uses the same 192x208 cells. Its beach chair and limbless
-    # singing pose create a second set of visible alpha bounds.
-    '127x198', '128x198', '129x198', '130x198', '132x182', '132x189',
-    '133x185', '133x186', '133x191', '133x192', '133x195', '133x196',
-    '133x197', '134x193', '134x194', '134x195', '134x196', '134x197',
-    '134x198', '137x198', '138x198', '139x198', '140x198', '141x198',
-    '142x198', '146x198', '151x198', '152x198', '156x198', '158x198',
-    '163x198', '170x198', '182x165', '182x171', '182x173', '182x174',
-    '182x177'
+    '155x198', '157x198', '161x198'
 )
 $script:PanelScale = 1.0
 $script:MinimumPanelScale = 0.20
@@ -73,6 +67,7 @@ $script:PendingPanelScaleWindowHandle = [IntPtr]::Zero
 if ($PrintConfiguration) {
     Write-Output (
         "panel-config: version=" + $script:PanelVersion +
+        " edition=" + $script:PanelEdition + " petID=" + $script:BluePetId +
         " marketPricesEnabled=" + $script:MarketPricesEnabled.ToString().ToLowerInvariant() +
         " width=" + [int]$script:ExpandedWidth + " height=" + $script:ExpandedHeight
     )
@@ -111,7 +106,7 @@ function Write-PanelLog([string]$message) {
 trap {
     Write-PanelLog ("FATAL " + $_.Exception.ToString())
     $isValidationRun = $ValidateXaml -or $ValidateTrackingFilters -or
-        $ValidateTaskProgress -or $ValidateSkinSelection -or $PrintTaskProgress
+        $ValidateTaskProgress -or $ValidateBlueEdition -or $PrintTaskProgress
     if ($isValidationRun) {
         [Console]::Error.WriteLine($_.Exception.ToString())
     } else {
@@ -549,14 +544,8 @@ namespace BubuPanel {
 $script:PerMonitorDpiEnabled = [BubuPanel.NativeWindows]::EnablePerMonitorV2()
 Write-PanelLog ("DPI per-monitor-v2=" + $script:PerMonitorDpiEnabled)
 
-function Get-BubuSkinAvatarId([string]$skin) {
-    switch ($skin) {
-        "orange" { return "custom:bubu-orange" }
-        default { return "custom:bubu-office" }
-    }
-}
-
-function Update-CodexSkinSelectionText([string]$configText, [string]$avatarId) {
+function Update-CodexBluePetSelectionText([string]$configText) {
+    $avatarId = $script:BluePetAvatarId
     $lines = [Text.RegularExpressions.Regex]::Split(
         ([string]$configText).Replace("`r`n", "`n"),
         "`n"
@@ -606,9 +595,9 @@ function Update-CodexSkinSelectionText([string]$configText, [string]$avatarId) {
     return ($output -join "`r`n").TrimEnd() + "`r`n"
 }
 
-function Get-BubuSkinFromConfig {
+function Test-BluePetSelected {
     $configPath = Join-Path $script:CodexHome "config.toml"
-    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { return "blue" }
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { return $false }
     try {
         $section = ""
         foreach ($line in [IO.File]::ReadAllLines($configPath, [Text.Encoding]::UTF8)) {
@@ -619,18 +608,16 @@ function Get-BubuSkinFromConfig {
             }
             if ($section -ne "desktop") { continue }
             if ($trimmed -match '^selected-avatar-id\s*=\s*"([^"]+)"') {
-                if ($matches[1] -eq "custom:bubu-orange") { return "orange" }
-                if ($matches[1] -eq "custom:bubu-office") { return "blue" }
+                return $matches[1] -eq $script:BluePetAvatarId
             }
         }
     } catch {
         Write-PanelLog ("SKIN read failed " + $_.Exception.Message)
     }
-    return "blue"
+    return $false
 }
 
-function Set-BubuSkinSelection([string]$skin) {
-    if ($skin -ne "blue" -and $skin -ne "orange") { return $false }
+function Set-BluePetSelection {
     $configPath = Join-Path $script:CodexHome "config.toml"
     $tempPath = $configPath + ".bubu-" + [Guid]::NewGuid().ToString("N") + ".tmp"
     $backupPath = $configPath + ".bubu-backup"
@@ -639,8 +626,7 @@ function Set-BubuSkinSelection([string]$skin) {
         $original = if (Test-Path -LiteralPath $configPath -PathType Leaf) {
             [IO.File]::ReadAllText($configPath, [Text.Encoding]::UTF8)
         } else { "" }
-        $avatarId = Get-BubuSkinAvatarId $skin
-        $updated = Update-CodexSkinSelectionText $original $avatarId
+        $updated = Update-CodexBluePetSelectionText $original
         [IO.File]::WriteAllText($tempPath, $updated, [Text.UTF8Encoding]::new($false))
         if (Test-Path -LiteralPath $configPath -PathType Leaf) {
             Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
@@ -649,9 +635,9 @@ function Set-BubuSkinSelection([string]$skin) {
         } else {
             [IO.File]::Move($tempPath, $configPath)
         }
-        $selected = Get-BubuSkinFromConfig
-        Write-PanelLog ("SKIN selected=" + $selected)
-        return $selected -eq $skin
+        $selected = Test-BluePetSelected
+        Write-PanelLog ("EDITION blue pet selected=" + $selected)
+        return $selected
     } catch {
         Write-PanelLog ("SKIN write failed " + $_.Exception.Message)
         return $false
@@ -660,7 +646,7 @@ function Set-BubuSkinSelection([string]$skin) {
     }
 }
 
-if ($ValidateSkinSelection) {
+if ($ValidateBlueEdition) {
     $sample = @'
 selected-avatar-id = "codex"
 [general]
@@ -671,24 +657,21 @@ selected-avatar-id = "custom:old-pet"
 [features]
 test = true
 '@
-    $orange = Update-CodexSkinSelectionText $sample "custom:bubu-orange"
-    $blue = Update-CodexSkinSelectionText $orange "custom:bubu-office"
-    $missing = Update-CodexSkinSelectionText "[general]`nmodel = `"gpt`"`n" "custom:bubu-orange"
-    $orangeValid = $orange -match 'selected-avatar-id = "custom:bubu-orange"'
+    $blue = Update-CodexBluePetSelectionText $sample
+    $missing = Update-CodexBluePetSelectionText "[general]`nmodel = `"gpt`"`n"
     $blueValid = $blue -match 'selected-avatar-id = "custom:bubu-office"'
-    $oneKey = ([Text.RegularExpressions.Regex]::Matches($orange, 'selected-avatar-id')).Count -eq 1
-    $missingValid = $missing -match '(?ms)^\[desktop\]\r?\nselected-avatar-id = "custom:bubu-orange"'
-    if (-not $orangeValid -or -not $blueValid -or -not $oneKey -or -not $missingValid) {
-        throw "Skin-selection config update validation failed."
+    $oneKey = ([Text.RegularExpressions.Regex]::Matches($blue, 'selected-avatar-id')).Count -eq 1
+    $missingValid = $missing -match '(?ms)^\[desktop\]\r?\nselected-avatar-id = "custom:bubu-office"'
+    if (-not $blueValid -or -not $oneKey -or -not $missingValid) {
+        throw "Blue-edition config update validation failed."
     }
-    Write-Output "skin-selection-valid: blue=True orange=True persistence=True duplicate-key=True"
+    Write-Output "blue-edition-valid: edition=blue-bubu pet=bubu-office persistence=True duplicate-key=True"
     exit 0
 }
 
-# Release 18 is the blue Bubu edition. Clear any orange preview selection
-# left by an earlier local build before the panel starts following the pet.
-$script:SelectedSkin = "blue"
-[void](Set-BubuSkinSelection "blue")
+# This executable is blue-only. Always restore its matching pet after replacing
+# an older mixed experimental build.
+[void](Set-BluePetSelection)
 
 $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -862,6 +845,8 @@ function Write-PanelHealth([bool]$force) {
     try {
         $payload = [ordered]@{
             version = $script:PanelVersion
+            edition = $script:PanelEdition
+            petID = $script:BluePetId
             processId = $PID
             updatedAt = [DateTimeOffset]::Now.ToString("o")
             positionMode = $script:LastPositionMode
@@ -882,7 +867,6 @@ function Write-PanelHealth([bool]$force) {
                 $script:LastPetMotionAt -eq [DateTime]::MinValue) { $null } else { $script:LastPetMotionAt.ToString("o") }
             quotaStatus = $script:LastQuotaStatus
             taskProgress = if ($script:LastTaskProgress) { $script:LastTaskProgress } else { "reading" }
-            selectedSkin = $script:SelectedSkin
             stateSource = if ($script:OverlayState) { "available" } else { "unavailable" }
         } | ConvertTo-Json -Compress
         [IO.File]::WriteAllText($script:HealthPath, $payload, [Text.UTF8Encoding]::new($false))
@@ -979,29 +963,6 @@ $script:TaskRunningBrush = New-Brush "#38ADFF"
 $script:TaskWaitingBrush = New-Brush "#FFB338"
 $script:TaskCompletedBrush = New-Brush "#3DDB94"
 $script:TaskFailedBrush = New-Brush "#FF5C4D"
-$script:SkinSelectedBrush = New-Brush "#FFFF334F"
-$script:SkinUnselectedBrush = New-Brush "#00FFFFFF"
-
-function Set-SkinButtonSelection([string]$skin) {
-    $script:SelectedSkin = if ($skin -eq "orange") { "orange" } else { "blue" }
-    foreach ($entry in @(
-        [PSCustomObject]@{ Name = "blue"; Button = $script:BlueSkinButton },
-        [PSCustomObject]@{ Name = "orange"; Button = $script:OrangeSkinButton }
-    )) {
-        $selected = $entry.Name -eq $script:SelectedSkin
-        $entry.Button.BorderBrush = if ($selected) {
-            $script:SkinSelectedBrush
-        } else {
-            $script:SkinUnselectedBrush
-        }
-        $entry.Button.BorderThickness = if ($selected) {
-            [Windows.Thickness]::new(2)
-        } else {
-            [Windows.Thickness]::new(0)
-        }
-    }
-}
-
 function Get-QuotaBrush([int]$remaining) {
     if ($remaining -le 20) { return $script:RedBrush }
     if ($remaining -le 45) { return $script:AmberBrush }
@@ -1410,7 +1371,7 @@ function Set-TaskProgressRowCount([int]$rowCount) {
 }
 
 function Set-TaskProgressUI([object[]]$tasks) {
-    $visibleTasks = @($tasks | Where-Object { [string]$_.Kind -ne "completed" })
+    $visibleTasks = @($tasks)
     if ($visibleTasks.Count -eq 0) {
         $visibleTasks = @([PSCustomObject]@{
             Title = "暂无进行中的任务"
@@ -1772,8 +1733,7 @@ function Test-TaskShouldDisplay(
     [DateTime]$now,
     $unreadState
 ) {
-    if ($kind -eq 'completed') { return $false }
-    if ($kind -ne 'failed') { return $true }
+    if ($kind -ne 'completed' -and $kind -ne 'failed') { return $true }
     if ($unreadState -and $unreadState.Available -and $threadId) {
         return [bool]$unreadState.Ids.ContainsKey($threadId.ToLowerInvariant())
     }
@@ -3203,12 +3163,12 @@ if ($ValidateTaskProgress) {
         Available = $false
     }
     $completedVisibilityCases = @(
-        (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
-            -modificationDate ($now.AddHours(-1)) -now $now -unreadState $unreadState)),
+        (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
+            -modificationDate ($now.AddHours(-1)) -now $now -unreadState $unreadState),
         (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
             -modificationDate $now -now $now -unreadState $readState)),
-        (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
-            -modificationDate $now -now $now -unreadState $unavailableState)),
+        (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
+            -modificationDate $now -now $now -unreadState $unavailableState),
         (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
             -modificationDate ($now.AddMinutes(-3)) -now $now -unreadState $unavailableState)),
         (Test-TaskShouldDisplay -kind 'failed' -threadId $indexedThreadId `
@@ -3260,15 +3220,22 @@ if ($ValidateTaskProgress) {
         [PSCustomObject]@{ Title = "保留的已完成任务"; Kind = "completed"; Status = "已完成"; StartedAt = $now },
         [PSCustomObject]@{ Title = "失败任务"; Kind = "failed"; Status = "执行失败"; StartedAt = $now }
     )
+    if ($null -eq $script:RunningTaskIconBitmap -or
+        $null -eq $script:WaitingTaskIconBitmap -or
+        $null -eq $script:CompletedTaskIconBitmap -or
+        $null -eq $script:FailedTaskIconBitmap) {
+        throw "Task status icon assets failed."
+    }
     Set-TaskProgressUI $completedUiFixture
-    if ($script:LastTaskItems.Count -ne 3 -or
+    if ($script:LastTaskItems.Count -ne 4 -or
         $script:LastTaskItems[0].Title -ne "保留的活动任务" -or
-        $script:LastTaskItems[2].Title -ne "失败任务" -or
+        $script:LastTaskItems[2].Title -ne "保留的已完成任务" -or
+        $script:LastTaskItems[3].Title -ne "失败任务" -or
         $script:RunningArrowTransforms.Count -ne 1) {
         throw "Task status icon UI rendering failed."
     }
 
-    Write-Output "task-progress-validation: lifecycle=7/7; title=1/1; index=1/1; completed-hidden=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=3/3"
+    Write-Output "task-progress-validation: lifecycle=7/7; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=4/4"
     $script:Window.Close()
     exit 0
 }
@@ -3599,15 +3566,6 @@ function Set-PanelHiddenByUser([bool]$hidden) {
     }
     Update-PetPosition
     Write-PanelHealth $true
-}
-
-function Select-BubuSkinFromPanel([string]$skin) {
-    if (Set-BubuSkinSelection $skin) {
-        Set-SkinButtonSelection $skin
-        Write-PanelHealth $true
-        return
-    }
-    [System.Media.SystemSounds]::Beep.Play()
 }
 
 $script:HideButton.Add_Click({ Set-PanelHiddenByUser $true })

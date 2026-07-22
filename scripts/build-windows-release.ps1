@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = "18"
+$Version = "20"
 $StageRoot = Join-Path $Root "build\release"
 $FullStage = Join-Path $StageRoot "卜卜-Windows"
 $CodexOnlyStage = Join-Path $StageRoot "卜卜-Windows-仅Codex额度"
@@ -27,7 +27,15 @@ function New-ReleasePackage {
 
     New-Item -ItemType Directory -Force -Path (Join-Path $Stage "pet") | Out-Null
     Copy-Item -LiteralPath (Join-Path $Root "shared\pet\bubu-office") -Destination (Join-Path $Stage "pet") -Recurse
-    Copy-Item -LiteralPath (Join-Path $Root "shared\preview") -Destination $Stage -Recurse
+    $previewDestination = Join-Path $Stage "preview"
+    New-Item -ItemType Directory -Force -Path $previewDestination | Out-Null
+    foreach ($preview in @(
+        "Codex额度面板.png", "任务状态图标总览.png", "卜卜动作总览.png",
+        "右拖电吉他.gif", "左拖唱歌.gif", "悬停喝咖啡.gif", "默认办公.gif",
+        "blue-bubu-static.png"
+    )) {
+        Copy-Item -LiteralPath (Join-Path $Root "shared\preview\$preview") -Destination $previewDestination
+    }
     Copy-Item -LiteralPath (Join-Path $Root "windows\BubuQuotaPanel") -Destination (Join-Path $Stage "windows") -Recurse
     Copy-Item -Path (Join-Path $Root "windows\package\*") -Destination $Stage -Force
     Copy-Item -LiteralPath (Join-Path $Root "windows\README.md") -Destination (Join-Path $Stage "README.md")
@@ -35,6 +43,7 @@ function New-ReleasePackage {
     Copy-Item -LiteralPath (Join-Path $Root "LICENSE") -Destination $Stage
     Copy-Item -LiteralPath (Join-Path $Root "ASSET-NOTICE.md") -Destination $Stage
     Copy-Item -LiteralPath (Join-Path $Root "PRIVACY.md") -Destination $Stage
+    Copy-Item -LiteralPath (Join-Path $Root "BLUE-EDITION.txt") -Destination $Stage
     if ($CodexOnly) {
         Copy-Item -LiteralPath (Join-Path $Root "windows\CODEX-ONLY.txt") -Destination (Join-Path $Stage "CODEX-ONLY.txt")
     }
