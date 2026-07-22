@@ -43,7 +43,7 @@
   <tbody>
     <tr>
       <td rowspan="2"><strong>蓝色卜卜</strong></td>
-      <td rowspan="2" align="center"><img src="shared/preview/blue-bubu-panel-preview.png" alt="蓝色卜卜额度与任务看板示意图" width="140"></td>
+      <td rowspan="2" align="center"><img src="shared/preview/blue-bubu-panel-preview.png" alt="蓝色卜卜额度与任务看板示意图" width="180"></td>
       <td>Web3 版</td>
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-macOS-Universal-20.zip">版本 20 下载</a></td>
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-Windows-10-11-20.zip">版本 20 下载</a></td>
