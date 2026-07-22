@@ -34,6 +34,7 @@
   <thead>
     <tr>
       <th>皮肤</th>
+      <th>示意图</th>
       <th>版本</th>
       <th>macOS</th>
       <th>Windows</th>
@@ -42,17 +43,19 @@
   <tbody>
     <tr>
       <td rowspan="2"><strong>蓝色卜卜</strong></td>
+      <td rowspan="2" align="center"><img src="shared/preview/blue-bubu-static.png" alt="蓝色卜卜静态示意图" width="80"></td>
       <td>Web3 版</td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-macOS-Universal-15.zip">最新版本下载</a></td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-Windows-10-11-15.zip">最新版本下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-macOS-Universal-15.zip">版本 15 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-Windows-10-11-15.zip">版本 15 下载</a></td>
     </tr>
     <tr>
       <td>普通版</td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-macOS-Universal-Codex-Only-15.zip">最新版本下载</a></td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-Windows-10-11-Codex-Only-15.zip">最新版本下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-macOS-Universal-Codex-Only-15.zip">版本 15 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/15/Mayday-Bubu-Windows-10-11-Codex-Only-15.zip">版本 15 下载</a></td>
     </tr>
     <tr>
       <td rowspan="2"><strong>橙色卜卜</strong></td>
+      <td rowspan="2" align="center"><img src="shared/preview/orange-bubu-static.png" alt="橙色卜卜静态示意图" width="80"></td>
       <td>Web3 版</td>
       <td>制作中</td>
       <td>制作中</td>
