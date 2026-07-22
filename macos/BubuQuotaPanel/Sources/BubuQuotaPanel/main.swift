@@ -5,7 +5,7 @@ import Foundation
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
 private let taskProgressRefreshInterval: TimeInterval = 2
-private let panelVersion = "17"
+private let panelVersion = "18"
 private let marketPricesEnabled: Bool = {
     guard let rawValue = ProcessInfo.processInfo.environment["BUBU_SHOW_MARKET_PRICES"] else {
         return true
@@ -93,43 +93,6 @@ private let maximumPanelScale: CGFloat = 8
 // The v2 sprite has a small transparent top padding inside Codex's stored
 // mascot anchor. Add it so the panel measures from Bubu's visible top tuft.
 private let petSpriteTopPaddingInsideAnchor: CGFloat = 7
-private let quotaLightstickBaseSize = NSSize(width: 38, height: 122)
-private let quotaLightstickPetOverlap: CGFloat = 8
-private let quotaLightstickBottomInset: CGFloat = 18
-
-private enum QuotaLightstickBand: String {
-    case blue
-    case amber
-    case red
-}
-
-private func quotaLightstickBand(for remainingPercent: Int) -> QuotaLightstickBand {
-    let remaining = max(0, min(100, remainingPercent))
-    if remaining < 25 { return .red }
-    if remaining <= 50 { return .amber }
-    return .blue
-}
-
-private func quotaLightstickFrame(
-    petVisibleRect: NSRect,
-    scale: CGFloat,
-    screenVisibleFrame: NSRect
-) -> NSRect {
-    let safeScale = normalizedPanelScale(scale)
-    let size = scaledPanelSize(quotaLightstickBaseSize, scale: safeScale)
-    let desiredOrigin = NSPoint(
-        x: petVisibleRect.minX - size.width + quotaLightstickPetOverlap * safeScale,
-        y: petVisibleRect.minY + quotaLightstickBottomInset * safeScale
-    )
-    let maximumX = max(screenVisibleFrame.minX, screenVisibleFrame.maxX - size.width)
-    let maximumY = max(screenVisibleFrame.minY, screenVisibleFrame.maxY - size.height)
-    return NSRect(
-        x: min(max(desiredOrigin.x, screenVisibleFrame.minX), maximumX),
-        y: min(max(desiredOrigin.y, screenVisibleFrame.minY), maximumY),
-        width: size.width,
-        height: size.height
-    )
-}
 
 private enum BubuSkin: String, CaseIterable {
     case blue
@@ -1257,147 +1220,6 @@ private final class MarketPriceClient {
             }
             completion(.success(price))
         }.resume()
-    }
-}
-
-private final class QuotaLightstickView: NSView {
-    var remainingPercent: Int? {
-        didSet {
-            guard remainingPercent != oldValue else { return }
-            needsDisplay = true
-        }
-    }
-
-    override var isFlipped: Bool { false }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        NSGraphicsContext.current?.imageInterpolation = .high
-
-        NSGraphicsContext.saveGraphicsState()
-        let tilt = NSAffineTransform()
-        tilt.translateX(by: bounds.midX, yBy: bounds.midY)
-        tilt.rotate(byDegrees: -5.5)
-        tilt.translateX(by: -bounds.midX, yBy: -bounds.midY)
-        tilt.concat()
-
-        let handleRect = NSRect(x: 10, y: 4, width: 18, height: 33)
-        let collarRect = NSRect(x: 9, y: 36, width: 20, height: 8)
-        let diffuserRect = NSRect(x: 8.5, y: 43, width: 21, height: 74)
-
-        let handlePath = NSBezierPath(roundedRect: handleRect, xRadius: 7, yRadius: 7)
-        if let handleGradient = NSGradient(colors: [
-            NSColor(calibratedWhite: 1.0, alpha: 1),
-            NSColor(calibratedWhite: 0.78, alpha: 1),
-        ]) {
-            handleGradient.draw(in: handlePath, angle: -8)
-        }
-        NSColor.white.withAlphaComponent(0.72).setStroke()
-        handlePath.lineWidth = 0.8
-        handlePath.stroke()
-
-        let gripInset = NSBezierPath(roundedRect: NSRect(x: 13, y: 7, width: 12, height: 13), xRadius: 5, yRadius: 5)
-        NSColor.black.withAlphaComponent(0.09).setFill()
-        gripInset.fill()
-
-        let collarPath = NSBezierPath(roundedRect: collarRect, xRadius: 2.5, yRadius: 2.5)
-        if let collarGradient = NSGradient(colors: [
-            NSColor(calibratedWhite: 0.30, alpha: 1),
-            NSColor(calibratedWhite: 0.03, alpha: 1),
-            NSColor(calibratedWhite: 0.25, alpha: 1),
-        ]) {
-            collarGradient.draw(in: collarPath, angle: 0)
-        }
-
-        let diffuserPath = NSBezierPath(roundedRect: diffuserRect, xRadius: 10.5, yRadius: 10.5)
-        NSColor(calibratedRed: 0.74, green: 0.84, blue: 0.90, alpha: 0.24).setFill()
-        diffuserPath.fill()
-        NSColor.white.withAlphaComponent(0.42).setStroke()
-        diffuserPath.lineWidth = 0.8
-        diffuserPath.stroke()
-
-        for marker in [0.25, 0.50, 0.75] as [CGFloat] {
-            let y = diffuserRect.minY + diffuserRect.height * marker
-            let line = NSBezierPath()
-            line.move(to: NSPoint(x: diffuserRect.minX + 2.5, y: y))
-            line.line(to: NSPoint(x: diffuserRect.minX + 5.0, y: y))
-            NSColor.white.withAlphaComponent(0.30).setStroke()
-            line.lineWidth = 0.65
-            line.stroke()
-        }
-
-        if let rawRemaining = remainingPercent {
-            let remaining = max(0, min(100, rawRemaining))
-            let band = quotaLightstickBand(for: remaining)
-            let color: NSColor
-            let edgeColor: NSColor
-            switch band {
-            case .blue:
-                color = NSColor(calibratedRed: 0.00, green: 0.82, blue: 1.00, alpha: 1)
-                edgeColor = NSColor(calibratedRed: 0.03, green: 0.30, blue: 1.00, alpha: 1)
-            case .amber:
-                color = NSColor(calibratedRed: 1.00, green: 0.66, blue: 0.10, alpha: 1)
-                edgeColor = NSColor(calibratedRed: 1.00, green: 0.34, blue: 0.04, alpha: 1)
-            case .red:
-                color = NSColor(calibratedRed: 1.00, green: 0.18, blue: 0.14, alpha: 1)
-                edgeColor = NSColor(calibratedRed: 0.78, green: 0.00, blue: 0.05, alpha: 1)
-            }
-
-            let fillHeight = diffuserRect.height * CGFloat(remaining) / 100
-            if fillHeight > 0 {
-                NSGraphicsContext.saveGraphicsState()
-                diffuserPath.addClip()
-                let fillRect = NSRect(
-                    x: diffuserRect.minX,
-                    y: diffuserRect.minY,
-                    width: diffuserRect.width,
-                    height: fillHeight
-                )
-                let glow = NSShadow()
-                glow.shadowColor = edgeColor.withAlphaComponent(0.88)
-                glow.shadowBlurRadius = 6
-                glow.shadowOffset = .zero
-                glow.set()
-                let fillPath = NSBezierPath(rect: fillRect)
-                if let fillGradient = NSGradient(colors: [edgeColor, color, color.withAlphaComponent(0.92)]) {
-                    fillGradient.draw(in: fillPath, angle: 90)
-                } else {
-                    color.setFill()
-                    fillPath.fill()
-                }
-                NSGraphicsContext.restoreGraphicsState()
-
-                let surfaceY = diffuserRect.minY + fillHeight
-                let surface = NSBezierPath()
-                surface.move(to: NSPoint(x: diffuserRect.minX + 2.5, y: surfaceY))
-                surface.line(to: NSPoint(x: diffuserRect.maxX - 2.5, y: surfaceY))
-                NSColor.white.withAlphaComponent(0.78).setStroke()
-                surface.lineWidth = 0.9
-                surface.stroke()
-            }
-        }
-
-        let highlight = NSBezierPath(roundedRect: NSRect(x: 11, y: 49, width: 3.2, height: 59), xRadius: 1.6, yRadius: 1.6)
-        NSColor.white.withAlphaComponent(0.26).setFill()
-        highlight.fill()
-
-        let emblem = NSBezierPath()
-        emblem.move(to: NSPoint(x: 14.2, y: 28.5))
-        emblem.line(to: NSPoint(x: 16.3, y: 24.0))
-        emblem.line(to: NSPoint(x: 18.5, y: 27.4))
-        emblem.line(to: NSPoint(x: 20.7, y: 24.0))
-        emblem.line(to: NSPoint(x: 23.0, y: 28.5))
-        emblem.move(to: NSPoint(x: 14.2, y: 28.5))
-        emblem.line(to: NSPoint(x: 14.2, y: 22.4))
-        emblem.line(to: NSPoint(x: 23.0, y: 22.4))
-        emblem.line(to: NSPoint(x: 23.0, y: 28.5))
-        NSColor(calibratedRed: 0.02, green: 0.46, blue: 1.00, alpha: 1).setStroke()
-        emblem.lineWidth = 1.4
-        emblem.lineJoinStyle = .round
-        emblem.lineCapStyle = .round
-        emblem.stroke()
-
-        NSGraphicsContext.restoreGraphicsState()
     }
 }
 
@@ -2867,11 +2689,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let healthWriter = RuntimeHealthWriter()
     private let petSelectionStore = PetSelectionStore()
     private let quotaView = QuotaPanelView(frame: NSRect(origin: .zero, size: expandedPanelSize))
-    private let quotaLightstickView = QuotaLightstickView(
-        frame: NSRect(origin: .zero, size: quotaLightstickBaseSize)
-    )
     private var panel: NSPanel!
-    private var quotaLightstickPanel: NSPanel!
     private var statusItem: NSStatusItem?
     private var refreshTimer: Timer?
     private var taskProgressTimer: Timer?
@@ -2892,12 +2710,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        // Release 17 is the blue Bubu edition. Clear any orange preview
+        // Release 18 is the blue Bubu edition. Clear any orange preview
         // selection left by an earlier local build before the panel appears.
         _ = petSelectionStore.select(.blue)
         quotaView.selectedSkin = .blue
         makePanel()
-        makeQuotaLightstickPanel()
         makeStatusItem()
         startPetDoubleClickMonitor()
         healthWriter.write(status: "started", panelVisible: false, locationSource: nil, force: true)
@@ -2938,7 +2755,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         if let statusItem {
             NSStatusBar.system.removeStatusItem(statusItem)
         }
-        quotaLightstickPanel?.orderOut(nil)
         healthWriter.write(status: "terminated", panelVisible: false, locationSource: nil, force: true)
     }
 
@@ -2964,26 +2780,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         quotaView.onRequestHide = { [weak self] in
             self?.hidePanelByUser()
         }
-    }
-
-    private func makeQuotaLightstickPanel() {
-        quotaLightstickPanel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: quotaLightstickBaseSize),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        quotaLightstickPanel.contentView = quotaLightstickView
-        quotaLightstickPanel.isOpaque = false
-        quotaLightstickPanel.backgroundColor = .clear
-        quotaLightstickPanel.hasShadow = false
-        quotaLightstickPanel.level = .statusBar
-        quotaLightstickPanel.hidesOnDeactivate = false
-        quotaLightstickPanel.ignoresMouseEvents = true
-        quotaLightstickPanel.isMovable = false
-        quotaLightstickPanel.isReleasedWhenClosed = false
-        quotaLightstickPanel.isFloatingPanel = true
-        quotaLightstickPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
     }
 
     private func selectSkin(_ skin: BubuSkin) -> Bool {
@@ -3076,7 +2872,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             lastLocatedPet = nil
             lastLocatedAt = 0
             panel.orderOut(nil)
-            quotaLightstickPanel.orderOut(nil)
             healthWriter.write(
                 status: "waiting-for-codex",
                 panelVisible: false,
@@ -3098,7 +2893,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             pet = recent
         } else {
             panel.orderOut(nil)
-            quotaLightstickPanel.orderOut(nil)
             healthWriter.write(
                 status: "waiting-for-pet-location",
                 panelVisible: false,
@@ -3111,21 +2905,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let basePanelSize = currentBasePanelSize
         currentPanelScale = normalizedPanelScale(pet.panelScale)
-        let lightstickFrame = quotaLightstickFrame(
-            petVisibleRect: pet.visibleRect,
-            scale: currentPanelScale,
-            screenVisibleFrame: pet.screen.visibleFrame
-        )
-        if quotaLightstickPanel.frame != lightstickFrame {
-            quotaLightstickPanel.setFrame(lightstickFrame, display: false)
-        }
-        quotaLightstickView.frame = NSRect(origin: .zero, size: lightstickFrame.size)
-        quotaLightstickView.bounds = NSRect(origin: .zero, size: quotaLightstickBaseSize)
-        quotaLightstickView.needsDisplay = true
-        if !quotaLightstickPanel.isVisible {
-            quotaLightstickPanel.orderFrontRegardless()
-        }
-
         if isPanelHiddenByUser {
             panel.orderOut(nil)
             return
@@ -3193,7 +2972,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 case .success(let response):
                     let rows = Self.makeRows(from: response)
                     self.quotaView.rows = rows
-                    self.quotaLightstickView.remainingPercent = rows.first?.remainingPercent
                     self.quotaView.errorText = nil
                     self.quotaView.statusText = "\(Self.timeFormatter.string(from: Date())) 更新 · 5分钟"
                 case .failure(let error):
@@ -3791,83 +3569,6 @@ private func runSkinSelectionSelfTest() -> Never {
     exit(0)
 }
 
-private func runQuotaLightstickSelfTest() -> Never {
-    let bandCases: [(Int, QuotaLightstickBand)] = [
-        (100, .blue), (51, .blue), (50, .amber), (25, .amber), (24, .red), (0, .red),
-    ]
-    for test in bandCases where quotaLightstickBand(for: test.0) != test.1 {
-        fputs("lightstick band failed for \(test.0)%\n", stderr)
-        exit(1)
-    }
-
-    let petRect = NSRect(x: 400, y: 260, width: 163, height: 177)
-    let screenRect = NSRect(x: 0, y: 0, width: 1200, height: 800)
-    let frame = quotaLightstickFrame(
-        petVisibleRect: petRect,
-        scale: 1,
-        screenVisibleFrame: screenRect
-    )
-    guard abs(frame.width - quotaLightstickBaseSize.width) < 0.01,
-          abs(frame.height - quotaLightstickBaseSize.height) < 0.01,
-          abs(frame.maxX - (petRect.minX + quotaLightstickPetOverlap)) < 0.01,
-          abs(frame.minY - (petRect.minY + quotaLightstickBottomInset)) < 0.01
-    else {
-        fputs("lightstick placement failed: \(frame)\n", stderr)
-        exit(1)
-    }
-
-    let edgeFrame = quotaLightstickFrame(
-        petVisibleRect: NSRect(x: 2, y: 2, width: 163, height: 177),
-        scale: 1,
-        screenVisibleFrame: screenRect
-    )
-    guard edgeFrame.minX >= screenRect.minX, edgeFrame.minY >= screenRect.minY else {
-        fputs("lightstick screen clamping failed: \(edgeFrame)\n", stderr)
-        exit(1)
-    }
-
-    print("quota-lightstick-self-test: bands=6/6 placement=pass scaling=pass clamping=pass")
-    exit(0)
-}
-
-private func renderQuotaLightstickPreviewOnce(to outputPath: String, remainingPercent: Int) -> Never {
-    _ = NSApplication.shared
-    let view = QuotaLightstickView(frame: NSRect(origin: .zero, size: quotaLightstickBaseSize))
-    view.remainingPercent = max(0, min(100, remainingPercent))
-    view.layoutSubtreeIfNeeded()
-
-    let scale: CGFloat = 4
-    guard let bitmap = NSBitmapImageRep(
-        bitmapDataPlanes: nil,
-        pixelsWide: Int(quotaLightstickBaseSize.width * scale),
-        pixelsHigh: Int(quotaLightstickBaseSize.height * scale),
-        bitsPerSample: 8,
-        samplesPerPixel: 4,
-        hasAlpha: true,
-        isPlanar: false,
-        colorSpaceName: .deviceRGB,
-        bytesPerRow: 0,
-        bitsPerPixel: 0
-    ) else {
-        fputs("unable to create lightstick preview canvas\n", stderr)
-        exit(1)
-    }
-    bitmap.size = quotaLightstickBaseSize
-    view.cacheDisplay(in: view.bounds, to: bitmap)
-    guard let png = bitmap.representation(using: .png, properties: [:]) else {
-        fputs("unable to encode lightstick preview\n", stderr)
-        exit(1)
-    }
-    do {
-        try png.write(to: URL(fileURLWithPath: outputPath), options: .atomic)
-        print(outputPath)
-        exit(0)
-    } catch {
-        fputs("unable to write lightstick preview: \(error.localizedDescription)\n", stderr)
-        exit(1)
-    }
-}
-
 private func renderPreviewOnce(to outputPath: String) -> Never {
     _ = NSApplication.shared
     var previewTaskTemplates = [
@@ -3992,10 +3693,6 @@ if CommandLine.arguments.contains("--self-test-skin-selection") {
     runSkinSelectionSelfTest()
 }
 
-if CommandLine.arguments.contains("--self-test-quota-lightstick") {
-    runQuotaLightstickSelfTest()
-}
-
 if CommandLine.arguments.contains("--print-panel-config") {
     printPanelConfiguration()
 }
@@ -4008,20 +3705,6 @@ if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-preview"),
    CommandLine.arguments.indices.contains(previewFlag + 1)
 {
     renderPreviewOnce(to: CommandLine.arguments[previewFlag + 1])
-}
-
-if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-lightstick-preview"),
-   CommandLine.arguments.indices.contains(previewFlag + 1)
-{
-    let remainingFlag = CommandLine.arguments.firstIndex(of: "--remaining")
-    let remaining = remainingFlag.flatMap { index -> Int? in
-        guard CommandLine.arguments.indices.contains(index + 1) else { return nil }
-        return Int(CommandLine.arguments[index + 1])
-    } ?? 75
-    renderQuotaLightstickPreviewOnce(
-        to: CommandLine.arguments[previewFlag + 1],
-        remainingPercent: remaining
-    )
 }
 
 let application = NSApplication.shared

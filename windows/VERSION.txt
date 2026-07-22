@@ -1,5 +1,5 @@
 Package: Bubu Windows
-Version: 17
+Version: 18
 System: Windows 10/11
 Architecture: x64 + ARM64
 Variants: Full / Codex Only (no BTC)
