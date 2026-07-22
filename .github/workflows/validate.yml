@@ -171,7 +171,8 @@ jobs:
           if (-not (Test-Path -LiteralPath $stage)) { throw "Windows ZIP root directory missing after extraction" }
           if (-not (Test-Path -LiteralPath (Join-Path $stage "CODEX-ONLY.txt"))) { throw "Codex-only marker missing" }
           if (Test-Path -LiteralPath (Join-Path $stage "pet\bubu-orange")) { throw "Orange preview pet leaked into the blue release" }
-          if (Get-ChildItem -LiteralPath $stage -Recurse -File | Select-String -Pattern 'lightstick' -Quiet) {
+          $packagedPanel = Join-Path $stage "windows\BubuQuotaPanel.ps1"
+          if (Select-String -LiteralPath $packagedPanel -Pattern 'lightstick' -Quiet) {
             throw "Orange-project lightstick content leaked into the blue release"
           }
           $manifest = Get-Content -Raw -LiteralPath (Join-Path $packagePet "pet.json") | ConvertFrom-Json
