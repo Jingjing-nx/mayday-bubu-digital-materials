@@ -30,8 +30,9 @@ if exist "%ROOT%\CODEX-ONLY.txt" (
 
 if not defined USERPROFILE goto :no_profile
 if not exist "%ROOT%\BLUE-EDITION.txt" goto :wrong_edition
-findstr.exe /X /C:"edition=blue-bubu" "%ROOT%\BLUE-EDITION.txt" >nul 2>&1
-if errorlevel 1 goto :wrong_edition
+set "BLUE_EDITION="
+set /p BLUE_EDITION=<"%ROOT%\BLUE-EDITION.txt"
+if /I not "%BLUE_EDITION%"=="edition=blue-bubu" goto :wrong_edition
 if exist "%ROOT%\pet\bubu-orange" goto :wrong_edition
 if not exist "%ROOT%\pet\bubu-office\pet.json" goto :missing_files
 if not exist "%ROOT%\pet\bubu-office\%PET_SPRITE%" goto :missing_files
