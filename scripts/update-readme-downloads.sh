@@ -21,6 +21,7 @@ BLOCK="$START
   <thead>
     <tr>
       <th>皮肤</th>
+      <th>示意图</th>
       <th>版本</th>
       <th>macOS</th>
       <th>Windows</th>
@@ -29,6 +30,7 @@ BLOCK="$START
   <tbody>
     <tr>
       <td rowspan=\"2\"><strong>蓝色卜卜</strong></td>
+      <td rowspan=\"2\" align=\"center\"><img src=\"shared/preview/blue-bubu-static.png\" alt=\"蓝色卜卜静态示意图\" width=\"80\"></td>
       <td>Web3 版</td>
       <td><a href=\"$BASE_URL/Mayday-Bubu-macOS-Universal-$VERSION.zip\">版本 $VERSION 下载</a></td>
       <td><a href=\"$BASE_URL/Mayday-Bubu-Windows-10-11-$VERSION.zip\">版本 $VERSION 下载</a></td>
@@ -40,6 +42,7 @@ BLOCK="$START
     </tr>
     <tr>
       <td rowspan=\"2\"><strong>橙色卜卜</strong></td>
+      <td rowspan=\"2\" align=\"center\"><img src=\"shared/preview/orange-bubu-static.png\" alt=\"橙色卜卜静态示意图\" width=\"80\"></td>
       <td>Web3 版</td>
       <td>制作中</td>
       <td>制作中</td>
