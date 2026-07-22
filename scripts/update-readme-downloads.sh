@@ -30,13 +30,13 @@ BLOCK="$START
     <tr>
       <td rowspan=\"2\"><strong>蓝色卜卜</strong></td>
       <td>Web3 版</td>
-      <td><a href=\"$BASE_URL/Mayday-Bubu-macOS-Universal-$VERSION.zip\">最新版本下载</a></td>
-      <td><a href=\"$BASE_URL/Mayday-Bubu-Windows-10-11-$VERSION.zip\">最新版本下载</a></td>
+      <td><a href=\"$BASE_URL/Mayday-Bubu-macOS-Universal-$VERSION.zip\">版本 $VERSION 下载</a></td>
+      <td><a href=\"$BASE_URL/Mayday-Bubu-Windows-10-11-$VERSION.zip\">版本 $VERSION 下载</a></td>
     </tr>
     <tr>
       <td>普通版</td>
-      <td><a href=\"$BASE_URL/Mayday-Bubu-macOS-Universal-Codex-Only-$VERSION.zip\">最新版本下载</a></td>
-      <td><a href=\"$BASE_URL/Mayday-Bubu-Windows-10-11-Codex-Only-$VERSION.zip\">最新版本下载</a></td>
+      <td><a href=\"$BASE_URL/Mayday-Bubu-macOS-Universal-Codex-Only-$VERSION.zip\">版本 $VERSION 下载</a></td>
+      <td><a href=\"$BASE_URL/Mayday-Bubu-Windows-10-11-Codex-Only-$VERSION.zip\">版本 $VERSION 下载</a></td>
     </tr>
     <tr>
       <td rowspan=\"2\"><strong>橙色卜卜</strong></td>
