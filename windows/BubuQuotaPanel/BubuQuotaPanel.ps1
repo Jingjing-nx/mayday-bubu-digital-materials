@@ -3390,7 +3390,7 @@ if ($ValidateTaskProgress) {
         (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
             -modificationDate ($now.AddMinutes(-3)) -now $now -unreadState $unavailableState)),
         (Test-TaskShouldDisplay -kind 'failed' -threadId $indexedThreadId `
-            -modificationDate ($now.AddHours(-1)) -now $now -unreadState $unreadState)),
+            -modificationDate ($now.AddHours(-1)) -now $now -unreadState $unreadState),
         (-not (Test-TaskShouldDisplay -kind 'failed' -threadId $indexedThreadId `
             -modificationDate $now -now $now -unreadState $readState))
     )
