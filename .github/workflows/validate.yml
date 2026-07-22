@@ -45,6 +45,7 @@ jobs:
           "$BIN" --self-test-task-progress | grep '7/7; title=1/1; index=1/1; completed-hidden=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated'
           "$BIN" --self-test-skin-selection | grep 'blue=pass orange=pass persistence=pass duplicate-key=pass'
           ! grep -q 'collapsedPanelSize\|isCollapsed\|onToggleCollapsed' macos/BubuQuotaPanel/Sources/BubuQuotaPanel/main.swift
+          ! grep -Eqi 'lightstick|荧光棒|应援棒' macos/BubuQuotaPanel/Sources/BubuQuotaPanel/main.swift
       - name: Verify Gatekeeper help entries
         run: |
           plutil -lint 'macos/package/如果仍无法打开-Apple官方步骤.webloc'
@@ -54,8 +55,8 @@ jobs:
       - name: Verify panel runtime health
         run: |
           BIN='macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel'
-          "$BIN" --print-panel-config | grep 'version=17 marketPricesEnabled=true width=224 height=160'
-          BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config | grep 'version=17 marketPricesEnabled=false width=224 height=139'
+          "$BIN" --print-panel-config | grep 'version=18 marketPricesEnabled=true width=224 height=160'
+          BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config | grep 'version=18 marketPricesEnabled=false width=224 height=139'
           HEALTH="$(mktemp)"
           rm -f "$HEALTH"
           BUBU_PANEL_HEALTH_FILE="$HEALTH" "$BIN" &
@@ -65,7 +66,7 @@ jobs:
             test -s "$HEALTH" && break
             sleep 0.1
           done
-          grep '"version":"17"' "$HEALTH"
+          grep '"version":"18"' "$HEALTH"
           grep '"marketPricesEnabled":true' "$HEALTH"
           kill "$PID" 2>/dev/null || true
           wait "$PID" 2>/dev/null || true
@@ -76,7 +77,7 @@ jobs:
             test -s "$HEALTH" && break
             sleep 0.1
           done
-          grep '"version":"17"' "$HEALTH"
+          grep '"version":"18"' "$HEALTH"
           grep '"marketPricesEnabled":false' "$HEALTH"
           grep '"panelHeightPoints":139' "$HEALTH"
           kill "$PID" 2>/dev/null || true
@@ -84,18 +85,19 @@ jobs:
       - name: Build macOS releases
         run: |
           ./scripts/build-macos-release.sh
-          test -f dist/Mayday-Bubu-macOS-Universal-Codex-Only-17.zip
-          test -f dist/Mayday-Bubu-macOS-Universal-17.zip
+          test -f dist/Mayday-Bubu-macOS-Universal-Codex-Only-18.zip
+          test -f dist/Mayday-Bubu-macOS-Universal-18.zip
           test -f build/release/卜卜-macOS-仅Codex额度/CODEX-ONLY.txt
           test -f build/release/卜卜-macOS-仅Codex额度/pet/bubu-office/spritesheet.webp
           test ! -e build/release/卜卜-macOS-仅Codex额度/pet/bubu-orange
+          ! grep -ERqi 'lightstick|荧光棒|应援棒' build/release/卜卜-macOS-仅Codex额度
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-17
+          name: macos-18
           if-no-files-found: error
           path: |
-            dist/Mayday-Bubu-macOS-Universal-17.zip
-            dist/Mayday-Bubu-macOS-Universal-Codex-Only-17.zip
+            dist/Mayday-Bubu-macOS-Universal-18.zip
+            dist/Mayday-Bubu-macOS-Universal-Codex-Only-18.zip
       - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh
 
   windows-syntax:
@@ -120,7 +122,7 @@ jobs:
         run: |
           $panel = ".\windows\BubuQuotaPanel\BubuQuotaPanel.ps1"
           $fullConfig = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
-          if ($LASTEXITCODE -ne 0 -or $fullConfig -notmatch "version=17 marketPricesEnabled=true width=224 height=160") {
+          if ($LASTEXITCODE -ne 0 -or $fullConfig -notmatch "version=18 marketPricesEnabled=true width=224 height=160") {
             throw "Unexpected full panel configuration: $fullConfig"
           }
           $fullXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
@@ -130,7 +132,7 @@ jobs:
 
           $env:BUBU_SHOW_MARKET_PRICES = "false"
           $onlyConfig = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
-          if ($LASTEXITCODE -ne 0 -or $onlyConfig -notmatch "version=17 marketPricesEnabled=false width=224 height=139") {
+          if ($LASTEXITCODE -ne 0 -or $onlyConfig -notmatch "version=18 marketPricesEnabled=false width=224 height=139") {
             throw "Unexpected Codex-only panel configuration: $onlyConfig"
           }
           $onlyXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
@@ -149,14 +151,17 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $skinSelection -notmatch "blue=True orange=True persistence=True duplicate-key=True") {
             throw "Skin-selection validation failed: $skinSelection"
           }
+          if (Select-String -LiteralPath $panel -Pattern 'lightstick') {
+            throw "Orange-project lightstick code leaked into the blue Windows panel"
+          }
           Remove-Item Env:BUBU_SHOW_MARKET_PRICES
       - name: Build and install-test Windows releases
         shell: powershell
         run: |
           .\scripts\build-windows-release.ps1
-          $zip = "dist\Mayday-Bubu-Windows-10-11-Codex-Only-17.zip"
+          $zip = "dist\Mayday-Bubu-Windows-10-11-Codex-Only-18.zip"
           if (-not (Test-Path -LiteralPath $zip)) { throw "Codex-only ZIP missing" }
-          if (-not (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-17.zip")) { throw "Full ZIP missing" }
+          if (-not (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-18.zip")) { throw "Full ZIP missing" }
 
           $extractRoot = Join-Path $env:RUNNER_TEMP "bubu-windows-release-extracted"
           Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -166,8 +171,12 @@ jobs:
           if (-not (Test-Path -LiteralPath $stage)) { throw "Windows ZIP root directory missing after extraction" }
           if (-not (Test-Path -LiteralPath (Join-Path $stage "CODEX-ONLY.txt"))) { throw "Codex-only marker missing" }
           if (Test-Path -LiteralPath (Join-Path $stage "pet\bubu-orange")) { throw "Orange preview pet leaked into the blue release" }
+          $packagedPanel = Join-Path $stage "windows\BubuQuotaPanel.ps1"
+          if (Select-String -LiteralPath $packagedPanel -Pattern 'lightstick' -Quiet) {
+            throw "Orange-project lightstick content leaked into the blue release"
+          }
           $manifest = Get-Content -Raw -LiteralPath (Join-Path $packagePet "pet.json") | ConvertFrom-Json
-          if ($manifest.spritesheetPath -ne "spritesheet-win-17.webp") { throw "Versioned blue pet atlas path missing" }
+          if ($manifest.spritesheetPath -ne "spritesheet-win-18.webp") { throw "Versioned blue pet atlas path missing" }
           $packageAtlas = Join-Path $packagePet $manifest.spritesheetPath
           if (-not (Test-Path -LiteralPath $packageAtlas)) { throw "Versioned pet atlas missing" }
           if ((Get-FileHash -Algorithm SHA256 -LiteralPath $packageAtlas).Hash -ne
@@ -185,7 +194,7 @@ jobs:
           & (Join-Path $stage "Install-Bubu.cmd") /petonly
           if ($LASTEXITCODE -ne 0) { throw "Codex-only pet installer simulation failed" }
           if (Test-Path -LiteralPath (Join-Path $oldPet "spritesheet.webp")) { throw "Stale pet atlas was not removed" }
-          if (-not (Test-Path -LiteralPath (Join-Path $oldPet "spritesheet-win-17.webp"))) { throw "New blue pet atlas was not installed" }
+          if (-not (Test-Path -LiteralPath (Join-Path $oldPet "spritesheet-win-18.webp"))) { throw "New blue pet atlas was not installed" }
           $installedConfig = Get-Content -Raw -LiteralPath (Join-Path $testHome "config.toml")
           if ($installedConfig -notmatch '(?ms)^\s*\[desktop\].*?^\s*selected-avatar-id\s*=\s*"custom:bubu-office"\s*$') {
             throw "Bubu was not selected in the installed config"
@@ -196,8 +205,8 @@ jobs:
           Remove-Item Env:BUBU_INSTALL_NONINTERACTIVE
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-17
+          name: windows-18
           if-no-files-found: error
           path: |
-            dist/Mayday-Bubu-Windows-10-11-17.zip
-            dist/Mayday-Bubu-Windows-10-11-Codex-Only-17.zip
+            dist/Mayday-Bubu-Windows-10-11-18.zip
+            dist/Mayday-Bubu-Windows-10-11-Codex-Only-18.zip

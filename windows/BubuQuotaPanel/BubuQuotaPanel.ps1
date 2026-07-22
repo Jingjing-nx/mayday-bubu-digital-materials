@@ -9,7 +9,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "17"
+$script:PanelVersion = "18"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $script:MarketPricesEnabled = $true
@@ -685,7 +685,7 @@ test = true
     exit 0
 }
 
-# Release 17 is the blue Bubu edition. Clear any orange preview selection
+# Release 18 is the blue Bubu edition. Clear any orange preview selection
 # left by an earlier local build before the panel starts following the pet.
 $script:SelectedSkin = "blue"
 [void](Set-BubuSkinSelection "blue")
@@ -852,89 +852,6 @@ $script:Window.Top = -32000
 $script:WindowHandle = [Windows.Interop.WindowInteropHelper]::new($script:Window).EnsureHandle()
 [BubuPanel.NativeWindows]::ApplyNoActivateStyle($script:WindowHandle)
 
-$lightstickXaml = @"
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Bubu Quota Lightstick"
-        Width="38" Height="122"
-        WindowStyle="None" ResizeMode="NoResize"
-        AllowsTransparency="True" Background="Transparent"
-        Topmost="True" ShowInTaskbar="False" ShowActivated="False"
-        Focusable="False" IsHitTestVisible="False" SnapsToDevicePixels="True">
-    <Grid x:Name="LightstickScaleRoot" Width="38" Height="122"
-          RenderTransformOrigin="0.5,0.5">
-        <Grid.RenderTransform>
-            <RotateTransform Angle="-5.5"/>
-        </Grid.RenderTransform>
-        <Canvas Width="38" Height="122">
-            <Border Canvas.Left="10" Canvas.Top="84" Width="18" Height="33"
-                    CornerRadius="7" BorderBrush="#B8FFFFFF" BorderThickness="0.8">
-                <Border.Background>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                        <GradientStop Color="#FFFFFFFF" Offset="0"/>
-                        <GradientStop Color="#FFC7CBD0" Offset="1"/>
-                    </LinearGradientBrush>
-                </Border.Background>
-            </Border>
-            <Border Canvas.Left="13" Canvas.Top="101" Width="12" Height="13"
-                    CornerRadius="5" Background="#16000000"/>
-            <Border Canvas.Left="9" Canvas.Top="77" Width="20" Height="8" CornerRadius="2.5">
-                <Border.Background>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                        <GradientStop Color="#FF4D4D4D" Offset="0"/>
-                        <GradientStop Color="#FF080808" Offset="0.5"/>
-                        <GradientStop Color="#FF3E3E3E" Offset="1"/>
-                    </LinearGradientBrush>
-                </Border.Background>
-            </Border>
-            <Border Canvas.Left="8.5" Canvas.Top="4" Width="21" Height="74"
-                    CornerRadius="10.5" BorderBrush="#70FFFFFF" BorderThickness="0.8"
-                    Background="#3DC0D6E5" ClipToBounds="True">
-                <Canvas x:Name="LightstickTubeCanvas" Width="21" Height="74" ClipToBounds="True">
-                    <Border x:Name="QuotaLightstickFill" Canvas.Left="0" Canvas.Top="74"
-                            Width="21" Height="0" Background="#FF00CFFF">
-                        <Border.Effect>
-                            <DropShadowEffect x:Name="QuotaLightstickGlow" Color="#FF064DFF"
-                                              BlurRadius="7" ShadowDepth="0" Opacity="0.9"/>
-                        </Border.Effect>
-                    </Border>
-                    <Rectangle x:Name="QuotaLightstickSurface" Canvas.Left="2.5" Canvas.Top="73"
-                               Width="16" Height="1" Fill="#C8FFFFFF"/>
-                    <Line X1="2.5" X2="5" Y1="18.5" Y2="18.5" Stroke="#50FFFFFF" StrokeThickness="0.65"/>
-                    <Line X1="2.5" X2="5" Y1="37" Y2="37" Stroke="#50FFFFFF" StrokeThickness="0.65"/>
-                    <Line X1="2.5" X2="5" Y1="55.5" Y2="55.5" Stroke="#50FFFFFF" StrokeThickness="0.65"/>
-                    <Border Canvas.Left="2.5" Canvas.Top="8" Width="3.2" Height="59"
-                            CornerRadius="1.6" Background="#42FFFFFF"/>
-                </Canvas>
-            </Border>
-            <Path Data="M 14.2,93 L 16.3,97.5 L 18.5,94.1 L 20.7,97.5 L 23,93 M 14.2,93 L 14.2,99.1 L 23,99.1 L 23,93"
-                  Stroke="#FF0875FF" StrokeThickness="1.4"
-                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-        </Canvas>
-    </Grid>
-</Window>
-"@
-
-$lightstickXml = New-Object Xml.XmlDocument
-$lightstickXml.LoadXml($lightstickXaml)
-$lightstickReader = [Xml.XmlNodeReader]::new($lightstickXml)
-$script:QuotaLightstickWindow = [Windows.Markup.XamlReader]::Load($lightstickReader)
-$script:QuotaLightstickWindow.WindowStartupLocation = [Windows.WindowStartupLocation]::Manual
-$script:QuotaLightstickWindow.Left = -32000
-$script:QuotaLightstickWindow.Top = -32000
-$script:QuotaLightstickWindowHandle = [Windows.Interop.WindowInteropHelper]::new(
-    $script:QuotaLightstickWindow
-).EnsureHandle()
-[BubuPanel.NativeWindows]::ApplyNoActivateStyle($script:QuotaLightstickWindowHandle)
-$script:LightstickScaleRoot = $script:QuotaLightstickWindow.FindName("LightstickScaleRoot")
-$script:QuotaLightstickFill = $script:QuotaLightstickWindow.FindName("QuotaLightstickFill")
-$script:QuotaLightstickSurface = $script:QuotaLightstickWindow.FindName("QuotaLightstickSurface")
-$script:QuotaLightstickGlow = $script:QuotaLightstickWindow.FindName("QuotaLightstickGlow")
-$script:QuotaLightstickBaseWidth = 38.0
-$script:QuotaLightstickBaseHeight = 122.0
-$script:QuotaLightstickTubeHeight = 74.0
-$script:QuotaLightstickRemaining = $null
-
 $script:HealthPath = Join-Path $PSScriptRoot "panel-health.json"
 $script:LastPositionMode = "starting"
 $script:LastQuotaStatus = "starting"
@@ -1004,17 +921,13 @@ if (-not $script:MarketPricesEnabled) {
 }
 
 if ($ValidateXaml) {
-    if (-not $script:QuotaLightstickWindow -or -not $script:QuotaLightstickFill -or
-        -not $script:QuotaLightstickSurface -or -not $script:QuotaLightstickGlow) {
-        throw "Quota lightstick XAML controls are missing."
-    }
     Write-Output (
         "xaml-valid: version=" + $script:PanelVersion +
         " marketPricesEnabled=" + $script:MarketPricesEnabled.ToString().ToLowerInvariant() +
         " width=" + [int]($script:Window.Width) +
         " height=" + [int]($script:Window.Height) +
         " marketRows=" + $script:MarketRows.Visibility +
-        " skinButtons=False lightstick=True"
+        " skinButtons=False"
     )
     exit 0
 }
@@ -1068,9 +981,6 @@ $script:TaskCompletedBrush = New-Brush "#3DDB94"
 $script:TaskFailedBrush = New-Brush "#FF5C4D"
 $script:SkinSelectedBrush = New-Brush "#FFFF334F"
 $script:SkinUnselectedBrush = New-Brush "#00FFFFFF"
-$script:LightstickBlueBrush = New-Brush "#FF00CFFF"
-$script:LightstickAmberBrush = New-Brush "#FFFFA81A"
-$script:LightstickRedBrush = New-Brush "#FFFF2E24"
 
 function Set-SkinButtonSelection([string]$skin) {
     $script:SelectedSkin = if ($skin -eq "orange") { "orange" } else { "blue" }
@@ -1098,42 +1008,6 @@ function Get-QuotaBrush([int]$remaining) {
     return $script:BlueBrush
 }
 
-function Get-QuotaLightstickBrush([int]$remaining) {
-    if ($remaining -lt 25) { return $script:LightstickRedBrush }
-    if ($remaining -le 50) { return $script:LightstickAmberBrush }
-    return $script:LightstickBlueBrush
-}
-
-function Get-QuotaLightstickGlowColor([int]$remaining) {
-    if ($remaining -lt 25) {
-        return [Windows.Media.ColorConverter]::ConvertFromString("#FFC7000D")
-    }
-    if ($remaining -le 50) {
-        return [Windows.Media.ColorConverter]::ConvertFromString("#FFFF570A")
-    }
-    return [Windows.Media.ColorConverter]::ConvertFromString("#FF064DFF")
-}
-
-function Update-QuotaLightstick([int]$remaining) {
-    $safeRemaining = [Math]::Max(0, [Math]::Min(100, $remaining))
-    $script:QuotaLightstickRemaining = $safeRemaining
-    $fillHeight = $script:QuotaLightstickTubeHeight * $safeRemaining / 100.0
-    $fillTop = $script:QuotaLightstickTubeHeight - $fillHeight
-    $script:QuotaLightstickFill.Height = $fillHeight
-    [Windows.Controls.Canvas]::SetTop($script:QuotaLightstickFill, $fillTop)
-    $script:QuotaLightstickFill.Background = Get-QuotaLightstickBrush $safeRemaining
-    $script:QuotaLightstickGlow.Color = Get-QuotaLightstickGlowColor $safeRemaining
-    if ($fillHeight -le 0) {
-        $script:QuotaLightstickSurface.Visibility = [Windows.Visibility]::Collapsed
-    } else {
-        $script:QuotaLightstickSurface.Visibility = [Windows.Visibility]::Visible
-        [Windows.Controls.Canvas]::SetTop(
-            $script:QuotaLightstickSurface,
-            [Math]::Max(0, $fillTop - 0.5)
-        )
-    }
-}
-
 function Update-QuotaUI([int]$remaining, [string]$resetText, [string]$statusText) {
     $safeRemaining = [Math]::Max(0, [Math]::Min(100, $remaining))
     $brush = Get-QuotaBrush $safeRemaining
@@ -1141,7 +1015,6 @@ function Update-QuotaUI([int]$remaining, [string]$resetText, [string]$statusText
     $script:RemainingText.Foreground = $brush
     $script:QuotaProgressFill.Background = $brush
     $script:QuotaProgressFill.Width = [Math]::Max(3, 190 * $safeRemaining / 100.0)
-    Update-QuotaLightstick $safeRemaining
     $script:ResetText.Text = $resetText
     $script:QuotaStatusText.Text = $statusText
     $script:LastQuotaStatus = "ok"
@@ -2507,12 +2380,6 @@ function Hide-PanelWindow {
     }
 }
 
-function Hide-QuotaLightstickWindow {
-    if ($script:QuotaLightstickWindow.IsVisible) {
-        $script:QuotaLightstickWindow.Hide()
-    }
-}
-
 function Set-PositionMode([string]$mode) {
     if ($script:LastPositionMode -ne $mode) {
         $script:LastPositionMode = $mode
@@ -2550,16 +2417,6 @@ function Set-PanelScale([double]$scale) {
     if ($scaleChanged) {
         $script:Window.UpdateLayout()
     }
-    return $safeScale
-}
-
-function Set-QuotaLightstickScale([double]$scale) {
-    $safeScale = Limit-PanelScale $scale
-    $script:LightstickScaleRoot.LayoutTransform = [Windows.Media.ScaleTransform]::new(
-        $safeScale, $safeScale
-    )
-    $script:QuotaLightstickWindow.Width = $script:QuotaLightstickBaseWidth * $safeScale
-    $script:QuotaLightstickWindow.Height = $script:QuotaLightstickBaseHeight * $safeScale
     return $safeScale
 }
 
@@ -2846,62 +2703,6 @@ function Get-NativePetAnchor(
     }
 }
 
-function Show-QuotaLightstickAtNativePet(
-    $petWindow,
-    $anchor,
-    $visualMetrics,
-    [double]$dpi,
-    [double]$petScale,
-    $workArea
-) {
-    if (-not $petWindow -or -not $anchor) { return $false }
-    $safeScale = Set-QuotaLightstickScale $petScale
-    if (-not $script:QuotaLightstickWindow.IsVisible) {
-        $script:QuotaLightstickWindow.Show()
-        $script:QuotaLightstickWindow.UpdateLayout()
-    }
-    $lightstickWindow = [BubuPanel.NativeWindows]::GetWindow(
-        $script:QuotaLightstickWindowHandle
-    )
-    if (-not $lightstickWindow) { return $false }
-
-    $dpiScale = [Math]::Max(0.1, $dpi / 96.0)
-    if ($visualMetrics -and [double]$visualMetrics.Width -gt 0 -and
-        [double]$visualMetrics.Height -gt 0) {
-        $petLeft = [double]($petWindow.Left + $visualMetrics.Left)
-        $petBottom = [double]($petWindow.Top + $visualMetrics.Top + $visualMetrics.Height)
-    } else {
-        $petWidth = $script:CanonicalPetWidth * $safeScale * $dpiScale
-        $petHeight = $script:CanonicalPetHeight * $safeScale * $dpiScale
-        $petLeft = [double]$anchor.CenterX - $petWidth / 2.0
-        $petBottom = [double]$anchor.Top + $petHeight
-    }
-
-    $left = [Math]::Round(
-        $petLeft - $lightstickWindow.Width + 8.0 * $safeScale * $dpiScale
-    )
-    $top = [Math]::Round(
-        $petBottom - $lightstickWindow.Height - 18.0 * $safeScale * $dpiScale
-    )
-    if ($workArea) {
-        $left = [Math]::Max(
-            [double]$workArea.Left,
-            [Math]::Min([double]$workArea.Right - $lightstickWindow.Width, $left)
-        )
-        $top = [Math]::Max(
-            [double]$workArea.Top,
-            [Math]::Min([double]$workArea.Bottom - $lightstickWindow.Height, $top)
-        )
-    }
-    if ([Math]::Abs($lightstickWindow.Left - $left) -gt 1 -or
-        [Math]::Abs($lightstickWindow.Top - $top) -gt 1) {
-        [void][BubuPanel.NativeWindows]::MoveWindowNoActivate(
-            $script:QuotaLightstickWindowHandle, [int]$left, [int]$top
-        )
-    }
-    return $true
-}
-
 function Get-NativePanelPlacement(
     $petWindow,
     $bounds,
@@ -2980,8 +2781,6 @@ function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
     if (-not $workArea) {
         $workArea = [BubuPanel.NativeWindows]::GetMonitorWorkArea($petWindow.Handle)
     }
-    [void](Show-QuotaLightstickAtNativePet `
-        $petWindow $anchor $visualMetrics $dpi $panelScale $workArea)
     if ($script:IsPanelHiddenByUser) { return $true }
     $placement = Get-NativePanelPlacement `
         $petWindow $bounds $geometry $panelWindow $dpi $panelScale $workArea `
@@ -3025,8 +2824,6 @@ function Show-PanelAtHeuristicWindow($petWindow) {
     if (-not $workArea) {
         $workArea = [BubuPanel.NativeWindows]::GetMonitorWorkArea($petWindow.Handle)
     }
-    [void](Show-QuotaLightstickAtNativePet `
-        $petWindow $anchor $visualMetrics $dpi $panelScale $workArea)
     if ($script:IsPanelHiddenByUser) { return $true }
     $placement = Get-NativePanelPlacement `
         $petWindow $estimatedBounds $estimatedGeometry $panelWindow $dpi $panelScale $workArea `
@@ -3046,18 +2843,8 @@ function Show-PanelAtHeuristicWindow($petWindow) {
 function Show-PanelAtSavedState($bounds, $geometry) {
     $panelScale = Limit-PanelScale ([double]$geometry.Width / $script:CanonicalPetWidth)
     [void](Set-PanelScale $panelScale)
-    [void](Set-QuotaLightstickScale $panelScale)
     $visualCenterX = [double]$bounds.x + $geometry.Left + $geometry.Width / 2.0
     $visualTop = [double]$bounds.y + $geometry.Top
-    $petLeft = [double]$bounds.x + $geometry.Left
-    $petBottom = $visualTop + $script:CanonicalPetHeight * $panelScale
-    $stickLeft = $petLeft - $script:QuotaLightstickWindow.Width + 8 * $panelScale
-    $stickTop = $petBottom - $script:QuotaLightstickWindow.Height - 18 * $panelScale
-    $script:QuotaLightstickWindow.Left = [Math]::Round($stickLeft)
-    $script:QuotaLightstickWindow.Top = [Math]::Round($stickTop)
-    if (-not $script:QuotaLightstickWindow.IsVisible) {
-        $script:QuotaLightstickWindow.Show()
-    }
     if ($script:IsPanelHiddenByUser) { return }
     $left = $visualCenterX - $script:Window.Width / 2.0
     $top = $visualTop - 14 - ($script:Window.Height - $panelScale)
@@ -3142,7 +2929,7 @@ function Test-NativeFallbackGraceAt(
 }
 
 function Test-NativeTrackingGrace {
-    return ($script:Window.IsVisible -or $script:QuotaLightstickWindow.IsVisible) -and `
+    return $script:Window.IsVisible -and `
         (Test-NativeFallbackGraceAt ([DateTime]::UtcNow) $script:LastNativeSuccessAt `
             $script:NativeFallbackGraceMilliseconds)
 }
@@ -3206,7 +2993,6 @@ function Update-PetTarget {
         if (Test-NativeTrackingGrace) { return }
         Clear-NativeTrackingTarget
         Hide-PanelWindow
-        Hide-QuotaLightstickWindow
         return
     }
 
@@ -3215,7 +3001,6 @@ function Update-PetTarget {
     if (-not $bounds -or ($openProperty -and -not [bool]$openProperty.Value)) {
         Clear-NativeTrackingTarget
         Hide-PanelWindow
-        Hide-QuotaLightstickWindow
         return
     }
 
@@ -3829,9 +3614,6 @@ $script:HideButton.Add_Click({ Set-PanelHiddenByUser $true })
 $script:ShowButton.Add_Click({ Set-PanelHiddenByUser $false })
 $script:Window.Add_Closed({
     $script:LastPositionMode = "closed"
-    if ($script:QuotaLightstickWindow -and $script:QuotaLightstickWindow.IsVisible) {
-        $script:QuotaLightstickWindow.Close()
-    }
     Write-PanelHealth $true
     Write-PanelLog "STOP window closed"
     if ($script:FastFollowHandler) {
