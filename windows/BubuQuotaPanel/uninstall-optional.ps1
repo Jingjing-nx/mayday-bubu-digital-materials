@@ -20,7 +20,7 @@ if (Test-Path -LiteralPath $configPath) {
         $configText = [IO.File]::ReadAllText($configPath, [Text.Encoding]::UTF8)
         $configText = [Text.RegularExpressions.Regex]::Replace(
             $configText,
-            '(?m)^\s*selected-avatar-id\s*=\s*"custom:bubu-office"\s*\r?\n?',
+            '(?m)^\s*selected-avatar-id\s*=\s*"custom:bubu-(?:office|orange)"\s*\r?\n?',
             ''
         )
         $encoding = New-Object System.Text.UTF8Encoding($false)

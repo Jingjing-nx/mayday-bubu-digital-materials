@@ -1,6 +1,8 @@
 ﻿param(
     [Parameter(Mandatory = $true)]
-    [string]$CodexHome
+    [string]$CodexHome,
+    [ValidateSet("bubu-office")]
+    [string]$PetId = "bubu-office"
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,7 +12,7 @@ function Write-Utf8NoBom([string]$Path, [string]$Content) {
     [IO.File]::WriteAllText($Path, $Content, $encoding)
 }
 
-function Set-CodexDesktopSettings([string]$ConfigText) {
+function Set-CodexDesktopSettings([string]$ConfigText, [string]$SelectedPetId) {
     $lines = [Text.RegularExpressions.Regex]::Split($ConfigText, "\r?\n")
     $output = New-Object Collections.Generic.List[string]
     $inDesktop = $false
@@ -21,7 +23,7 @@ function Set-CodexDesktopSettings([string]$ConfigText) {
     foreach ($line in $lines) {
         if ($line -match '^\s*\[[^\]]+\]') {
             if ($inDesktop -and -not $desktopValuesWritten) {
-                [void]$output.Add('selected-avatar-id = "custom:bubu-office"')
+                [void]$output.Add('selected-avatar-id = "custom:' + $SelectedPetId + '"')
                 [void]$output.Add('avatar-overlay-mascot-width-px = 163')
                 $desktopValuesWritten = $true
             }
@@ -45,14 +47,14 @@ function Set-CodexDesktopSettings([string]$ConfigText) {
     }
 
     if ($inDesktop -and -not $desktopValuesWritten) {
-        [void]$output.Add('selected-avatar-id = "custom:bubu-office"')
+        [void]$output.Add('selected-avatar-id = "custom:' + $SelectedPetId + '"')
         [void]$output.Add('avatar-overlay-mascot-width-px = 163')
     } elseif (-not $desktopSeen) {
         if ($output.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace($output[$output.Count - 1])) {
             [void]$output.Add('')
         }
         [void]$output.Add('[desktop]')
-        [void]$output.Add('selected-avatar-id = "custom:bubu-office"')
+        [void]$output.Add('selected-avatar-id = "custom:' + $SelectedPetId + '"')
         [void]$output.Add('avatar-overlay-mascot-width-px = 163')
     }
 
@@ -68,12 +70,13 @@ if (Test-Path -LiteralPath $configPath) {
     $configText = [IO.File]::ReadAllText($configPath, [Text.Encoding]::UTF8)
 }
 
-$updated = Set-CodexDesktopSettings $configText
+$updated = Set-CodexDesktopSettings $configText $PetId
 Write-Utf8NoBom $configPath $updated
 
 $verified = [IO.File]::ReadAllText($configPath, [Text.Encoding]::UTF8)
-if ($verified -notmatch '(?ms)^\s*\[desktop\].*?^\s*selected-avatar-id\s*=\s*"custom:bubu-office"\s*$') {
+$expectedSelection = [Text.RegularExpressions.Regex]::Escape('custom:' + $PetId)
+if ($verified -notmatch ('(?ms)^\s*\[desktop\].*?^\s*selected-avatar-id\s*=\s*"' + $expectedSelection + '"\s*$')) {
     throw "The Bubu pet selection could not be verified in config.toml."
 }
 
-Write-Output "Bubu pet selection configured."
+Write-Output ("Bubu pet selection configured: " + $PetId)

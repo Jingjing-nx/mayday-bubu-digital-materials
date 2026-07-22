@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = "15"
+$Version = "16"
 $StageRoot = Join-Path $Root "build\release"
 $FullStage = Join-Path $StageRoot "卜卜-Windows"
 $CodexOnlyStage = Join-Path $StageRoot "卜卜-Windows-仅Codex额度"
@@ -25,7 +25,8 @@ function New-ReleasePackage {
     Remove-Item -LiteralPath $Output -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $Stage | Out-Null
 
-    Copy-Item -LiteralPath (Join-Path $Root "shared\pet") -Destination $Stage -Recurse
+    New-Item -ItemType Directory -Force -Path (Join-Path $Stage "pet") | Out-Null
+    Copy-Item -LiteralPath (Join-Path $Root "shared\pet\bubu-office") -Destination (Join-Path $Stage "pet") -Recurse
     Copy-Item -LiteralPath (Join-Path $Root "shared\preview") -Destination $Stage -Recurse
     Copy-Item -LiteralPath (Join-Path $Root "windows\BubuQuotaPanel") -Destination (Join-Path $Stage "windows") -Recurse
     Copy-Item -Path (Join-Path $Root "windows\package\*") -Destination $Stage -Force
@@ -40,25 +41,29 @@ function New-ReleasePackage {
 
     # A versioned atlas path prevents the desktop app from reusing the previous
     # custom-pet texture after an in-place Windows upgrade.
-    $petDirectory = Join-Path $Stage "pet\bubu-office"
-    $oldAtlas = Join-Path $petDirectory "spritesheet.webp"
     # Tie the cache-busting atlas name to the same integer release number used
     # by the installer and compatibility checker.
     $atlasName = "spritesheet-win-$Version.webp"
-    $newAtlas = Join-Path $petDirectory $atlasName
-    Move-Item -LiteralPath $oldAtlas -Destination $newAtlas -Force
-
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    $manifestPath = Join-Path $petDirectory "pet.json"
-    $manifest = [IO.File]::ReadAllText($manifestPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
-    $manifest.spritesheetPath = $atlasName
-    [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 8) + "`n", $utf8NoBom)
+    foreach ($petDirectory in @(Get-ChildItem -LiteralPath (Join-Path $Stage "pet") -Directory)) {
+        $oldAtlas = Join-Path $petDirectory.FullName "spritesheet.webp"
+        $manifestPath = Join-Path $petDirectory.FullName "pet.json"
+        if (-not (Test-Path -LiteralPath $oldAtlas -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { continue }
 
-    $validationPath = Join-Path $petDirectory "validation.json"
-    if (Test-Path -LiteralPath $validationPath) {
-        $validation = [IO.File]::ReadAllText($validationPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
-        $validation.file = $atlasName
-        [IO.File]::WriteAllText($validationPath, ($validation | ConvertTo-Json -Depth 16) + "`n", $utf8NoBom)
+        $newAtlas = Join-Path $petDirectory.FullName $atlasName
+        Move-Item -LiteralPath $oldAtlas -Destination $newAtlas -Force
+
+        $manifest = [IO.File]::ReadAllText($manifestPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+        $manifest.spritesheetPath = $atlasName
+        [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 8) + "`n", $utf8NoBom)
+
+        $validationPath = Join-Path $petDirectory.FullName "validation.json"
+        if (Test-Path -LiteralPath $validationPath) {
+            $validation = [IO.File]::ReadAllText($validationPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+            $validation.file = $atlasName
+            [IO.File]::WriteAllText($validationPath, ($validation | ConvertTo-Json -Depth 16) + "`n", $utf8NoBom)
+        }
     }
 
     $checksums = Get-ChildItem -LiteralPath $Stage -File -Recurse | Sort-Object FullName | ForEach-Object {

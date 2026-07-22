@@ -2,7 +2,7 @@
 emulate -L zsh
 setopt PIPE_FAIL
 
-PET_DIR="${CODEX_HOME:-$HOME/.codex}/pets/bubu-office"
+BLUE_PET_DIR="${CODEX_HOME:-$HOME/.codex}/pets/bubu-office"
 APP="$HOME/Applications/卜卜额度面板.app"
 BIN="$APP/Contents/MacOS/BubuQuotaPanel"
 LABEL="io.github.mayday-materials.bubu-quota-panel"
@@ -23,7 +23,7 @@ check() {
 
 echo "卜卜安装检查"
 echo "────────────"
-check "宠物文件完整" '[[ -f "$PET_DIR/pet.json" && -f "$PET_DIR/spritesheet.webp" ]]'
+check "蓝色宠物文件完整" '[[ -f "$BLUE_PET_DIR/pet.json" && -f "$BLUE_PET_DIR/spritesheet.webp" ]]'
 check "额度面板已安装" '[[ -x "$BIN" ]]'
 check "额度面板支持当前 Mac" '[[ -x "$BIN" ]] && /usr/bin/lipo "$BIN" -verify_arch "$(/usr/bin/uname -m)"'
 check "额度面板签名正常" '[[ -d "$APP" ]] && /usr/bin/codesign --verify --deep --strict "$APP"'
@@ -53,8 +53,6 @@ if [[ -x "$BIN" ]]; then
   else
     echo "BTC 价格读取："
     "$BIN" --print-btc || FAILED=1
-    echo "ETH 价格读取："
-    "$BIN" --print-eth || FAILED=1
   fi
 fi
 

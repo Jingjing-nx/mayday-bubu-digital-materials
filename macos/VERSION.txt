@@ -1,5 +1,6 @@
 Package: Bubu macOS
-Version: 15
+Version: 16
 System: macOS 12.3+
 Architecture: Universal 2 (arm64 + x86_64)
-Variants: Full / Codex Only (no BTC or ETH)
+Variants: Full / Codex Only (no BTC)
+Skins: Blue Bubu

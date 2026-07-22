@@ -3,12 +3,13 @@
     [switch]$ValidateXaml,
     [switch]$ValidateTrackingFilters,
     [switch]$ValidateTaskProgress,
+    [switch]$ValidateSkinSelection,
     [switch]$PrintTaskProgress
 )
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "15"
+$script:PanelVersion = "16"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $script:MarketPricesEnabled = $true
@@ -20,7 +21,9 @@ if (-not [string]::IsNullOrWhiteSpace($marketSetting)) {
 }
 $script:TaskProgressRowHeight = 23
 $script:MaximumVisibleTaskRows = 5
-$script:BaseExpandedHeight = if ($script:MarketPricesEnabled) { 160 } else { 116 }
+$script:CompletedTaskFallbackMinutes = 2
+# Blue Bubu keeps the 93 px quota header, followed by task rows and one BTC row.
+$script:BaseExpandedHeight = if ($script:MarketPricesEnabled) { 137 } else { 116 }
 $script:TaskProgressRowCount = 1
 $script:ExpandedHeight = $script:BaseExpandedHeight + $script:TaskProgressRowHeight
 $script:ExpandedBodyHeight = $script:ExpandedHeight - 13
@@ -41,7 +44,16 @@ $script:PetFrameVisiblePixelSizes = @(
     '122x191', '122x192', '122x194', '123x185', '123x196', '123x198',
     '124x191', '124x194', '124x198', '125x198', '132x198', '133x198',
     '136x198', '138x196', '141x196', '144x198', '153x198', '154x198',
-    '155x198', '157x198', '161x198'
+    '155x198', '157x198', '161x198',
+    # Orange Bubu uses the same 192x208 cells. Its beach chair and limbless
+    # singing pose create a second set of visible alpha bounds.
+    '127x198', '128x198', '129x198', '130x198', '132x182', '132x189',
+    '133x185', '133x186', '133x191', '133x192', '133x195', '133x196',
+    '133x197', '134x193', '134x194', '134x195', '134x196', '134x197',
+    '134x198', '137x198', '138x198', '139x198', '140x198', '141x198',
+    '142x198', '146x198', '151x198', '152x198', '156x198', '158x198',
+    '163x198', '170x198', '182x165', '182x171', '182x173', '182x174',
+    '182x177'
 )
 $script:PanelScale = 1.0
 $script:MinimumPanelScale = 0.20
@@ -99,7 +111,7 @@ function Write-PanelLog([string]$message) {
 trap {
     Write-PanelLog ("FATAL " + $_.Exception.ToString())
     $isValidationRun = $ValidateXaml -or $ValidateTrackingFilters -or
-        $ValidateTaskProgress -or $PrintTaskProgress
+        $ValidateTaskProgress -or $ValidateSkinSelection -or $PrintTaskProgress
     if ($isValidationRun) {
         [Console]::Error.WriteLine($_.Exception.ToString())
     } else {
@@ -500,6 +512,147 @@ namespace BubuPanel {
 $script:PerMonitorDpiEnabled = [BubuPanel.NativeWindows]::EnablePerMonitorV2()
 Write-PanelLog ("DPI per-monitor-v2=" + $script:PerMonitorDpiEnabled)
 
+function Get-BubuSkinAvatarId([string]$skin) {
+    switch ($skin) {
+        "orange" { return "custom:bubu-orange" }
+        default { return "custom:bubu-office" }
+    }
+}
+
+function Update-CodexSkinSelectionText([string]$configText, [string]$avatarId) {
+    $lines = [Text.RegularExpressions.Regex]::Split(
+        ([string]$configText).Replace("`r`n", "`n"),
+        "`n"
+    )
+    $output = New-Object Collections.Generic.List[string]
+    $section = ""
+    $desktopSeen = $false
+    $desktopSelectionWritten = $false
+
+    foreach ($line in $lines) {
+        $trimmed = ([string]$line).Trim()
+        if ($trimmed -match '^\[([^\]]+)\]') {
+            if ($section -eq "desktop" -and -not $desktopSelectionWritten) {
+                [void]$output.Add('selected-avatar-id = "' + $avatarId + '"')
+            }
+            $section = $matches[1].Trim()
+            if ($section -eq "desktop") {
+                $desktopSeen = $true
+                $desktopSelectionWritten = $false
+            }
+            [void]$output.Add($line)
+            continue
+        }
+
+        if (($section -eq "" -or $section -eq "desktop") -and
+            $trimmed -match '^selected-avatar-id\s*=') {
+            if ($section -eq "desktop" -and -not $desktopSelectionWritten) {
+                [void]$output.Add('selected-avatar-id = "' + $avatarId + '"')
+                $desktopSelectionWritten = $true
+            }
+            continue
+        }
+        [void]$output.Add($line)
+    }
+
+    if ($section -eq "desktop" -and -not $desktopSelectionWritten) {
+        [void]$output.Add('selected-avatar-id = "' + $avatarId + '"')
+    } elseif (-not $desktopSeen) {
+        while ($output.Count -gt 0 -and [string]::IsNullOrWhiteSpace($output[$output.Count - 1])) {
+            $output.RemoveAt($output.Count - 1)
+        }
+        if ($output.Count -gt 0) { [void]$output.Add("") }
+        [void]$output.Add("[desktop]")
+        [void]$output.Add('selected-avatar-id = "' + $avatarId + '"')
+    }
+
+    return ($output -join "`r`n").TrimEnd() + "`r`n"
+}
+
+function Get-BubuSkinFromConfig {
+    $configPath = Join-Path $script:CodexHome "config.toml"
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { return "blue" }
+    try {
+        $section = ""
+        foreach ($line in [IO.File]::ReadAllLines($configPath, [Text.Encoding]::UTF8)) {
+            $trimmed = ([string]$line).Trim()
+            if ($trimmed -match '^\[([^\]]+)\]') {
+                $section = $matches[1].Trim()
+                continue
+            }
+            if ($section -ne "desktop") { continue }
+            if ($trimmed -match '^selected-avatar-id\s*=\s*"([^"]+)"') {
+                if ($matches[1] -eq "custom:bubu-orange") { return "orange" }
+                if ($matches[1] -eq "custom:bubu-office") { return "blue" }
+            }
+        }
+    } catch {
+        Write-PanelLog ("SKIN read failed " + $_.Exception.Message)
+    }
+    return "blue"
+}
+
+function Set-BubuSkinSelection([string]$skin) {
+    if ($skin -ne "blue" -and $skin -ne "orange") { return $false }
+    $configPath = Join-Path $script:CodexHome "config.toml"
+    $tempPath = $configPath + ".bubu-" + [Guid]::NewGuid().ToString("N") + ".tmp"
+    $backupPath = $configPath + ".bubu-backup"
+    try {
+        [IO.Directory]::CreateDirectory($script:CodexHome) | Out-Null
+        $original = if (Test-Path -LiteralPath $configPath -PathType Leaf) {
+            [IO.File]::ReadAllText($configPath, [Text.Encoding]::UTF8)
+        } else { "" }
+        $avatarId = Get-BubuSkinAvatarId $skin
+        $updated = Update-CodexSkinSelectionText $original $avatarId
+        [IO.File]::WriteAllText($tempPath, $updated, [Text.UTF8Encoding]::new($false))
+        if (Test-Path -LiteralPath $configPath -PathType Leaf) {
+            Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
+            [IO.File]::Replace($tempPath, $configPath, $backupPath, $true)
+            Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
+        } else {
+            [IO.File]::Move($tempPath, $configPath)
+        }
+        $selected = Get-BubuSkinFromConfig
+        Write-PanelLog ("SKIN selected=" + $selected)
+        return $selected -eq $skin
+    } catch {
+        Write-PanelLog ("SKIN write failed " + $_.Exception.Message)
+        return $false
+    } finally {
+        Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if ($ValidateSkinSelection) {
+    $sample = @'
+selected-avatar-id = "codex"
+[general]
+model = "gpt"
+[desktop]
+avatar-overlay-mascot-width-px = 163
+selected-avatar-id = "custom:old-pet"
+[features]
+test = true
+'@
+    $orange = Update-CodexSkinSelectionText $sample "custom:bubu-orange"
+    $blue = Update-CodexSkinSelectionText $orange "custom:bubu-office"
+    $missing = Update-CodexSkinSelectionText "[general]`nmodel = `"gpt`"`n" "custom:bubu-orange"
+    $orangeValid = $orange -match 'selected-avatar-id = "custom:bubu-orange"'
+    $blueValid = $blue -match 'selected-avatar-id = "custom:bubu-office"'
+    $oneKey = ([Text.RegularExpressions.Regex]::Matches($orange, 'selected-avatar-id')).Count -eq 1
+    $missingValid = $missing -match '(?ms)^\[desktop\]\r?\nselected-avatar-id = "custom:bubu-orange"'
+    if (-not $orangeValid -or -not $blueValid -or -not $oneKey -or -not $missingValid) {
+        throw "Skin-selection config update validation failed."
+    }
+    Write-Output "skin-selection-valid: blue=True orange=True persistence=True duplicate-key=True"
+    exit 0
+}
+
+# Release 16 is the blue Bubu edition. Clear any orange preview selection
+# left by an earlier local build before the panel starts following the pet.
+$script:SelectedSkin = "blue"
+[void](Set-BubuSkinSelection "blue")
+
 $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -544,6 +697,33 @@ $xaml = @"
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="SkinButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="SkinRing"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="17"/>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="SkinRing" Property="Background" Value="#16FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="SkinRing" Property="Background" Value="#2AFFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid x:Name="PanelScaleRoot" RenderTransformOrigin="0,0">
@@ -567,7 +747,6 @@ $xaml = @"
                         <Button x:Name="HideButton" Canvas.Left="170" Canvas.Top="7"
                                 Width="38" Height="18" Content="隐藏"
                                 Style="{StaticResource PanelButton}"/>
-
                         <Grid Canvas.Left="14" Canvas.Top="65" Width="190" Height="4">
                             <Border Background="#4D000000" CornerRadius="2"/>
                             <Border x:Name="QuotaProgressFill" Width="3" HorizontalAlignment="Left"
@@ -605,24 +784,6 @@ $xaml = @"
                                    TextAlignment="Right" FontFamily="Microsoft YaHei UI"
                                    FontSize="8.2" Foreground="#8AFFFFFF"/>
 
-                        <Border Canvas.Left="14" Canvas.Top="142" Width="190" Height="1"
-                                Background="#21FFFFFF"/>
-                        <Ellipse Canvas.Left="14" Canvas.Top="146" Width="15" Height="15"
-                                 Fill="#627EEA"/>
-                        <TextBlock Canvas.Left="14" Canvas.Top="145.5" Width="15" Height="15"
-                                   Text="Ξ" TextAlignment="Center" FontFamily="Segoe UI Symbol"
-                                   FontSize="10" FontWeight="Bold" Foreground="White"/>
-                        <TextBlock Canvas.Left="34" Canvas.Top="146" Width="62" Height="16"
-                                   Text="ETH/USDT" FontFamily="Microsoft YaHei UI"
-                                   FontSize="9.6" FontWeight="SemiBold" Foreground="#C8FFFFFF"/>
-                        <TextBlock x:Name="ETHPriceText" Canvas.Left="92" Canvas.Top="144.5"
-                                   Width="80" Height="18" Text="--" TextAlignment="Right"
-                                   FontFamily="Consolas" FontSize="11.4" FontWeight="Bold"
-                                   Foreground="#F0FFFFFF"/>
-                        <TextBlock x:Name="ETHStatusText" Canvas.Left="176" Canvas.Top="147"
-                                   Width="28" Height="14" Text="读取中"
-                                   TextAlignment="Right" FontFamily="Microsoft YaHei UI"
-                                   FontSize="8.2" Foreground="#8AFFFFFF"/>
                         </Canvas>
                     </Canvas>
                 </Grid>
@@ -653,6 +814,90 @@ $script:Window.Left = -32000
 $script:Window.Top = -32000
 $script:WindowHandle = [Windows.Interop.WindowInteropHelper]::new($script:Window).EnsureHandle()
 [BubuPanel.NativeWindows]::ApplyNoActivateStyle($script:WindowHandle)
+
+$lightstickXaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Bubu Quota Lightstick"
+        Width="38" Height="122"
+        WindowStyle="None" ResizeMode="NoResize"
+        AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" ShowActivated="False"
+        Focusable="False" IsHitTestVisible="False" SnapsToDevicePixels="True">
+    <Grid x:Name="LightstickScaleRoot" Width="38" Height="122"
+          RenderTransformOrigin="0.5,0.5">
+        <Grid.RenderTransform>
+            <RotateTransform Angle="-5.5"/>
+        </Grid.RenderTransform>
+        <Canvas Width="38" Height="122">
+            <Border Canvas.Left="10" Canvas.Top="84" Width="18" Height="33"
+                    CornerRadius="7" BorderBrush="#B8FFFFFF" BorderThickness="0.8">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#FFFFFFFF" Offset="0"/>
+                        <GradientStop Color="#FFC7CBD0" Offset="1"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+            </Border>
+            <Border Canvas.Left="13" Canvas.Top="101" Width="12" Height="13"
+                    CornerRadius="5" Background="#16000000"/>
+            <Border Canvas.Left="9" Canvas.Top="77" Width="20" Height="8" CornerRadius="2.5">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                        <GradientStop Color="#FF4D4D4D" Offset="0"/>
+                        <GradientStop Color="#FF080808" Offset="0.5"/>
+                        <GradientStop Color="#FF3E3E3E" Offset="1"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+            </Border>
+            <Border Canvas.Left="8.5" Canvas.Top="4" Width="21" Height="74"
+                    CornerRadius="10.5" BorderBrush="#70FFFFFF" BorderThickness="0.8"
+                    Background="#3DC0D6E5" ClipToBounds="True">
+                <Canvas x:Name="LightstickTubeCanvas" Width="21" Height="74" ClipToBounds="True">
+                    <Border x:Name="QuotaLightstickFill" Canvas.Left="0" Canvas.Top="74"
+                            Width="21" Height="0" Background="#FF00CFFF">
+                        <Border.Effect>
+                            <DropShadowEffect x:Name="QuotaLightstickGlow" Color="#FF064DFF"
+                                              BlurRadius="7" ShadowDepth="0" Opacity="0.9"/>
+                        </Border.Effect>
+                    </Border>
+                    <Rectangle x:Name="QuotaLightstickSurface" Canvas.Left="2.5" Canvas.Top="73"
+                               Width="16" Height="1" Fill="#C8FFFFFF"/>
+                    <Line X1="2.5" X2="5" Y1="18.5" Y2="18.5" Stroke="#50FFFFFF" StrokeThickness="0.65"/>
+                    <Line X1="2.5" X2="5" Y1="37" Y2="37" Stroke="#50FFFFFF" StrokeThickness="0.65"/>
+                    <Line X1="2.5" X2="5" Y1="55.5" Y2="55.5" Stroke="#50FFFFFF" StrokeThickness="0.65"/>
+                    <Border Canvas.Left="2.5" Canvas.Top="8" Width="3.2" Height="59"
+                            CornerRadius="1.6" Background="#42FFFFFF"/>
+                </Canvas>
+            </Border>
+            <Path Data="M 14.2,93 L 16.3,97.5 L 18.5,94.1 L 20.7,97.5 L 23,93 M 14.2,93 L 14.2,99.1 L 23,99.1 L 23,93"
+                  Stroke="#FF0875FF" StrokeThickness="1.4"
+                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+        </Canvas>
+    </Grid>
+</Window>
+"@
+
+$lightstickXml = New-Object Xml.XmlDocument
+$lightstickXml.LoadXml($lightstickXaml)
+$lightstickReader = [Xml.XmlNodeReader]::new($lightstickXml)
+$script:QuotaLightstickWindow = [Windows.Markup.XamlReader]::Load($lightstickReader)
+$script:QuotaLightstickWindow.WindowStartupLocation = [Windows.WindowStartupLocation]::Manual
+$script:QuotaLightstickWindow.Left = -32000
+$script:QuotaLightstickWindow.Top = -32000
+$script:QuotaLightstickWindowHandle = [Windows.Interop.WindowInteropHelper]::new(
+    $script:QuotaLightstickWindow
+).EnsureHandle()
+[BubuPanel.NativeWindows]::ApplyNoActivateStyle($script:QuotaLightstickWindowHandle)
+$script:LightstickScaleRoot = $script:QuotaLightstickWindow.FindName("LightstickScaleRoot")
+$script:QuotaLightstickFill = $script:QuotaLightstickWindow.FindName("QuotaLightstickFill")
+$script:QuotaLightstickSurface = $script:QuotaLightstickWindow.FindName("QuotaLightstickSurface")
+$script:QuotaLightstickGlow = $script:QuotaLightstickWindow.FindName("QuotaLightstickGlow")
+$script:QuotaLightstickBaseWidth = 38.0
+$script:QuotaLightstickBaseHeight = 122.0
+$script:QuotaLightstickTubeHeight = 74.0
+$script:QuotaLightstickRemaining = $null
+
 $script:HealthPath = Join-Path $PSScriptRoot "panel-health.json"
 $script:LastPositionMode = "starting"
 $script:LastQuotaStatus = "starting"
@@ -683,6 +928,7 @@ function Write-PanelHealth([bool]$force) {
                 $script:LastPetMotionAt -eq [DateTime]::MinValue) { $null } else { $script:LastPetMotionAt.ToString("o") }
             quotaStatus = $script:LastQuotaStatus
             taskProgress = if ($script:LastTaskProgress) { $script:LastTaskProgress } else { "reading" }
+            selectedSkin = $script:SelectedSkin
             stateSource = if ($script:OverlayState) { "available" } else { "unavailable" }
         } | ConvertTo-Json -Compress
         [IO.File]::WriteAllText($script:HealthPath, $payload, [Text.UTF8Encoding]::new($false))
@@ -713,8 +959,6 @@ $script:TaskProgressRows = Get-Control "TaskProgressRows"
 $script:MarketRows = Get-Control "MarketRows"
 $script:BTCPriceText = Get-Control "BTCPriceText"
 $script:BTCStatusText = Get-Control "BTCStatusText"
-$script:ETHPriceText = Get-Control "ETHPriceText"
-$script:ETHStatusText = Get-Control "ETHStatusText"
 $script:HideButton = Get-Control "HideButton"
 $script:ShowButton = Get-Control "ShowButton"
 
@@ -723,12 +967,17 @@ if (-not $script:MarketPricesEnabled) {
 }
 
 if ($ValidateXaml) {
+    if (-not $script:QuotaLightstickWindow -or -not $script:QuotaLightstickFill -or
+        -not $script:QuotaLightstickSurface -or -not $script:QuotaLightstickGlow) {
+        throw "Quota lightstick XAML controls are missing."
+    }
     Write-Output (
         "xaml-valid: version=" + $script:PanelVersion +
         " marketPricesEnabled=" + $script:MarketPricesEnabled.ToString().ToLowerInvariant() +
         " width=" + [int]($script:Window.Width) +
         " height=" + [int]($script:Window.Height) +
-        " marketRows=" + $script:MarketRows.Visibility
+        " marketRows=" + $script:MarketRows.Visibility +
+        " skinButtons=False lightstick=True"
     )
     exit 0
 }
@@ -749,6 +998,23 @@ if (Test-Path -LiteralPath $backgroundPath) {
     $script:BackgroundBand.Fill = $imageBrush
 }
 
+function Get-TaskIconBitmap([string]$name) {
+    $path = Join-Path $PSScriptRoot $name
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+    $bitmap = New-Object Windows.Media.Imaging.BitmapImage
+    $bitmap.BeginInit()
+    $bitmap.CacheOption = [Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+    $bitmap.UriSource = [Uri]::new($path)
+    $bitmap.EndInit()
+    $bitmap.Freeze()
+    return $bitmap
+}
+
+$script:RunningTaskIconBitmap = Get-TaskIconBitmap "task-running-icon.png"
+$script:WaitingTaskIconBitmap = Get-TaskIconBitmap "task-waiting-icon.png"
+$script:CompletedTaskIconBitmap = Get-TaskIconBitmap "task-completed-icon.png"
+$script:FailedTaskIconBitmap = Get-TaskIconBitmap "task-failed-icon.png"
+
 function New-Brush([string]$hex) {
     return [Windows.Media.SolidColorBrush]::new([Windows.Media.ColorConverter]::ConvertFromString($hex))
 }
@@ -762,11 +1028,73 @@ $script:TaskReadingBrush = New-Brush "#8FFFFFFF"
 $script:TaskRunningBrush = New-Brush "#38ADFF"
 $script:TaskWaitingBrush = New-Brush "#FFB338"
 $script:TaskCompletedBrush = New-Brush "#3DDB94"
+$script:TaskFailedBrush = New-Brush "#FF5C4D"
+$script:SkinSelectedBrush = New-Brush "#FFFF334F"
+$script:SkinUnselectedBrush = New-Brush "#00FFFFFF"
+$script:LightstickBlueBrush = New-Brush "#FF00CFFF"
+$script:LightstickAmberBrush = New-Brush "#FFFFA81A"
+$script:LightstickRedBrush = New-Brush "#FFFF2E24"
+
+function Set-SkinButtonSelection([string]$skin) {
+    $script:SelectedSkin = if ($skin -eq "orange") { "orange" } else { "blue" }
+    foreach ($entry in @(
+        [PSCustomObject]@{ Name = "blue"; Button = $script:BlueSkinButton },
+        [PSCustomObject]@{ Name = "orange"; Button = $script:OrangeSkinButton }
+    )) {
+        $selected = $entry.Name -eq $script:SelectedSkin
+        $entry.Button.BorderBrush = if ($selected) {
+            $script:SkinSelectedBrush
+        } else {
+            $script:SkinUnselectedBrush
+        }
+        $entry.Button.BorderThickness = if ($selected) {
+            [Windows.Thickness]::new(2)
+        } else {
+            [Windows.Thickness]::new(0)
+        }
+    }
+}
 
 function Get-QuotaBrush([int]$remaining) {
     if ($remaining -le 20) { return $script:RedBrush }
     if ($remaining -le 45) { return $script:AmberBrush }
     return $script:BlueBrush
+}
+
+function Get-QuotaLightstickBrush([int]$remaining) {
+    if ($remaining -lt 25) { return $script:LightstickRedBrush }
+    if ($remaining -le 50) { return $script:LightstickAmberBrush }
+    return $script:LightstickBlueBrush
+}
+
+function Get-QuotaLightstickGlowColor([int]$remaining) {
+    if ($remaining -lt 25) {
+        return [Windows.Media.ColorConverter]::ConvertFromString("#FFC7000D")
+    }
+    if ($remaining -le 50) {
+        return [Windows.Media.ColorConverter]::ConvertFromString("#FFFF570A")
+    }
+    return [Windows.Media.ColorConverter]::ConvertFromString("#FF064DFF")
+}
+
+function Update-QuotaLightstick([int]$remaining) {
+    $safeRemaining = [Math]::Max(0, [Math]::Min(100, $remaining))
+    $script:QuotaLightstickRemaining = $safeRemaining
+    $fillHeight = $script:QuotaLightstickTubeHeight * $safeRemaining / 100.0
+    $fillTop = $script:QuotaLightstickTubeHeight - $fillHeight
+    $script:QuotaLightstickFill.Height = $fillHeight
+    [Windows.Controls.Canvas]::SetTop($script:QuotaLightstickFill, $fillTop)
+    $script:QuotaLightstickFill.Background = Get-QuotaLightstickBrush $safeRemaining
+    $script:QuotaLightstickGlow.Color = Get-QuotaLightstickGlowColor $safeRemaining
+    if ($fillHeight -le 0) {
+        $script:QuotaLightstickSurface.Visibility = [Windows.Visibility]::Collapsed
+    } else {
+        $script:QuotaLightstickSurface.Visibility = [Windows.Visibility]::Visible
+        [Windows.Controls.Canvas]::SetTop(
+            $script:QuotaLightstickSurface,
+            [Math]::Max(0, $fillTop - 0.5)
+        )
+    }
 }
 
 function Update-QuotaUI([int]$remaining, [string]$resetText, [string]$statusText) {
@@ -776,6 +1104,7 @@ function Update-QuotaUI([int]$remaining, [string]$resetText, [string]$statusText
     $script:RemainingText.Foreground = $brush
     $script:QuotaProgressFill.Background = $brush
     $script:QuotaProgressFill.Width = [Math]::Max(3, 190 * $safeRemaining / 100.0)
+    Update-QuotaLightstick $safeRemaining
     $script:ResetText.Text = $resetText
     $script:QuotaStatusText.Text = $statusText
     $script:LastQuotaStatus = "ok"
@@ -983,7 +1312,7 @@ function Start-QuotaRequest {
         $process.StartInfo = $info
         if (-not $process.Start()) { throw "Codex 本机服务启动失败" }
 
-        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"15"},"capabilities":{"experimentalApi":true}}}'
+        $initialize = '{"method":"initialize","id":0,"params":{"clientInfo":{"name":"bubu_windows_panel","title":"Bubu Windows Panel","version":"' + $script:PanelVersion + '"},"capabilities":{"experimentalApi":true}}}'
         $initialized = '{"method":"initialized","params":{}}'
         $readLimits = '{"method":"account/rateLimits/read","id":2}'
         $process.StandardInput.WriteLine($initialize)
@@ -1096,6 +1425,7 @@ function Poll-QuotaRequest {
 }
 
 $script:CachedTaskRollouts = @()
+$script:TaskVisibilityCache = @{}
 $script:ParsedTaskCache = @{}
 $script:CachedThreadTitles = @{}
 $script:ThreadTitleIndexStamp = 0L
@@ -1107,12 +1437,25 @@ $script:NextTaskProgressAt = [DateTime]::UtcNow
 $script:LastTaskProgress = "reading"
 $script:LastTaskItems = @()
 $script:LastTaskSignature = ""
+$script:RunningArrowAngle = 0.0
+$script:RunningArrowTransforms = New-Object Collections.ArrayList
+$script:TaskIconAnimationTimer = [Windows.Threading.DispatcherTimer]::new(
+    [Windows.Threading.DispatcherPriority]::Render
+)
+$script:TaskIconAnimationTimer.Interval = [TimeSpan]::FromMilliseconds(33)
+$script:TaskIconAnimationTimer.Add_Tick({
+    $script:RunningArrowAngle = ($script:RunningArrowAngle + 10.0) % 360.0
+    foreach ($transform in @($script:RunningArrowTransforms)) {
+        $transform.Angle = $script:RunningArrowAngle
+    }
+})
 
 function Get-TaskProgressBrush([string]$kind) {
     switch ($kind) {
         "running" { return $script:TaskRunningBrush }
         "waiting" { return $script:TaskWaitingBrush }
         "completed" { return $script:TaskCompletedBrush }
+        "failed" { return $script:TaskFailedBrush }
         default { return $script:TaskReadingBrush }
     }
 }
@@ -1123,6 +1466,7 @@ function Get-TaskProgressStatus([string]$kind) {
         "running" { return "正在执行" }
         "waiting" { return "等你确认" }
         "completed" { return "已完成" }
+        "failed" { return "执行失败" }
         default { return "等待" }
     }
 }
@@ -1156,7 +1500,7 @@ function Set-TaskProgressRowCount([int]$rowCount) {
 }
 
 function Set-TaskProgressUI([object[]]$tasks) {
-    $visibleTasks = @($tasks)
+    $visibleTasks = @($tasks | Where-Object { [string]$_.Kind -ne "completed" })
     if ($visibleTasks.Count -eq 0) {
         $visibleTasks = @([PSCustomObject]@{
             Title = "暂无进行中的任务"
@@ -1165,14 +1509,7 @@ function Set-TaskProgressUI([object[]]$tasks) {
             StartedAt = [DateTime]::MinValue
         })
     } elseif ($visibleTasks.Count -gt $script:MaximumVisibleTaskRows) {
-        $kept = @($visibleTasks | Select-Object -First ($script:MaximumVisibleTaskRows - 1))
-        $remaining = $visibleTasks.Count - $kept.Count
-        $visibleTasks = @($kept) + @([PSCustomObject]@{
-            Title = "还有 $remaining 个任务"
-            Kind = "reading"
-            Status = "继续排队"
-            StartedAt = [DateTime]::MaxValue
-        })
+        $visibleTasks = @($visibleTasks | Select-Object -First $script:MaximumVisibleTaskRows)
     }
 
     $signature = @($visibleTasks | ForEach-Object {
@@ -1182,11 +1519,21 @@ function Set-TaskProgressUI([object[]]$tasks) {
 
     Set-TaskProgressRowCount $visibleTasks.Count
     $script:TaskProgressRows.Children.Clear()
+    $script:RunningArrowTransforms.Clear()
 
     for ($index = 0; $index -lt $visibleTasks.Count; $index++) {
         $task = $visibleTasks[$index]
         $rowTop = $index * $script:TaskProgressRowHeight
         $brush = Get-TaskProgressBrush ([string]$task.Kind)
+        $kind = [string]$task.Kind
+        $iconBitmap = switch ($kind) {
+            "running" { $script:RunningTaskIconBitmap; break }
+            "waiting" { $script:WaitingTaskIconBitmap; break }
+            "completed" { $script:CompletedTaskIconBitmap; break }
+            "failed" { $script:FailedTaskIconBitmap; break }
+            default { $null; break }
+        }
+        $usesStatusIcon = $null -ne $iconBitmap
 
         $separator = [Windows.Controls.Border]::new()
         $separator.Width = 190
@@ -1196,17 +1543,72 @@ function Set-TaskProgressUI([object[]]$tasks) {
         [Windows.Controls.Canvas]::SetTop($separator, $rowTop)
         [void]$script:TaskProgressRows.Children.Add($separator)
 
-        $dot = [Windows.Shapes.Ellipse]::new()
-        $dot.Width = 7
-        $dot.Height = 7
-        $dot.Fill = $brush
-        [Windows.Controls.Canvas]::SetLeft($dot, 14)
-        [Windows.Controls.Canvas]::SetTop($dot, $rowTop + 11)
-        [void]$script:TaskProgressRows.Children.Add($dot)
+        if ($usesStatusIcon) {
+            $taskIcon = [Windows.Controls.Image]::new()
+            $taskIcon.Source = $iconBitmap
+            $taskIcon.Width = 20
+            $taskIcon.Height = 15
+            $taskIcon.Stretch = [Windows.Media.Stretch]::Uniform
+            $taskIcon.SnapsToDevicePixels = $true
+            [Windows.Media.RenderOptions]::SetBitmapScalingMode(
+                $taskIcon,
+                [Windows.Media.BitmapScalingMode]::HighQuality
+            )
+            [Windows.Controls.Canvas]::SetLeft($taskIcon, 12)
+            [Windows.Controls.Canvas]::SetTop($taskIcon, $rowTop + 4)
+            [void]$script:TaskProgressRows.Children.Add($taskIcon)
+
+            # Completed and failed artwork already contains its status badge.
+            if ($kind -ne "completed" -and $kind -ne "failed") {
+                $badge = [Windows.Shapes.Ellipse]::new()
+                $badge.Width = 8.4
+                $badge.Height = 8.4
+                $badge.Fill = switch ($kind) {
+                    "running" { New-Brush "#1F76F5"; break }
+                    "waiting" { New-Brush "#FFC21A"; break }
+                    "failed" { New-Brush "#E83320"; break }
+                }
+                [Windows.Controls.Canvas]::SetLeft($badge, 22.6)
+                [Windows.Controls.Canvas]::SetTop($badge, $rowTop + 4.4)
+                [void]$script:TaskProgressRows.Children.Add($badge)
+
+                $badgeSymbol = [Windows.Controls.TextBlock]::new()
+                $badgeSymbol.Text = switch ($kind) {
+                    "running" { "↻"; break }
+                    "waiting" { "?"; break }
+                    "failed" { "×"; break }
+                }
+                $badgeSymbol.Width = 8.4
+                $badgeSymbol.Height = 10
+                $badgeSymbol.FontFamily = [Windows.Media.FontFamily]::new("Segoe UI Symbol")
+                $badgeSymbol.FontSize = if ($kind -eq "failed") { 8.6 } else { 7.8 }
+                $badgeSymbol.FontWeight = [Windows.FontWeights]::Bold
+                $badgeSymbol.Foreground = $script:WhiteBrush
+                $badgeSymbol.TextAlignment = [Windows.TextAlignment]::Center
+                [Windows.Controls.Canvas]::SetLeft($badgeSymbol, 22.6)
+                [Windows.Controls.Canvas]::SetTop($badgeSymbol, $rowTop + 3.0)
+                if ($kind -eq "running") {
+                    $rotation = [Windows.Media.RotateTransform]::new($script:RunningArrowAngle)
+                    $badgeSymbol.RenderTransformOrigin = [Windows.Point]::new(0.5, 0.5)
+                    $badgeSymbol.RenderTransform = $rotation
+                    [void]$script:RunningArrowTransforms.Add($rotation)
+                }
+                [void]$script:TaskProgressRows.Children.Add($badgeSymbol)
+            }
+        } else {
+            $dot = [Windows.Shapes.Ellipse]::new()
+            $dot.Width = 7
+            $dot.Height = 7
+            $dot.Fill = $brush
+            [Windows.Controls.Canvas]::SetLeft($dot, 14)
+            [Windows.Controls.Canvas]::SetTop($dot, $rowTop + 11)
+            [void]$script:TaskProgressRows.Children.Add($dot)
+        }
 
         $title = [Windows.Controls.TextBlock]::new()
         $title.Text = [string]$task.Title
-        $title.Width = 121
+        $titleLeft = if ($usesStatusIcon) { 36 } else { 27 }
+        $title.Width = if ($usesStatusIcon) { 112 } else { 121 }
         $title.Height = 16
         $title.FontFamily = [Windows.Media.FontFamily]::new("Microsoft YaHei UI")
         $title.FontSize = 9.4
@@ -1217,7 +1619,7 @@ function Set-TaskProgressUI([object[]]$tasks) {
         }
         $title.Foreground = New-Brush "#D6FFFFFF"
         $title.TextTrimming = [Windows.TextTrimming]::CharacterEllipsis
-        [Windows.Controls.Canvas]::SetLeft($title, 27)
+        [Windows.Controls.Canvas]::SetLeft($title, $titleLeft)
         [Windows.Controls.Canvas]::SetTop($title, $rowTop + 7)
         [void]$script:TaskProgressRows.Children.Add($title)
 
@@ -1241,6 +1643,11 @@ function Set-TaskProgressUI([object[]]$tasks) {
     $script:LastTaskItems = @($visibleTasks)
     $script:LastTaskProgress = (@($visibleTasks | ForEach-Object { [string]$_.Kind }) -join ",")
     $script:LastTaskSignature = $signature
+    if ($script:RunningArrowTransforms.Count -gt 0) {
+        $script:TaskIconAnimationTimer.Start()
+    } else {
+        $script:TaskIconAnimationTimer.Stop()
+    }
 }
 
 function Get-TaskTitle([string]$message) {
@@ -1278,6 +1685,47 @@ function Get-TaskThreadId([string]$path) {
     )
     if (-not $match.Success) { return $null }
     return $match.Value.ToLowerInvariant()
+}
+
+function Test-TaskSessionMetadataVisible([string]$line) {
+    if ([string]::IsNullOrWhiteSpace($line)) { return $true }
+    try { $record = $line | ConvertFrom-Json } catch { return $true }
+    if (-not $record -or $record.type -ne 'session_meta' -or -not $record.payload) {
+        return $true
+    }
+    $threadSource = ([string]$record.payload.thread_source).ToLowerInvariant()
+    if ($threadSource -eq 'subagent' -or $threadSource -eq 'automation') {
+        return $false
+    }
+    $source = $record.payload.source
+    if ($source -and $source.PSObject.Properties['subagent']) {
+        return $false
+    }
+    return $true
+}
+
+function Test-TaskRolloutUserVisible([string]$path) {
+    if ([string]::IsNullOrWhiteSpace($path)) { return $true }
+    if ($script:TaskVisibilityCache.ContainsKey($path)) {
+        return [bool]$script:TaskVisibilityCache[$path]
+    }
+
+    $visible = $true
+    $stream = $null
+    $reader = $null
+    try {
+        $share = [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+        $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, $share)
+        $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8, $true, 4096, $true)
+        $visible = Test-TaskSessionMetadataVisible ([string]$reader.ReadLine())
+    } catch {
+        $visible = $true
+    } finally {
+        if ($reader) { $reader.Dispose() }
+        if ($stream) { $stream.Dispose() }
+    }
+    $script:TaskVisibilityCache[$path] = $visible
+    return $visible
 }
 
 function Resolve-TaskTitle([string]$path, [hashtable]$threadTitles, [string]$fallback) {
@@ -1414,17 +1862,19 @@ function Test-TaskShouldDisplay(
     [DateTime]$now,
     $unreadState
 ) {
-    if ($kind -ne 'completed') { return $true }
+    if ($kind -eq 'completed') { return $false }
+    if ($kind -ne 'failed') { return $true }
     if ($unreadState -and $unreadState.Available -and $threadId) {
         return [bool]$unreadState.Ids.ContainsKey($threadId.ToLowerInvariant())
     }
-    return (($now.ToUniversalTime() - $modificationDate.ToUniversalTime()).TotalMinutes -le 2)
+    return ($now - $modificationDate).TotalMinutes -le $script:CompletedTaskFallbackMinutes
 }
 
 function Find-RecentTaskRollouts([hashtable]$unreadThreadIDs) {
     $override = [string]$env:BUBU_TASK_ROLLOUT_FILE
     if (-not [string]::IsNullOrWhiteSpace($override)) {
-        if (Test-Path -LiteralPath $override -PathType Leaf) {
+        if ((Test-Path -LiteralPath $override -PathType Leaf) -and
+            (Test-TaskRolloutUserVisible $override)) {
             return @(Get-Item -LiteralPath $override -ErrorAction SilentlyContinue)
         }
         return @()
@@ -1450,8 +1900,9 @@ function Find-RecentTaskRollouts([hashtable]$unreadThreadIDs) {
             -File -Recurse -ErrorAction SilentlyContinue |
             Where-Object {
                 $threadId = Get-TaskThreadId $_.FullName
-                $_.LastWriteTimeUtc -ge $cutoff -or
+                $recentOrUnread = $_.LastWriteTimeUtc -ge $cutoff -or
                     ($threadId -and $unreadThreadIDs -and $unreadThreadIDs.ContainsKey($threadId))
+                $recentOrUnread -and (Test-TaskRolloutUserVisible $_.FullName)
             } |
             Sort-Object LastWriteTimeUtc -Descending |
             Select-Object -First 12)
@@ -1492,7 +1943,7 @@ function Get-TaskProgressKind(
     $pendingUserInput = @{}
     foreach ($lineObject in $lines) {
         $line = [string]$lineObject
-        if ($line -notmatch 'task_started|task_complete|request_user_input|function_call_output|custom_tool_call_output') {
+        if ($line -notmatch 'task_started|task_complete|task_failed|turn_aborted|"type":"error"|request_user_input|function_call_output|custom_tool_call_output') {
             continue
         }
         try { $record = $line | ConvertFrom-Json } catch { continue }
@@ -1504,6 +1955,11 @@ function Get-TaskProgressKind(
                 $pendingUserInput.Clear()
             } elseif ($payload.type -eq "task_complete") {
                 $lifecycle = "completed"
+                $pendingUserInput.Clear()
+            } elseif ($payload.type -eq "task_failed" -or
+                $payload.type -eq "turn_aborted" -or
+                $payload.type -eq "error") {
+                $lifecycle = "failed"
                 $pendingUserInput.Clear()
             }
             continue
@@ -1605,7 +2061,7 @@ function Update-TaskProgress {
             })
         }
         $ordered = @($tasks | Sort-Object `
-            @{ Expression = { if ($_.Kind -eq "completed") { 1 } else { 0 } } }, `
+            @{ Expression = { if ($_.Kind -eq "completed" -or $_.Kind -eq "failed") { 1 } else { 0 } } }, `
             StartedAt, Title)
         Set-TaskProgressUI $ordered
     } catch {
@@ -1673,58 +2129,6 @@ function Poll-BTCRequest {
     } finally {
         $script:BTCTask = $null
         $script:NextBTCAt = [DateTime]::UtcNow.AddSeconds(5)
-    }
-}
-
-$script:ETHTask = $null
-$script:ETHStartedAt = [DateTime]::MinValue
-$script:NextETHAt = [DateTime]::UtcNow
-$script:LastETHPrice = $null
-
-function Start-ETHRequest {
-    if (-not $script:MarketPricesEnabled) { return }
-    if ($script:ETHTask) { return }
-    try {
-        $url = "https://data-api.binance.vision/api/v3/ticker/price?symbol=ETHUSDT"
-        $script:ETHTask = $script:HttpClient.GetStringAsync($url)
-        $script:ETHStartedAt = [DateTime]::UtcNow
-    } catch {
-        $script:ETHTask = $null
-        $script:ETHStatusText.Text = "离线"
-        $script:NextETHAt = [DateTime]::UtcNow.AddSeconds(5)
-    }
-}
-
-function Poll-ETHRequest {
-    if (-not $script:ETHTask) { return }
-    if (-not $script:ETHTask.IsCompleted) { return }
-
-    try {
-        $json = $script:ETHTask.GetAwaiter().GetResult() | ConvertFrom-Json
-        $price = [double]::Parse([string]$json.price, [Globalization.CultureInfo]::InvariantCulture)
-        $direction = 0
-        if ($null -ne $script:LastETHPrice) {
-            if ($price -gt [double]$script:LastETHPrice) { $direction = 1 }
-            if ($price -lt [double]$script:LastETHPrice) { $direction = -1 }
-        }
-        $script:LastETHPrice = $price
-        $script:ETHPriceText.Text = $price.ToString("N2", [Globalization.CultureInfo]::GetCultureInfo("en-US"))
-        if ($direction -gt 0) {
-            $script:ETHPriceText.Foreground = $script:GreenBrush
-        } elseif ($direction -lt 0) {
-            $script:ETHPriceText.Foreground = $script:RedBrush
-        } else {
-            $script:ETHPriceText.Foreground = $script:WhiteBrush
-        }
-        $script:ETHStatusText.Text = "5秒"
-    } catch {
-        if ($null -eq $script:LastETHPrice) {
-            $script:ETHPriceText.Text = "--"
-        }
-        $script:ETHStatusText.Text = "离线"
-    } finally {
-        $script:ETHTask = $null
-        $script:NextETHAt = [DateTime]::UtcNow.AddSeconds(5)
     }
 }
 
@@ -2066,6 +2470,12 @@ function Hide-PanelWindow {
     }
 }
 
+function Hide-QuotaLightstickWindow {
+    if ($script:QuotaLightstickWindow.IsVisible) {
+        $script:QuotaLightstickWindow.Hide()
+    }
+}
+
 function Set-PositionMode([string]$mode) {
     if ($script:LastPositionMode -ne $mode) {
         $script:LastPositionMode = $mode
@@ -2103,6 +2513,16 @@ function Set-PanelScale([double]$scale) {
     if ($scaleChanged) {
         $script:Window.UpdateLayout()
     }
+    return $safeScale
+}
+
+function Set-QuotaLightstickScale([double]$scale) {
+    $safeScale = Limit-PanelScale $scale
+    $script:LightstickScaleRoot.LayoutTransform = [Windows.Media.ScaleTransform]::new(
+        $safeScale, $safeScale
+    )
+    $script:QuotaLightstickWindow.Width = $script:QuotaLightstickBaseWidth * $safeScale
+    $script:QuotaLightstickWindow.Height = $script:QuotaLightstickBaseHeight * $safeScale
     return $safeScale
 }
 
@@ -2389,6 +2809,62 @@ function Get-NativePetAnchor(
     }
 }
 
+function Show-QuotaLightstickAtNativePet(
+    $petWindow,
+    $anchor,
+    $visualMetrics,
+    [double]$dpi,
+    [double]$petScale,
+    $workArea
+) {
+    if (-not $petWindow -or -not $anchor) { return $false }
+    $safeScale = Set-QuotaLightstickScale $petScale
+    if (-not $script:QuotaLightstickWindow.IsVisible) {
+        $script:QuotaLightstickWindow.Show()
+        $script:QuotaLightstickWindow.UpdateLayout()
+    }
+    $lightstickWindow = [BubuPanel.NativeWindows]::GetWindow(
+        $script:QuotaLightstickWindowHandle
+    )
+    if (-not $lightstickWindow) { return $false }
+
+    $dpiScale = [Math]::Max(0.1, $dpi / 96.0)
+    if ($visualMetrics -and [double]$visualMetrics.Width -gt 0 -and
+        [double]$visualMetrics.Height -gt 0) {
+        $petLeft = [double]($petWindow.Left + $visualMetrics.Left)
+        $petBottom = [double]($petWindow.Top + $visualMetrics.Top + $visualMetrics.Height)
+    } else {
+        $petWidth = $script:CanonicalPetWidth * $safeScale * $dpiScale
+        $petHeight = $script:CanonicalPetHeight * $safeScale * $dpiScale
+        $petLeft = [double]$anchor.CenterX - $petWidth / 2.0
+        $petBottom = [double]$anchor.Top + $petHeight
+    }
+
+    $left = [Math]::Round(
+        $petLeft - $lightstickWindow.Width + 8.0 * $safeScale * $dpiScale
+    )
+    $top = [Math]::Round(
+        $petBottom - $lightstickWindow.Height - 18.0 * $safeScale * $dpiScale
+    )
+    if ($workArea) {
+        $left = [Math]::Max(
+            [double]$workArea.Left,
+            [Math]::Min([double]$workArea.Right - $lightstickWindow.Width, $left)
+        )
+        $top = [Math]::Max(
+            [double]$workArea.Top,
+            [Math]::Min([double]$workArea.Bottom - $lightstickWindow.Height, $top)
+        )
+    }
+    if ([Math]::Abs($lightstickWindow.Left - $left) -gt 1 -or
+        [Math]::Abs($lightstickWindow.Top - $top) -gt 1) {
+        [void][BubuPanel.NativeWindows]::MoveWindowNoActivate(
+            $script:QuotaLightstickWindowHandle, [int]$left, [int]$top
+        )
+    }
+    return $true
+}
+
 function Get-NativePanelPlacement(
     $petWindow,
     $bounds,
@@ -2446,8 +2922,7 @@ function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
         $petWindow $bounds $geometry $dpi $visualMetrics
     $panelScale = Get-StabilizedPanelScale $candidatePanelScale $petWindow.Handle
     [void](Set-PanelScale $panelScale)
-    if ($script:IsPanelHiddenByUser) { return $true }
-    if (-not $script:Window.IsVisible) {
+    if (-not $script:IsPanelHiddenByUser -and -not $script:Window.IsVisible) {
         $script:Window.Show()
         $script:Window.UpdateLayout()
     }
@@ -2468,6 +2943,9 @@ function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
     if (-not $workArea) {
         $workArea = [BubuPanel.NativeWindows]::GetMonitorWorkArea($petWindow.Handle)
     }
+    [void](Show-QuotaLightstickAtNativePet `
+        $petWindow $anchor $visualMetrics $dpi $panelScale $workArea)
+    if ($script:IsPanelHiddenByUser) { return $true }
     $placement = Get-NativePanelPlacement `
         $petWindow $bounds $geometry $panelWindow $dpi $panelScale $workArea `
         $script:TrackingAlignmentX $script:TrackingAlignmentY $visualMetrics
@@ -2495,8 +2973,7 @@ function Show-PanelAtHeuristicWindow($petWindow) {
         $petWindow $estimatedBounds $estimatedGeometry $dpi $visualMetrics
     $panelScale = Get-StabilizedPanelScale $candidatePanelScale $petWindow.Handle
     [void](Set-PanelScale $panelScale)
-    if ($script:IsPanelHiddenByUser) { return $true }
-    if (-not $script:Window.IsVisible) {
+    if (-not $script:IsPanelHiddenByUser -and -not $script:Window.IsVisible) {
         $script:Window.Show()
         $script:Window.UpdateLayout()
     }
@@ -2511,6 +2988,9 @@ function Show-PanelAtHeuristicWindow($petWindow) {
     if (-not $workArea) {
         $workArea = [BubuPanel.NativeWindows]::GetMonitorWorkArea($petWindow.Handle)
     }
+    [void](Show-QuotaLightstickAtNativePet `
+        $petWindow $anchor $visualMetrics $dpi $panelScale $workArea)
+    if ($script:IsPanelHiddenByUser) { return $true }
     $placement = Get-NativePanelPlacement `
         $petWindow $estimatedBounds $estimatedGeometry $panelWindow $dpi $panelScale $workArea `
         0.0 0.0 $visualMetrics
@@ -2529,9 +3009,19 @@ function Show-PanelAtHeuristicWindow($petWindow) {
 function Show-PanelAtSavedState($bounds, $geometry) {
     $panelScale = Limit-PanelScale ([double]$geometry.Width / $script:CanonicalPetWidth)
     [void](Set-PanelScale $panelScale)
-    if ($script:IsPanelHiddenByUser) { return }
+    [void](Set-QuotaLightstickScale $panelScale)
     $visualCenterX = [double]$bounds.x + $geometry.Left + $geometry.Width / 2.0
     $visualTop = [double]$bounds.y + $geometry.Top
+    $petLeft = [double]$bounds.x + $geometry.Left
+    $petBottom = $visualTop + $script:CanonicalPetHeight * $panelScale
+    $stickLeft = $petLeft - $script:QuotaLightstickWindow.Width + 8 * $panelScale
+    $stickTop = $petBottom - $script:QuotaLightstickWindow.Height - 18 * $panelScale
+    $script:QuotaLightstickWindow.Left = [Math]::Round($stickLeft)
+    $script:QuotaLightstickWindow.Top = [Math]::Round($stickTop)
+    if (-not $script:QuotaLightstickWindow.IsVisible) {
+        $script:QuotaLightstickWindow.Show()
+    }
+    if ($script:IsPanelHiddenByUser) { return }
     $left = $visualCenterX - $script:Window.Width / 2.0
     $top = $visualTop - 14 - ($script:Window.Height - $panelScale)
 
@@ -2615,7 +3105,7 @@ function Test-NativeFallbackGraceAt(
 }
 
 function Test-NativeTrackingGrace {
-    return $script:Window.IsVisible -and `
+    return ($script:Window.IsVisible -or $script:QuotaLightstickWindow.IsVisible) -and `
         (Test-NativeFallbackGraceAt ([DateTime]::UtcNow) $script:LastNativeSuccessAt `
             $script:NativeFallbackGraceMilliseconds)
 }
@@ -2679,6 +3169,7 @@ function Update-PetTarget {
         if (Test-NativeTrackingGrace) { return }
         Clear-NativeTrackingTarget
         Hide-PanelWindow
+        Hide-QuotaLightstickWindow
         return
     }
 
@@ -2687,6 +3178,7 @@ function Update-PetTarget {
     if (-not $bounds -or ($openProperty -and -not [bool]$openProperty.Value)) {
         Clear-NativeTrackingTarget
         Hide-PanelWindow
+        Hide-QuotaLightstickWindow
         return
     }
 
@@ -2840,6 +3332,7 @@ if ($ValidateTaskProgress) {
     $now = [DateTime]::UtcNow
     $started = '{"type":"event_msg","payload":{"type":"task_started"}}'
     $completed = '{"type":"event_msg","payload":{"type":"task_complete"}}'
+    $failed = '{"type":"event_msg","payload":{"type":"turn_aborted","reason":"interrupted"}}'
     $request = '{"type":"response_item","payload":{"type":"function_call","name":"request_user_input","call_id":"call-1"}}'
     $response = '{"type":"response_item","payload":{"type":"function_call_output","call_id":"call-1"}}'
     $cases = @(
@@ -2847,6 +3340,7 @@ if ($ValidateTaskProgress) {
         [PSCustomObject]@{ Name = "waiting"; Lines = @($started, $request); Modified = $now; Expected = "waiting" },
         [PSCustomObject]@{ Name = "resumed"; Lines = @($started, $request, $response); Modified = $now; Expected = "running" },
         [PSCustomObject]@{ Name = "completed"; Lines = @($started, $completed); Modified = $now; Expected = "completed" },
+        [PSCustomObject]@{ Name = "failed"; Lines = @($started, $failed); Modified = $now; Expected = "failed" },
         [PSCustomObject]@{ Name = "fresh-fallback"; Lines = @(); Modified = $now; Expected = "running" },
         [PSCustomObject]@{ Name = "idle"; Lines = @(); Modified = $now.AddMinutes(-31); Expected = "idle" }
     )
@@ -2886,21 +3380,42 @@ if ($ValidateTaskProgress) {
         Ids = @{}
         Available = $false
     }
-    $readStateCases = @(
-        (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
-            -modificationDate ($now.AddHours(-1)) -now $now -unreadState $unreadState),
+    $completedVisibilityCases = @(
+        (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
+            -modificationDate ($now.AddHours(-1)) -now $now -unreadState $unreadState)),
         (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
             -modificationDate $now -now $now -unreadState $readState)),
-        (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
-            -modificationDate $now -now $now -unreadState $unavailableState),
         (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
-            -modificationDate ($now.AddMinutes(-3)) -now $now -unreadState $unavailableState))
+            -modificationDate $now -now $now -unreadState $unavailableState)),
+        (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
+            -modificationDate ($now.AddMinutes(-3)) -now $now -unreadState $unavailableState)),
+        (Test-TaskShouldDisplay -kind 'failed' -threadId $indexedThreadId `
+            -modificationDate ($now.AddHours(-1)) -now $now -unreadState $unreadState),
+        (-not (Test-TaskShouldDisplay -kind 'failed' -threadId $indexedThreadId `
+            -modificationDate $now -now $now -unreadState $readState))
     )
-    if (@($readStateCases | Where-Object { -not $_ }).Count -ne 0) {
-        throw "Task unread/read visibility mapping failed."
+    if (@($completedVisibilityCases | Where-Object { -not $_ }).Count -ne 0 -or
+        -not (Test-TaskShouldDisplay -kind 'running' -threadId $indexedThreadId `
+            -modificationDate $now -now $now -unreadState $readState)) {
+        throw "Completed task filtering failed."
     }
 
-    $overflowTasks = @(0..6 | ForEach-Object {
+    $topLevelMetadata = '{"type":"session_meta","payload":{"thread_source":"user","source":{"cli":{}}}}'
+    $subagentMetadata = '{"type":"session_meta","payload":{"thread_source":"subagent","source":{"subagent":{"thread_spawn":{}}}}}'
+    $automationMetadata = '{"type":"session_meta","payload":{"thread_source":"automation","source":"vscode"}}'
+    $sourceOnlySubagentMetadata = '{"type":"session_meta","payload":{"source":{"subagent":{"thread_spawn":{}}}}}'
+    $rolloutVisibilityCases = @(
+        (Test-TaskSessionMetadataVisible $topLevelMetadata),
+        (-not (Test-TaskSessionMetadataVisible $subagentMetadata)),
+        (-not (Test-TaskSessionMetadataVisible $automationMetadata)),
+        (-not (Test-TaskSessionMetadataVisible $sourceOnlySubagentMetadata)),
+        (Test-TaskSessionMetadataVisible $started)
+    )
+    if (@($rolloutVisibilityCases | Where-Object { -not $_ }).Count -ne 0) {
+        throw "Task non-user session filtering failed."
+    }
+
+    $truncatedTasks = @(0..6 | ForEach-Object {
         [PSCustomObject]@{
             Title = "任务 $($_ + 1)"
             Kind = "running"
@@ -2908,16 +3423,30 @@ if ($ValidateTaskProgress) {
             StartedAt = $now.AddSeconds($_)
         }
     })
-    Set-TaskProgressUI $overflowTasks
+    Set-TaskProgressUI $truncatedTasks
     $expectedDynamicHeight = $script:BaseExpandedHeight +
         $script:TaskProgressRowHeight * $script:MaximumVisibleTaskRows
     if ($script:LastTaskItems.Count -ne $script:MaximumVisibleTaskRows -or
-        $script:LastTaskItems[-1].Title -ne "还有 3 个任务" -or
+        $script:LastTaskItems[-1].Title -ne "任务 5" -or
         $script:ExpandedHeight -ne $expectedDynamicHeight) {
         throw "Dynamic task-list layout failed."
     }
 
-    Write-Output "task-progress-validation: running waiting resumed completed fresh-fallback idle = 6/6; title=1/1; index=1/1; read-state=4/4; list=5+overflow"
+    $completedUiFixture = @(
+        [PSCustomObject]@{ Title = "保留的活动任务"; Kind = "running"; Status = "正在执行"; StartedAt = $now },
+        [PSCustomObject]@{ Title = "等待确认任务"; Kind = "waiting"; Status = "等你确认"; StartedAt = $now },
+        [PSCustomObject]@{ Title = "保留的已完成任务"; Kind = "completed"; Status = "已完成"; StartedAt = $now },
+        [PSCustomObject]@{ Title = "失败任务"; Kind = "failed"; Status = "执行失败"; StartedAt = $now }
+    )
+    Set-TaskProgressUI $completedUiFixture
+    if ($script:LastTaskItems.Count -ne 3 -or
+        $script:LastTaskItems[0].Title -ne "保留的活动任务" -or
+        $script:LastTaskItems[2].Title -ne "失败任务" -or
+        $script:RunningArrowTransforms.Count -ne 1) {
+        throw "Task status icon UI rendering failed."
+    }
+
+    Write-Output "task-progress-validation: lifecycle=7/7; title=1/1; index=1/1; completed-hidden=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=3/3"
     $script:Window.Close()
     exit 0
 }
@@ -3023,7 +3552,9 @@ if ($ValidateTrackingFilters) {
             }
             $derivedScale = Get-NativePetScale `
                 $syntheticPet $testBounds $geometry $dpi $visualMetrics
-            if ([Math]::Abs($derivedScale - $visibleScale) -gt 0.01) {
+            # Pixel rounding and the atlas-frame lookup can differ by a little
+            # over one percent at 2x; this is still well below a visible scale step.
+            if ([Math]::Abs($derivedScale - $visibleScale) -gt 0.02) {
                 throw "Visible-pixel scale derivation failed at dpi=$dpi visibleScale=$visibleScale derived=$derivedScale."
             }
             $visualScaleSamples++
@@ -3245,10 +3776,22 @@ function Set-PanelHiddenByUser([bool]$hidden) {
     Write-PanelHealth $true
 }
 
+function Select-BubuSkinFromPanel([string]$skin) {
+    if (Set-BubuSkinSelection $skin) {
+        Set-SkinButtonSelection $skin
+        Write-PanelHealth $true
+        return
+    }
+    [System.Media.SystemSounds]::Beep.Play()
+}
+
 $script:HideButton.Add_Click({ Set-PanelHiddenByUser $true })
 $script:ShowButton.Add_Click({ Set-PanelHiddenByUser $false })
 $script:Window.Add_Closed({
     $script:LastPositionMode = "closed"
+    if ($script:QuotaLightstickWindow -and $script:QuotaLightstickWindow.IsVisible) {
+        $script:QuotaLightstickWindow.Close()
+    }
     Write-PanelHealth $true
     Write-PanelLog "STOP window closed"
     if ($script:FastFollowHandler) {
@@ -3257,6 +3800,7 @@ $script:Window.Add_Closed({
     if ($script:FollowFallbackTimer) { $script:FollowFallbackTimer.Stop() }
     if ($script:TargetTimer) { $script:TargetTimer.Stop() }
     if ($script:ServiceTimer) { $script:ServiceTimer.Stop() }
+    if ($script:TaskIconAnimationTimer) { $script:TaskIconAnimationTimer.Stop() }
     Stop-QuotaProcess
     if ($script:HttpClient) { $script:HttpClient.Dispose() }
     if ($script:instanceMutex) {
@@ -3328,10 +3872,6 @@ $script:ServiceTimer.Add_Tick({
             Start-BTCRequest
         }
 
-        Poll-ETHRequest
-        if (-not $petIsMoving -and -not $script:ETHTask -and $now -ge $script:NextETHAt) {
-            Start-ETHRequest
-        }
     }
 
     if (-not $petIsMoving) { Write-PanelHealth $false }

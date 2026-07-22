@@ -1,5 +1,6 @@
 Package: Bubu Windows
-Version: 15
+Version: 16
 System: Windows 10/11
 Architecture: x64 + ARM64
-Variants: Full / Codex Only (no BTC or ETH)
+Variants: Full / Codex Only (no BTC)
+Skins: Blue Bubu

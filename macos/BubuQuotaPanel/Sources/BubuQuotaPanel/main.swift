@@ -5,7 +5,7 @@ import Foundation
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
 private let taskProgressRefreshInterval: TimeInterval = 2
-private let panelVersion = "15"
+private let panelVersion = "16"
 private let marketPricesEnabled: Bool = {
     guard let rawValue = ProcessInfo.processInfo.environment["BUBU_SHOW_MARKET_PRICES"] else {
         return true
@@ -18,7 +18,9 @@ private let followInterval: TimeInterval = 0.03
 private let desktopClientCheckInterval: TimeInterval = 0.20
 private let taskProgressRowHeight: CGFloat = 23
 private let maximumVisibleTaskRows = 5
-private let baseExpandedPanelHeight: CGFloat = marketPricesEnabled ? 160 : 116
+// The blue Bubu panel keeps the original 93 pt quota header, followed by the
+// task rows and (in the Web3 build) one BTC row.
+private let baseExpandedPanelHeight: CGFloat = marketPricesEnabled ? 137 : 116
 private func panelSizeForTaskRows(_ count: Int) -> NSSize {
     let safeCount = max(1, min(maximumVisibleTaskRows, count))
     return NSSize(
@@ -63,6 +65,27 @@ private let petFrameVisiblePixelSizes: [NSSize] = [
     NSSize(width: 153, height: 198), NSSize(width: 154, height: 198),
     NSSize(width: 155, height: 198), NSSize(width: 157, height: 198),
     NSSize(width: 161, height: 198),
+    // Orange Bubu uses the same 192x208 cells, but the beach chair and the
+    // limbless singing pose create a second set of visible alpha bounds.
+    NSSize(width: 127, height: 198), NSSize(width: 128, height: 198),
+    NSSize(width: 129, height: 198), NSSize(width: 130, height: 198),
+    NSSize(width: 132, height: 182), NSSize(width: 132, height: 189),
+    NSSize(width: 133, height: 185), NSSize(width: 133, height: 186),
+    NSSize(width: 133, height: 191), NSSize(width: 133, height: 192),
+    NSSize(width: 133, height: 195), NSSize(width: 133, height: 196),
+    NSSize(width: 133, height: 197), NSSize(width: 134, height: 193),
+    NSSize(width: 134, height: 194), NSSize(width: 134, height: 195),
+    NSSize(width: 134, height: 196), NSSize(width: 134, height: 197),
+    NSSize(width: 134, height: 198), NSSize(width: 137, height: 198),
+    NSSize(width: 138, height: 198), NSSize(width: 139, height: 198),
+    NSSize(width: 140, height: 198), NSSize(width: 141, height: 198),
+    NSSize(width: 142, height: 198), NSSize(width: 146, height: 198),
+    NSSize(width: 151, height: 198), NSSize(width: 152, height: 198),
+    NSSize(width: 156, height: 198), NSSize(width: 158, height: 198),
+    NSSize(width: 163, height: 198), NSSize(width: 170, height: 198),
+    NSSize(width: 182, height: 165), NSSize(width: 182, height: 171),
+    NSSize(width: 182, height: 173), NSSize(width: 182, height: 174),
+    NSSize(width: 182, height: 177),
 ]
 private let visualScaleTolerance: CGFloat = 0.12
 private let minimumPanelScale: CGFloat = 0.20
@@ -70,6 +93,175 @@ private let maximumPanelScale: CGFloat = 8
 // The v2 sprite has a small transparent top padding inside Codex's stored
 // mascot anchor. Add it so the panel measures from Bubu's visible top tuft.
 private let petSpriteTopPaddingInsideAnchor: CGFloat = 7
+private let quotaLightstickBaseSize = NSSize(width: 38, height: 122)
+private let quotaLightstickPetOverlap: CGFloat = 8
+private let quotaLightstickBottomInset: CGFloat = 18
+
+private enum QuotaLightstickBand: String {
+    case blue
+    case amber
+    case red
+}
+
+private func quotaLightstickBand(for remainingPercent: Int) -> QuotaLightstickBand {
+    let remaining = max(0, min(100, remainingPercent))
+    if remaining < 25 { return .red }
+    if remaining <= 50 { return .amber }
+    return .blue
+}
+
+private func quotaLightstickFrame(
+    petVisibleRect: NSRect,
+    scale: CGFloat,
+    screenVisibleFrame: NSRect
+) -> NSRect {
+    let safeScale = normalizedPanelScale(scale)
+    let size = scaledPanelSize(quotaLightstickBaseSize, scale: safeScale)
+    let desiredOrigin = NSPoint(
+        x: petVisibleRect.minX - size.width + quotaLightstickPetOverlap * safeScale,
+        y: petVisibleRect.minY + quotaLightstickBottomInset * safeScale
+    )
+    let maximumX = max(screenVisibleFrame.minX, screenVisibleFrame.maxX - size.width)
+    let maximumY = max(screenVisibleFrame.minY, screenVisibleFrame.maxY - size.height)
+    return NSRect(
+        x: min(max(desiredOrigin.x, screenVisibleFrame.minX), maximumX),
+        y: min(max(desiredOrigin.y, screenVisibleFrame.minY), maximumY),
+        width: size.width,
+        height: size.height
+    )
+}
+
+private enum BubuSkin: String, CaseIterable {
+    case blue
+    case orange
+
+    var petID: String {
+        switch self {
+        case .blue: return "bubu-office"
+        case .orange: return "bubu-orange"
+        }
+    }
+
+    var avatarID: String { "custom:\(petID)" }
+}
+
+private final class PetSelectionStore {
+    private let configURL: URL
+
+    init(configURL: URL? = nil) {
+        if let configURL {
+            self.configURL = configURL
+            return
+        }
+        let environment = ProcessInfo.processInfo.environment
+        let codexHome = environment["CODEX_HOME"]
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".codex", isDirectory: true).path
+        self.configURL = URL(fileURLWithPath: codexHome, isDirectory: true)
+            .appendingPathComponent("config.toml")
+    }
+
+    func selectedSkin() -> BubuSkin? {
+        guard let text = try? String(contentsOf: configURL, encoding: .utf8) else {
+            return nil
+        }
+        var section = ""
+        for rawLine in text.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if let sectionName = Self.sectionName(in: line) {
+                section = sectionName
+                continue
+            }
+            guard section == "desktop", Self.isSelectedAvatarLine(line),
+                  let quoteStart = line.firstIndex(of: "\"")
+            else { continue }
+            let remainder = line[line.index(after: quoteStart)...]
+            guard let quoteEnd = remainder.firstIndex(of: "\"") else { continue }
+            let avatarID = String(remainder[..<quoteEnd])
+            return BubuSkin.allCases.first { $0.avatarID == avatarID }
+        }
+        return nil
+    }
+
+    @discardableResult
+    func select(_ skin: BubuSkin) -> Bool {
+        do {
+            let original = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
+            let updated = Self.updatingDesktopSelection(in: original, avatarID: skin.avatarID)
+            try FileManager.default.createDirectory(
+                at: configURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            guard let data = updated.data(using: .utf8) else { return false }
+            try data.write(to: configURL, options: .atomic)
+            return selectedSkin() == skin
+        } catch {
+            return false
+        }
+    }
+
+    static func updatingDesktopSelection(in text: String, avatarID: String) -> String {
+        let selectionLine = "selected-avatar-id = \"\(avatarID)\""
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+        var lines = normalized.components(separatedBy: "\n")
+        if lines.last == "" { lines.removeLast() }
+
+        var output: [String] = []
+        var section = ""
+        var desktopSeen = false
+        var desktopSelectionWritten = false
+
+        func appendDesktopSelectionIfNeeded() {
+            guard section == "desktop", !desktopSelectionWritten else { return }
+            output.append(selectionLine)
+            desktopSelectionWritten = true
+        }
+
+        for rawLine in lines {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+            if let sectionName = sectionName(in: trimmed) {
+                appendDesktopSelectionIfNeeded()
+                section = sectionName
+                if section == "desktop" {
+                    desktopSeen = true
+                    desktopSelectionWritten = false
+                }
+                output.append(rawLine)
+                continue
+            }
+
+            if (section.isEmpty || section == "desktop"), isSelectedAvatarLine(trimmed) {
+                if section == "desktop", !desktopSelectionWritten {
+                    output.append(selectionLine)
+                    desktopSelectionWritten = true
+                }
+                continue
+            }
+            output.append(rawLine)
+        }
+
+        appendDesktopSelectionIfNeeded()
+        if !desktopSeen {
+            if let last = output.last, !last.trimmingCharacters(in: .whitespaces).isEmpty {
+                output.append("")
+            }
+            output.append("[desktop]")
+            output.append(selectionLine)
+        }
+        return output.joined(separator: "\n") + "\n"
+    }
+
+    private static func sectionName(in line: String) -> String? {
+        guard line.hasPrefix("["), let close = line.firstIndex(of: "]") else { return nil }
+        return String(line[line.index(after: line.startIndex)..<close])
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func isSelectedAvatarLine(_ line: String) -> Bool {
+        guard let equals = line.firstIndex(of: "=") else { return false }
+        return line[..<equals].trimmingCharacters(in: .whitespaces) == "selected-avatar-id"
+    }
+}
 
 private struct PanelPlacement {
     let origin: NSPoint
@@ -284,6 +476,7 @@ private enum TaskProgressKind: String, Equatable {
     case running
     case waitingForInput
     case completed
+    case failed
     case idle
 }
 
@@ -316,6 +509,8 @@ private struct TaskProgressItem: Equatable {
             return "等你确认"
         case .completed:
             return "已完成"
+        case .failed:
+            return "执行失败"
         case .idle:
             return "等待"
         }
@@ -343,18 +538,23 @@ private struct TaskProgressSnapshot: Equatable {
     )])
 
     static func displaying(_ sourceItems: [TaskProgressItem]) -> TaskProgressSnapshot {
-        guard !sourceItems.isEmpty else { return .idle }
-        guard sourceItems.count > maximumVisibleTaskRows else {
-            return TaskProgressSnapshot(items: sourceItems)
+        let activeItems = sourceItems.filter { $0.kind != .completed }
+        guard !activeItems.isEmpty else { return .idle }
+
+        // Recurring Codex tasks create a new thread on every run. Multiple
+        // rows with the same title are indistinguishable in this compact view,
+        // so show the highest-priority/newest sorted instance only.
+        var seenTitles = Set<String>()
+        let deduplicated = activeItems.filter { item in
+            let key = item.title
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+                .lowercased()
+            return seenTitles.insert(key).inserted
         }
-        let visible = Array(sourceItems.prefix(maximumVisibleTaskRows - 1))
-        let remaining = sourceItems.count - visible.count
-        return TaskProgressSnapshot(items: visible + [TaskProgressItem(
-            title: "还有 \(remaining) 个任务",
-            kind: .reading,
-            startedAt: .distantFuture,
-            statusOverride: "继续排队"
-        )])
+        guard !deduplicated.isEmpty else { return .idle }
+        return TaskProgressSnapshot(items: Array(deduplicated.prefix(maximumVisibleTaskRows)))
     }
 }
 
@@ -380,6 +580,7 @@ private final class CodexTaskProgressReader {
     private let activeTaskFreshness: TimeInterval = 30 * 60
     private let completedTaskVisibility: TimeInterval = 2 * 60
     private var cachedRollouts: [RolloutCandidate] = []
+    private var cachedRolloutVisibility: [String: Bool] = [:]
     private var parsedCache: [String: ParsedCacheEntry] = [:]
     private var cachedThreadTitles: [String: String] = [:]
     private var cachedThreadIndexModificationDate: Date?
@@ -439,10 +640,11 @@ private final class CodexTaskProgressReader {
         }
 
         items.sort {
-            let leftCompleted = $0.kind == .completed
-            let rightCompleted = $1.kind == .completed
-            if leftCompleted != rightCompleted { return !leftCompleted }
+            let leftTerminal = $0.kind == .completed || $0.kind == .failed
+            let rightTerminal = $1.kind == .completed || $1.kind == .failed
+            if leftTerminal != rightTerminal { return !leftTerminal }
             if $0.startedAt == $1.startedAt { return $0.title < $1.title }
+            if leftTerminal { return $0.startedAt > $1.startedAt }
             return $0.startedAt < $1.startedAt
         }
         return .displaying(items)
@@ -462,6 +664,9 @@ private final class CodexTaskProgressReader {
         for line in lines {
             guard line.contains("task_started")
                 || line.contains("task_complete")
+                || line.contains("task_failed")
+                || line.contains("turn_aborted")
+                || line.contains(#""type":"error""#)
                 || line.contains("user_message")
                 || line.contains("request_user_input")
                 || line.contains("function_call_output")
@@ -487,6 +692,9 @@ private final class CodexTaskProgressReader {
                     taskStartedAt = timestamp(from: record) ?? modificationDate
                 } else if payloadType == "task_complete" {
                     lifecycle = .completed
+                    pendingUserInputCalls.removeAll()
+                } else if ["task_failed", "turn_aborted", "error"].contains(payloadType) {
+                    lifecycle = .failed
                     pendingUserInputCalls.removeAll()
                 }
                 continue
@@ -593,6 +801,25 @@ private final class CodexTaskProgressReader {
         return indexedTitle
     }
 
+    static func isUserVisibleSessionMetadata(line: String) -> Bool {
+        guard let data = line.data(using: .utf8),
+              let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              record["type"] as? String == "session_meta",
+              let payload = record["payload"] as? [String: Any]
+        else {
+            return true
+        }
+
+        let threadSource = (payload["thread_source"] as? String)?.lowercased()
+        if threadSource == "subagent" || threadSource == "automation" {
+            return false
+        }
+        if let source = payload["source"] as? [String: Any], source["subagent"] != nil {
+            return false
+        }
+        return true
+    }
+
     static func shouldDisplay(
         kind: TaskProgressKind,
         threadID: String?,
@@ -601,7 +828,8 @@ private final class CodexTaskProgressReader {
         unreadState: UnreadThreadState,
         fallbackVisibility: TimeInterval = 2 * 60
     ) -> Bool {
-        guard kind == .completed else { return true }
+        if kind == .completed { return false }
+        guard kind == .failed else { return true }
         if unreadState.isAvailable, let threadID {
             return unreadState.ids.contains(threadID)
         }
@@ -711,6 +939,7 @@ private final class CodexTaskProgressReader {
            !override.isEmpty
         {
             let url = URL(fileURLWithPath: override)
+            guard isUserVisibleRollout(url) else { return [] }
             let modified = (try? url.resourceValues(
                 forKeys: [.contentModificationDateKey]
             ).contentModificationDate) ?? now
@@ -745,7 +974,9 @@ private final class CodexTaskProgressReader {
             else { continue }
             let threadID = Self.threadID(from: url)
             let isUnread = threadID.map { unreadThreadIDs.contains($0) } ?? false
-            guard now.timeIntervalSince(modified) <= activeTaskFreshness || isUnread else {
+            guard now.timeIntervalSince(modified) <= activeTaskFreshness || isUnread,
+                  isUserVisibleRollout(url)
+            else {
                 continue
             }
             candidates.append(RolloutCandidate(url: url, modificationDate: modified))
@@ -757,6 +988,23 @@ private final class CodexTaskProgressReader {
         let activePaths = Set(cachedRollouts.map { $0.url.path })
         parsedCache = parsedCache.filter { activePaths.contains($0.key) }
         return cachedRollouts
+    }
+
+    private func isUserVisibleRollout(_ url: URL) -> Bool {
+        if let cached = cachedRolloutVisibility[url.path] { return cached }
+
+        var isVisible = true
+        if let handle = try? FileHandle(forReadingFrom: url) {
+            defer { try? handle.close() }
+            if let data = try? handle.read(upToCount: 262_144),
+               let text = String(data: data, encoding: .utf8),
+               let firstLine = text.split(separator: "\n", maxSplits: 1).first
+            {
+                isVisible = Self.isUserVisibleSessionMetadata(line: String(firstLine))
+            }
+        }
+        cachedRolloutVisibility[url.path] = isVisible
+        return isVisible
     }
 
     private func readTailLines(from url: URL) -> [String]? {
@@ -1012,21 +1260,162 @@ private final class MarketPriceClient {
     }
 }
 
+private final class QuotaLightstickView: NSView {
+    var remainingPercent: Int? {
+        didSet {
+            guard remainingPercent != oldValue else { return }
+            needsDisplay = true
+        }
+    }
+
+    override var isFlipped: Bool { false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        NSGraphicsContext.current?.imageInterpolation = .high
+
+        NSGraphicsContext.saveGraphicsState()
+        let tilt = NSAffineTransform()
+        tilt.translateX(by: bounds.midX, yBy: bounds.midY)
+        tilt.rotate(byDegrees: -5.5)
+        tilt.translateX(by: -bounds.midX, yBy: -bounds.midY)
+        tilt.concat()
+
+        let handleRect = NSRect(x: 10, y: 4, width: 18, height: 33)
+        let collarRect = NSRect(x: 9, y: 36, width: 20, height: 8)
+        let diffuserRect = NSRect(x: 8.5, y: 43, width: 21, height: 74)
+
+        let handlePath = NSBezierPath(roundedRect: handleRect, xRadius: 7, yRadius: 7)
+        if let handleGradient = NSGradient(colors: [
+            NSColor(calibratedWhite: 1.0, alpha: 1),
+            NSColor(calibratedWhite: 0.78, alpha: 1),
+        ]) {
+            handleGradient.draw(in: handlePath, angle: -8)
+        }
+        NSColor.white.withAlphaComponent(0.72).setStroke()
+        handlePath.lineWidth = 0.8
+        handlePath.stroke()
+
+        let gripInset = NSBezierPath(roundedRect: NSRect(x: 13, y: 7, width: 12, height: 13), xRadius: 5, yRadius: 5)
+        NSColor.black.withAlphaComponent(0.09).setFill()
+        gripInset.fill()
+
+        let collarPath = NSBezierPath(roundedRect: collarRect, xRadius: 2.5, yRadius: 2.5)
+        if let collarGradient = NSGradient(colors: [
+            NSColor(calibratedWhite: 0.30, alpha: 1),
+            NSColor(calibratedWhite: 0.03, alpha: 1),
+            NSColor(calibratedWhite: 0.25, alpha: 1),
+        ]) {
+            collarGradient.draw(in: collarPath, angle: 0)
+        }
+
+        let diffuserPath = NSBezierPath(roundedRect: diffuserRect, xRadius: 10.5, yRadius: 10.5)
+        NSColor(calibratedRed: 0.74, green: 0.84, blue: 0.90, alpha: 0.24).setFill()
+        diffuserPath.fill()
+        NSColor.white.withAlphaComponent(0.42).setStroke()
+        diffuserPath.lineWidth = 0.8
+        diffuserPath.stroke()
+
+        for marker in [0.25, 0.50, 0.75] as [CGFloat] {
+            let y = diffuserRect.minY + diffuserRect.height * marker
+            let line = NSBezierPath()
+            line.move(to: NSPoint(x: diffuserRect.minX + 2.5, y: y))
+            line.line(to: NSPoint(x: diffuserRect.minX + 5.0, y: y))
+            NSColor.white.withAlphaComponent(0.30).setStroke()
+            line.lineWidth = 0.65
+            line.stroke()
+        }
+
+        if let rawRemaining = remainingPercent {
+            let remaining = max(0, min(100, rawRemaining))
+            let band = quotaLightstickBand(for: remaining)
+            let color: NSColor
+            let edgeColor: NSColor
+            switch band {
+            case .blue:
+                color = NSColor(calibratedRed: 0.00, green: 0.82, blue: 1.00, alpha: 1)
+                edgeColor = NSColor(calibratedRed: 0.03, green: 0.30, blue: 1.00, alpha: 1)
+            case .amber:
+                color = NSColor(calibratedRed: 1.00, green: 0.66, blue: 0.10, alpha: 1)
+                edgeColor = NSColor(calibratedRed: 1.00, green: 0.34, blue: 0.04, alpha: 1)
+            case .red:
+                color = NSColor(calibratedRed: 1.00, green: 0.18, blue: 0.14, alpha: 1)
+                edgeColor = NSColor(calibratedRed: 0.78, green: 0.00, blue: 0.05, alpha: 1)
+            }
+
+            let fillHeight = diffuserRect.height * CGFloat(remaining) / 100
+            if fillHeight > 0 {
+                NSGraphicsContext.saveGraphicsState()
+                diffuserPath.addClip()
+                let fillRect = NSRect(
+                    x: diffuserRect.minX,
+                    y: diffuserRect.minY,
+                    width: diffuserRect.width,
+                    height: fillHeight
+                )
+                let glow = NSShadow()
+                glow.shadowColor = edgeColor.withAlphaComponent(0.88)
+                glow.shadowBlurRadius = 6
+                glow.shadowOffset = .zero
+                glow.set()
+                let fillPath = NSBezierPath(rect: fillRect)
+                if let fillGradient = NSGradient(colors: [edgeColor, color, color.withAlphaComponent(0.92)]) {
+                    fillGradient.draw(in: fillPath, angle: 90)
+                } else {
+                    color.setFill()
+                    fillPath.fill()
+                }
+                NSGraphicsContext.restoreGraphicsState()
+
+                let surfaceY = diffuserRect.minY + fillHeight
+                let surface = NSBezierPath()
+                surface.move(to: NSPoint(x: diffuserRect.minX + 2.5, y: surfaceY))
+                surface.line(to: NSPoint(x: diffuserRect.maxX - 2.5, y: surfaceY))
+                NSColor.white.withAlphaComponent(0.78).setStroke()
+                surface.lineWidth = 0.9
+                surface.stroke()
+            }
+        }
+
+        let highlight = NSBezierPath(roundedRect: NSRect(x: 11, y: 49, width: 3.2, height: 59), xRadius: 1.6, yRadius: 1.6)
+        NSColor.white.withAlphaComponent(0.26).setFill()
+        highlight.fill()
+
+        let emblem = NSBezierPath()
+        emblem.move(to: NSPoint(x: 14.2, y: 28.5))
+        emblem.line(to: NSPoint(x: 16.3, y: 24.0))
+        emblem.line(to: NSPoint(x: 18.5, y: 27.4))
+        emblem.line(to: NSPoint(x: 20.7, y: 24.0))
+        emblem.line(to: NSPoint(x: 23.0, y: 28.5))
+        emblem.move(to: NSPoint(x: 14.2, y: 28.5))
+        emblem.line(to: NSPoint(x: 14.2, y: 22.4))
+        emblem.line(to: NSPoint(x: 23.0, y: 22.4))
+        emblem.line(to: NSPoint(x: 23.0, y: 28.5))
+        NSColor(calibratedRed: 0.02, green: 0.46, blue: 1.00, alpha: 1).setStroke()
+        emblem.lineWidth = 1.4
+        emblem.lineJoinStyle = .round
+        emblem.lineCapStyle = .round
+        emblem.stroke()
+
+        NSGraphicsContext.restoreGraphicsState()
+    }
+}
+
 private final class QuotaPanelView: NSView {
     var rows: [QuotaRow] = [] { didSet { needsDisplay = true } }
     var statusText = "正在读取额度…" { didSet { needsDisplay = true } }
     var errorText: String? { didSet { needsDisplay = true } }
     var taskProgress = TaskProgressSnapshot.reading {
         didSet {
-            if taskProgress != oldValue { needsDisplay = true }
+            if taskProgress != oldValue {
+                needsDisplay = true
+                updateRunningArrowTimer()
+            }
         }
     }
     var btcPrice: Double? { didSet { needsDisplay = true } }
     var btcPriceDirection = 0 { didSet { needsDisplay = true } }
     var btcStatusText = "读取中…" { didSet { needsDisplay = true } }
-    var ethPrice: Double? { didSet { needsDisplay = true } }
-    var ethPriceDirection = 0 { didSet { needsDisplay = true } }
-    var ethStatusText = "读取中…" { didSet { needsDisplay = true } }
     var pointerSide: PointerSide = .left {
         didSet {
             guard pointerSide != oldValue else { return }
@@ -1041,8 +1430,16 @@ private final class QuotaPanelView: NSView {
         }
     }
     var onRequestHide: (() -> Void)?
+    var onSelectSkin: ((BubuSkin) -> Bool)?
+    var selectedSkin: BubuSkin = .blue {
+        didSet {
+            guard selectedSkin != oldValue else { return }
+            needsDisplay = true
+        }
+    }
     private var hideButtonTrackingArea: NSTrackingArea?
     private var isHideButtonHovered = false
+    private var runningArrowTimer: Timer?
 
     private lazy var backgroundImage: NSImage? = {
         guard let resourceURL = Bundle.main.resourceURL?
@@ -1051,7 +1448,58 @@ private final class QuotaPanelView: NSView {
         return NSImage(contentsOf: resourceURL)
     }()
 
+    private lazy var completedTaskIcon: NSImage? = {
+        guard let resourceURL = Bundle.main.resourceURL?
+            .appendingPathComponent("task-completed-icon.png")
+        else { return nil }
+        return NSImage(contentsOf: resourceURL)
+    }()
+
+    private lazy var runningTaskIcon: NSImage? = {
+        guard let resourceURL = Bundle.main.resourceURL?
+            .appendingPathComponent("task-running-icon.png")
+        else { return nil }
+        return NSImage(contentsOf: resourceURL)
+    }()
+
+    private lazy var waitingTaskIcon: NSImage? = {
+        guard let resourceURL = Bundle.main.resourceURL?
+            .appendingPathComponent("task-waiting-icon.png")
+        else { return nil }
+        return NSImage(contentsOf: resourceURL)
+    }()
+
+    private lazy var failedTaskIcon: NSImage? = {
+        guard let resourceURL = Bundle.main.resourceURL?
+            .appendingPathComponent("task-failed-icon.png")
+        else { return nil }
+        return NSImage(contentsOf: resourceURL)
+    }()
+
     override var isFlipped: Bool { true }
+
+    deinit {
+        runningArrowTimer?.invalidate()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateRunningArrowTimer()
+    }
+
+    private func updateRunningArrowTimer() {
+        let shouldAnimate = window != nil && taskProgress.items.contains { $0.kind == .running }
+        if shouldAnimate, runningArrowTimer == nil {
+            let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+                self?.needsDisplay = true
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            runningArrowTimer = timer
+        } else if !shouldAnimate {
+            runningArrowTimer?.invalidate()
+            runningArrowTimer = nil
+        }
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -1193,18 +1641,6 @@ private final class QuotaPanelView: NSView {
                 contentX: contentX,
                 contentWidth: contentWidth
             )
-            drawMarketPriceRow(
-                symbol: "ETH/USDT",
-                iconText: "Ξ",
-                iconColor: NSColor(calibratedRed: 0.38, green: 0.45, blue: 0.95, alpha: 1),
-                price: ethPrice,
-                direction: ethPriceDirection,
-                statusText: ethStatusText,
-                y: 126 + taskProgressSectionHeight,
-                separatorY: 122 + taskProgressSectionHeight,
-                contentX: contentX,
-                contentWidth: contentWidth
-            )
         }
     }
 
@@ -1268,6 +1704,24 @@ private final class QuotaPanelView: NSView {
         NSRect(x: bodyRect.maxX - 48, y: 10, width: 38, height: 18)
     }
 
+    private func skinButtonRect(_ skin: BubuSkin, in bodyRect: NSRect) -> NSRect {
+        let centerFraction: CGFloat = skin == .blue ? 0.333 : 0.676
+        let bandHeight = min(93, bodyRect.height)
+        let center = NSPoint(
+            x: bodyRect.minX + bodyRect.width * centerFraction,
+            y: bodyRect.minY + bandHeight * 0.49
+        )
+        return NSRect(x: center.x - 17, y: center.y - 17, width: 34, height: 34)
+    }
+
+    private func drawSkinSelection(in bodyRect: NSRect) {
+        let rect = skinButtonRect(selectedSkin, in: bodyRect).insetBy(dx: 1, dy: 1)
+        let ring = NSBezierPath(roundedRect: rect, xRadius: rect.width / 2, yRadius: rect.height / 2)
+        NSColor(calibratedRed: 1.0, green: 0.20, blue: 0.31, alpha: 0.96).setStroke()
+        ring.lineWidth = 2
+        ring.stroke()
+    }
+
     private func draw(row: QuotaRow, index: Int, x: CGFloat, width: CGFloat) {
         let top = CGFloat(13 + index * 43)
         let remaining = max(0, min(100, row.remainingPercent))
@@ -1320,16 +1774,14 @@ private final class QuotaPanelView: NSView {
         let imageSize = image.size
         guard imageSize.width > 0, imageSize.height > 0 else { return }
 
-        // The source is a portrait poster. Its central 32% contains only the
-        // five character balls on black; the two MAYDAY text bands sit outside
-        // this crop. The crop ratio closely matches the quota panel.
+        // The poster's central band contains the five balls without either
+        // MAYDAY text stripe. Restrict it to the fixed quota header.
         let sourceRect = NSRect(
             x: 0,
             y: imageSize.height * 0.34,
             width: imageSize.width,
             height: imageSize.height * 0.32
         )
-
         let imageRect = NSRect(
             x: destinationRect.minX,
             y: destinationRect.minY,
@@ -1363,13 +1815,48 @@ private final class QuotaPanelView: NSView {
         separator.stroke()
 
         let color = taskProgressColor(for: item.kind)
-        let dot = NSBezierPath(ovalIn: NSRect(x: contentX, y: y + 4, width: 7, height: 7))
-        color.setFill()
-        dot.fill()
+        let taskIcon: NSImage?
+        switch item.kind {
+        case .running:
+            taskIcon = runningTaskIcon
+        case .waitingForInput:
+            taskIcon = waitingTaskIcon
+        case .completed:
+            taskIcon = completedTaskIcon
+        case .failed:
+            taskIcon = failedTaskIcon
+        case .reading, .idle:
+            taskIcon = nil
+        }
+        let usesStatusIcon = taskIcon != nil
+        if let taskIcon {
+            let iconRect = NSRect(x: contentX - 2, y: y, width: 20, height: 15)
+            taskIcon.draw(
+                in: iconRect,
+                from: NSRect(origin: .zero, size: taskIcon.size),
+                operation: .sourceOver,
+                fraction: 1,
+                respectFlipped: true,
+                hints: [.interpolation: NSImageInterpolation.high]
+            )
+            drawTaskStatusBadge(for: item.kind, iconRect: iconRect)
+        } else {
+            let dot = NSBezierPath(ovalIn: NSRect(x: contentX, y: y + 4, width: 7, height: 7))
+            color.setFill()
+            dot.fill()
+        }
+
+        let titleOffset: CGFloat = usesStatusIcon ? 22 : 13
+        let titleReservedWidth: CGFloat = usesStatusIcon ? 89 : 80
 
         drawText(
             item.title,
-            in: NSRect(x: contentX + 13, y: y, width: contentWidth - 80, height: 15),
+            in: NSRect(
+                x: contentX + titleOffset,
+                y: y,
+                width: contentWidth - titleReservedWidth,
+                height: 15
+            ),
             font: .systemFont(ofSize: 9.4, weight: index == 0 ? .semibold : .medium),
             color: NSColor.white.withAlphaComponent(0.84)
         )
@@ -1380,6 +1867,90 @@ private final class QuotaPanelView: NSView {
             color: color,
             alignment: .right
         )
+    }
+
+    private func drawTaskStatusBadge(for kind: TaskProgressKind, iconRect: NSRect) {
+        // Completed and failed artwork already contains its status badge.
+        guard kind != .completed && kind != .failed else { return }
+
+        let badgeRect = NSRect(
+            x: iconRect.minX + 10.6,
+            y: iconRect.minY + 0.4,
+            width: 8.4,
+            height: 8.4
+        )
+        let badge = NSBezierPath(ovalIn: badgeRect)
+        switch kind {
+        case .running:
+            NSColor(calibratedRed: 0.12, green: 0.46, blue: 0.96, alpha: 1).setFill()
+            badge.fill()
+            drawRunningArrow(in: badgeRect)
+        case .waitingForInput:
+            NSColor(calibratedRed: 1.0, green: 0.76, blue: 0.10, alpha: 1).setFill()
+            badge.fill()
+            drawText(
+                "?",
+                in: badgeRect.offsetBy(dx: 0, dy: -0.4),
+                font: .systemFont(ofSize: 7.2, weight: .heavy),
+                color: .white,
+                alignment: .center
+            )
+        case .failed:
+            NSColor(calibratedRed: 0.91, green: 0.20, blue: 0.12, alpha: 1).setFill()
+            badge.fill()
+            let inset = badgeRect.insetBy(dx: 2.1, dy: 2.1)
+            let cross = NSBezierPath()
+            cross.move(to: NSPoint(x: inset.minX, y: inset.minY))
+            cross.line(to: NSPoint(x: inset.maxX, y: inset.maxY))
+            cross.move(to: NSPoint(x: inset.maxX, y: inset.minY))
+            cross.line(to: NSPoint(x: inset.minX, y: inset.maxY))
+            NSColor.white.setStroke()
+            cross.lineWidth = 1.15
+            cross.lineCapStyle = .round
+            cross.stroke()
+        case .reading, .completed, .idle:
+            break
+        }
+    }
+
+    private func drawRunningArrow(in badgeRect: NSRect) {
+        let center = NSPoint(x: badgeRect.midX, y: badgeRect.midY)
+        let radius = badgeRect.width * 0.31
+        let progress = Date.timeIntervalSinceReferenceDate
+            .truncatingRemainder(dividingBy: 1.2) / 1.2
+        let rotation = CGFloat(progress) * 2 * .pi
+        let start: CGFloat = rotation - .pi * 0.40
+        let sweep: CGFloat = .pi * 1.56
+        let segments = 18
+        let arc = NSBezierPath()
+        for index in 0...segments {
+            let angle = start + sweep * CGFloat(index) / CGFloat(segments)
+            let point = NSPoint(
+                x: center.x + cos(angle) * radius,
+                y: center.y + sin(angle) * radius
+            )
+            if index == 0 { arc.move(to: point) } else { arc.line(to: point) }
+        }
+        NSColor.white.setStroke()
+        arc.lineWidth = 1.05
+        arc.lineCapStyle = .round
+        arc.stroke()
+
+        let end = start + sweep
+        let tip = NSPoint(
+            x: center.x + cos(end) * radius,
+            y: center.y + sin(end) * radius
+        )
+        let tangent = NSPoint(x: -sin(end), y: cos(end))
+        let normal = NSPoint(x: -tangent.y, y: tangent.x)
+        let base = NSPoint(x: tip.x - tangent.x * 1.6, y: tip.y - tangent.y * 1.6)
+        let head = NSBezierPath()
+        head.move(to: tip)
+        head.line(to: NSPoint(x: base.x + normal.x * 0.72, y: base.y + normal.y * 0.72))
+        head.line(to: NSPoint(x: base.x - normal.x * 0.72, y: base.y - normal.y * 0.72))
+        head.close()
+        NSColor.white.setFill()
+        head.fill()
     }
 
     private func drawMarketPriceRow(
@@ -1469,6 +2040,8 @@ private final class QuotaPanelView: NSView {
             return NSColor(calibratedRed: 1.0, green: 0.70, blue: 0.22, alpha: 1)
         case .completed:
             return NSColor(calibratedRed: 0.24, green: 0.86, blue: 0.58, alpha: 1)
+        case .failed:
+            return NSColor(calibratedRed: 1.0, green: 0.36, blue: 0.30, alpha: 1)
         case .idle:
             return NSColor.white.withAlphaComponent(0.56)
         }
@@ -1507,7 +2080,12 @@ private final class QuotaPanelView: NSView {
 
     private static let textShadow: NSShadow = {
         let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.72)
+        shadow.shadowColor = NSColor(
+            calibratedRed: 0.0,
+            green: 0.20,
+            blue: 0.23,
+            alpha: 0.84
+        )
         shadow.shadowBlurRadius = 2
         shadow.shadowOffset = NSSize(width: 0, height: 1)
         return shadow
@@ -1567,7 +2145,6 @@ private final class PetWindowLocator {
     private var cachedVisualMetrics: StoredMascotMetrics?
     private var cachedVisualOverlaySize: CGSize?
     private var cachedVisualWindowID: CGWindowID?
-    private var cachedVisualAt: CFAbsoluteTime = 0
     private var lastVisualProbeAt: CFAbsoluteTime = 0
     private var lastOverlayStateReadAt: CFAbsoluteTime = 0
     private var storedOverlayLocations: [StoredOverlayLocation] = []
@@ -1745,20 +2322,25 @@ private final class PetWindowLocator {
 
         func addEntry(_ entry: [String: Any], isPrimary: Bool = false) {
             guard let x = entry["x"] as? NSNumber,
-                  let y = entry["y"] as? NSNumber,
-                  let width = entry["width"] as? NSNumber,
-                  let height = entry["height"] as? NSNumber,
-                  width.doubleValue > 0,
-                  height.doubleValue > 0
+                  let y = entry["y"] as? NSNumber
             else { return }
+
+            // Some Codex builds update x/y and placement immediately but omit
+            // width, height and mascot while the overlay is on an external
+            // display. Retain that current-display entry with the canonical
+            // reference size; it will be scaled against the live Quartz window.
+            let width = (entry["width"] as? NSNumber)?.doubleValue ?? 356
+            let height = (entry["height"] as? NSNumber)?.doubleValue ?? 320
+            guard width > 0, height > 0 else { return }
 
             let rect = CGRect(
                 x: x.doubleValue,
                 y: y.doubleValue,
-                width: width.doubleValue,
-                height: height.doubleValue
+                width: width,
+                height: height
             )
             let mascot = mascotMetrics(from: entry, overlayRect: rect)
+                ?? centeredFallbackMetrics(for: rect.size)
             locations.append(StoredOverlayLocation(rect: rect, mascot: mascot, isPrimary: isPrimary))
         }
 
@@ -1781,6 +2363,19 @@ private final class PetWindowLocator {
         }
 
         storedOverlayLocations = locations
+    }
+
+    private func centeredFallbackMetrics(for overlaySize: CGSize) -> StoredMascotMetrics {
+        let width = min(canonicalPetSpriteSize.width, overlaySize.width)
+        let height = min(canonicalPetSpriteSize.height, overlaySize.height)
+        return StoredMascotMetrics(
+            left: max(0, (overlaySize.width - width) / 2),
+            top: petSpriteTopPaddingInsideAnchor,
+            width: width,
+            height: height,
+            topPadding: petSpriteTopPaddingInsideAnchor,
+            source: "state-centered-fallback"
+        )
     }
 
     private func mascotMetrics(
@@ -2031,13 +2626,15 @@ private final class PetWindowLocator {
                 cachedVisualMetrics = metrics
                 cachedVisualOverlaySize = overlayRect.size
                 cachedVisualWindowID = windowID
-                cachedVisualAt = now
                 return metrics
             }
         }
 
+        // A live pixel probe can occasionally fail while macOS is compositing
+        // the transparent Electron overlay. The persisted mascot rectangle may
+        // already be stale after a move, so keep the last verified pixels for
+        // this exact window ID until a newer successful probe replaces them.
         guard cachedVisualWindowID == windowID,
-              now - cachedVisualAt <= 0.50,
               let cachedVisualMetrics,
               let cachedVisualOverlaySize
         else { return nil }
@@ -2052,6 +2649,10 @@ private final class PetWindowLocator {
         windowID: CGWindowID,
         overlaySize: CGSize
     ) -> StoredMascotMetrics? {
+        // Never trigger the macOS Screen Recording consent dialog just to
+        // position this companion panel. Pixel probing is an optional accuracy
+        // enhancement only when the user has already granted that permission.
+        guard CGPreflightScreenCaptureAccess() else { return nil }
         guard let image = CGWindowListCreateImage(
             .null,
             .optionIncludingWindow,
@@ -2189,6 +2790,15 @@ private final class PetWindowLocator {
             topPadding: petSpriteTopPaddingInsideAnchor,
             source: "self-test"
         )
+        let centeredFallback = centeredFallbackMetrics(for: baseSize)
+        guard abs(centeredFallback.left + centeredFallback.width / 2 - baseSize.width / 2) <= 0.01,
+              let scaledFallback = scaledMetrics(
+                  centeredFallback,
+                  from: baseSize,
+                  to: CGSize(width: 408, height: 400)
+              ),
+              abs(scaledFallback.left + scaledFallback.width / 2 - 204) <= 0.01
+        else { return false }
         for factor in [0.25, 0.5, 1.0, 1.25, 2.0, 3.0] as [CGFloat] {
             let liveSize = CGSize(width: baseSize.width * factor, height: baseSize.height * factor)
             guard let scaled = scaledMetrics(base, from: baseSize, to: liveSize),
@@ -2253,11 +2863,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let quotaClient = CodexQuotaClient()
     private let taskProgressReader = CodexTaskProgressReader()
     private let btcPriceClient = MarketPriceClient(symbol: "BTCUSDT")
-    private let ethPriceClient = MarketPriceClient(symbol: "ETHUSDT")
     private let locator = PetWindowLocator()
     private let healthWriter = RuntimeHealthWriter()
+    private let petSelectionStore = PetSelectionStore()
     private let quotaView = QuotaPanelView(frame: NSRect(origin: .zero, size: expandedPanelSize))
+    private let quotaLightstickView = QuotaLightstickView(
+        frame: NSRect(origin: .zero, size: quotaLightstickBaseSize)
+    )
     private var panel: NSPanel!
+    private var quotaLightstickPanel: NSPanel!
     private var statusItem: NSStatusItem?
     private var refreshTimer: Timer?
     private var taskProgressTimer: Timer?
@@ -2267,9 +2881,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isRefreshing = false
     private var isRefreshingTaskProgress = false
     private var isRefreshingBTCPrice = false
-    private var isRefreshingETHPrice = false
     private var lastBTCPrice: Double?
-    private var lastETHPrice: Double?
     private var lastLocatedPet: LocatedPet?
     private var lastLocatedAt: CFAbsoluteTime = 0
     private var currentPanelScale: CGFloat = 1
@@ -2280,7 +2892,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        // Release 16 is the blue Bubu edition. Clear any orange preview
+        // selection left by an earlier local build before the panel appears.
+        _ = petSelectionStore.select(.blue)
+        quotaView.selectedSkin = .blue
         makePanel()
+        makeQuotaLightstickPanel()
         makeStatusItem()
         startPetDoubleClickMonitor()
         healthWriter.write(status: "started", panelVisible: false, locationSource: nil, force: true)
@@ -2289,7 +2906,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTaskProgress()
         if marketPricesEnabled {
             refreshBTCPrice()
-            refreshETHPrice()
         }
 
         followTimer = Timer.scheduledTimer(withTimeInterval: followInterval, repeats: true) { [weak self] _ in
@@ -2307,7 +2923,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         if marketPricesEnabled {
             btcRefreshTimer = Timer.scheduledTimer(withTimeInterval: btcRefreshInterval, repeats: true) { [weak self] _ in
                 self?.refreshBTCPrice()
-                self?.refreshETHPrice()
             }
         }
     }
@@ -2323,6 +2938,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         if let statusItem {
             NSStatusBar.system.removeStatusItem(statusItem)
         }
+        quotaLightstickPanel?.orderOut(nil)
         healthWriter.write(status: "terminated", panelVisible: false, locationSource: nil, force: true)
     }
 
@@ -2348,6 +2964,40 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         quotaView.onRequestHide = { [weak self] in
             self?.hidePanelByUser()
         }
+    }
+
+    private func makeQuotaLightstickPanel() {
+        quotaLightstickPanel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: quotaLightstickBaseSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        quotaLightstickPanel.contentView = quotaLightstickView
+        quotaLightstickPanel.isOpaque = false
+        quotaLightstickPanel.backgroundColor = .clear
+        quotaLightstickPanel.hasShadow = false
+        quotaLightstickPanel.level = .statusBar
+        quotaLightstickPanel.hidesOnDeactivate = false
+        quotaLightstickPanel.ignoresMouseEvents = true
+        quotaLightstickPanel.isMovable = false
+        quotaLightstickPanel.isReleasedWhenClosed = false
+        quotaLightstickPanel.isFloatingPanel = true
+        quotaLightstickPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+    }
+
+    private func selectSkin(_ skin: BubuSkin) -> Bool {
+        guard petSelectionStore.select(skin) else { return false }
+        quotaView.selectedSkin = skin
+        healthWriter.write(
+            status: "skin-selected-\(skin.rawValue)",
+            panelVisible: panel.isVisible,
+            locationSource: lastLocatedPet?.source,
+            panelScale: currentPanelScale,
+            panelSize: scaledPanelSize(currentBasePanelSize, scale: currentPanelScale),
+            force: true
+        )
+        return true
     }
 
     private func makeStatusItem() {
@@ -2426,6 +3076,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             lastLocatedPet = nil
             lastLocatedAt = 0
             panel.orderOut(nil)
+            quotaLightstickPanel.orderOut(nil)
             healthWriter.write(
                 status: "waiting-for-codex",
                 panelVisible: false,
@@ -2433,10 +3084,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 panelScale: currentPanelScale,
                 panelSize: scaledPanelSize(currentBasePanelSize, scale: currentPanelScale)
             )
-            return
-        }
-        guard !isPanelHiddenByUser else {
-            panel.orderOut(nil)
             return
         }
 
@@ -2451,6 +3098,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             pet = recent
         } else {
             panel.orderOut(nil)
+            quotaLightstickPanel.orderOut(nil)
             healthWriter.write(
                 status: "waiting-for-pet-location",
                 panelVisible: false,
@@ -2463,6 +3111,26 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let basePanelSize = currentBasePanelSize
         currentPanelScale = normalizedPanelScale(pet.panelScale)
+        let lightstickFrame = quotaLightstickFrame(
+            petVisibleRect: pet.visibleRect,
+            scale: currentPanelScale,
+            screenVisibleFrame: pet.screen.visibleFrame
+        )
+        if quotaLightstickPanel.frame != lightstickFrame {
+            quotaLightstickPanel.setFrame(lightstickFrame, display: false)
+        }
+        quotaLightstickView.frame = NSRect(origin: .zero, size: lightstickFrame.size)
+        quotaLightstickView.bounds = NSRect(origin: .zero, size: quotaLightstickBaseSize)
+        quotaLightstickView.needsDisplay = true
+        if !quotaLightstickPanel.isVisible {
+            quotaLightstickPanel.orderFrontRegardless()
+        }
+
+        if isPanelHiddenByUser {
+            panel.orderOut(nil)
+            return
+        }
+
         let currentPanelSize = scaledPanelSize(basePanelSize, scale: currentPanelScale)
         let placement = panelPlacement(
             petVisibleRect: pet.visibleRect,
@@ -2523,7 +3191,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.isRefreshing = false
                 switch result {
                 case .success(let response):
-                    self.quotaView.rows = Self.makeRows(from: response)
+                    let rows = Self.makeRows(from: response)
+                    self.quotaView.rows = rows
+                    self.quotaLightstickView.remainingPercent = rows.first?.remainingPercent
                     self.quotaView.errorText = nil
                     self.quotaView.statusText = "\(Self.timeFormatter.string(from: Date())) 更新 · 5分钟"
                 case .failure(let error):
@@ -2572,31 +3242,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.quotaView.btcStatusText = "5秒"
                 case .failure:
                     self.quotaView.btcStatusText = self.quotaView.btcPrice == nil ? "重试中" : "暂离线"
-                }
-            }
-        }
-    }
-
-    private func refreshETHPrice() {
-        guard !isRefreshingETHPrice else { return }
-        isRefreshingETHPrice = true
-
-        ethPriceClient.fetch { [weak self] result in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.isRefreshingETHPrice = false
-                switch result {
-                case .success(let price):
-                    if let previousPrice = self.lastETHPrice {
-                        self.quotaView.ethPriceDirection = price > previousPrice ? 1 : (price < previousPrice ? -1 : 0)
-                    } else {
-                        self.quotaView.ethPriceDirection = 0
-                    }
-                    self.lastETHPrice = price
-                    self.quotaView.ethPrice = price
-                    self.quotaView.ethStatusText = "5秒"
-                case .failure:
-                    self.quotaView.ethStatusText = self.quotaView.ethPrice == nil ? "重试中" : "暂离线"
                 }
             }
         }
@@ -2923,6 +3568,7 @@ private func runTaskProgressSelfTest() -> Never {
     let now = Date()
     let started = #"{"type":"event_msg","payload":{"type":"task_started"}}"#
     let completed = #"{"type":"event_msg","payload":{"type":"task_complete"}}"#
+    let failed = #"{"type":"event_msg","payload":{"type":"turn_aborted","reason":"interrupted"}}"#
     let request = #"{"type":"response_item","payload":{"type":"function_call","name":"request_user_input","call_id":"call-1"}}"#
     let response = #"{"type":"response_item","payload":{"type":"function_call_output","call_id":"call-1"}}"#
     let cases: [(String, [String], Date, TaskProgressKind)] = [
@@ -2930,6 +3576,7 @@ private func runTaskProgressSelfTest() -> Never {
         ("waiting", [started, request], now, .waitingForInput),
         ("resumed", [started, request, response], now, .running),
         ("completed", [started, completed], now, .completed),
+        ("failed", [started, failed], now, .failed),
         ("fresh-tail-fallback", [], now, .running),
         ("idle", [], now.addingTimeInterval(-31 * 60), .idle),
     ]
@@ -2983,8 +3630,8 @@ private func runTaskProgressSelfTest() -> Never {
         ids: [],
         isAvailable: false
     )
-    let readStateCases = [
-        CodexTaskProgressReader.shouldDisplay(
+    let completedVisibilityCases = [
+        !CodexTaskProgressReader.shouldDisplay(
             kind: .completed,
             threadID: indexedThreadID,
             modificationDate: now.addingTimeInterval(-3600),
@@ -2998,50 +3645,274 @@ private func runTaskProgressSelfTest() -> Never {
             now: now,
             unreadState: readState
         ),
-        CodexTaskProgressReader.shouldDisplay(
+        !CodexTaskProgressReader.shouldDisplay(
             kind: .completed,
             threadID: indexedThreadID,
             modificationDate: now,
             now: now,
-            unreadState: unavailableState
+            unreadState: unavailableState,
+            fallbackVisibility: 120
+        ),
+        CodexTaskProgressReader.shouldDisplay(
+            kind: .failed,
+            threadID: indexedThreadID,
+            modificationDate: now.addingTimeInterval(-3600),
+            now: now,
+            unreadState: unreadState
+        ),
+        !CodexTaskProgressReader.shouldDisplay(
+            kind: .failed,
+            threadID: indexedThreadID,
+            modificationDate: now,
+            now: now,
+            unreadState: readState
         ),
         !CodexTaskProgressReader.shouldDisplay(
             kind: .completed,
             threadID: indexedThreadID,
             modificationDate: now.addingTimeInterval(-180),
             now: now,
-            unreadState: unavailableState
+            unreadState: unavailableState,
+            fallbackVisibility: 120
         ),
     ]
-    guard readStateCases.allSatisfy({ $0 }) else {
-        fputs("task unread/read visibility mapping failed\n", stderr)
+    guard completedVisibilityCases.allSatisfy({ $0 }),
+          CodexTaskProgressReader.shouldDisplay(
+            kind: .running,
+            threadID: indexedThreadID,
+            modificationDate: now,
+            now: now,
+            unreadState: readState
+          )
+    else {
+        fputs("completed task filtering failed\n", stderr)
         exit(1)
     }
 
-    let overflow = TaskProgressSnapshot.displaying((0..<7).map { index in
+    let topLevelMetadata = #"{"type":"session_meta","payload":{"thread_source":"user","source":{"cli":{}}}}"#
+    let subagentMetadata = #"{"type":"session_meta","payload":{"thread_source":"subagent","source":{"subagent":{"thread_spawn":{}}}}}"#
+    let automationMetadata = #"{"type":"session_meta","payload":{"thread_source":"automation","source":"vscode"}}"#
+    let sourceOnlySubagentMetadata = #"{"type":"session_meta","payload":{"source":{"subagent":{"thread_spawn":{}}}}}"#
+    let rolloutVisibilityCases = [
+        CodexTaskProgressReader.isUserVisibleSessionMetadata(line: topLevelMetadata),
+        !CodexTaskProgressReader.isUserVisibleSessionMetadata(line: subagentMetadata),
+        !CodexTaskProgressReader.isUserVisibleSessionMetadata(line: automationMetadata),
+        !CodexTaskProgressReader.isUserVisibleSessionMetadata(line: sourceOnlySubagentMetadata),
+        CodexTaskProgressReader.isUserVisibleSessionMetadata(line: started),
+    ]
+    guard rolloutVisibilityCases.allSatisfy({ $0 }) else {
+        fputs("task non-user session filtering failed\n", stderr)
+        exit(1)
+    }
+
+    let truncated = TaskProgressSnapshot.displaying((0..<7).map { index in
         TaskProgressItem(title: "任务 \(index + 1)", kind: .running, startedAt: now)
     })
-    guard overflow.items.count == maximumVisibleTaskRows,
-          overflow.items.last?.title == "还有 3 个任务"
+    guard truncated.items.count == maximumVisibleTaskRows,
+          truncated.items.last?.title == "任务 5"
     else {
-        fputs("task list overflow handling failed\n", stderr)
+        fputs("task list truncation failed\n", stderr)
         exit(1)
     }
 
-    print("task-progress-self-test: running waiting resumed completed fresh-fallback idle = 6/6; title=1/1; index=1/1; read-state=4/4; list=5+overflow")
+    let completedFiltering = TaskProgressSnapshot.displaying([
+        TaskProgressItem(
+            title: "AI 观点运营台 · Codex Chrome 单条发布与回复",
+            kind: .completed,
+            startedAt: now,
+            statusOverride: "最新"
+        ),
+        TaskProgressItem(
+            title: "  AI 观点运营台 · Codex Chrome 单条发布与回复  ",
+            kind: .completed,
+            startedAt: now.addingTimeInterval(-300),
+            statusOverride: "旧记录"
+        ),
+        TaskProgressItem(title: "相同标题的实时任务", kind: .running, startedAt: now),
+        TaskProgressItem(title: "相同标题的实时任务", kind: .running, startedAt: now),
+    ])
+    guard completedFiltering.items.count == 1,
+          completedFiltering.items[0].kind == .running,
+          completedFiltering.items[0].title == "相同标题的实时任务"
+    else {
+        fputs("task presentation deduplication failed\n", stderr)
+        exit(1)
+    }
+
+    print("task-progress-self-test: lifecycle=7/7; title=1/1; index=1/1; completed-hidden=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; task-dedup=pass")
     exit(0)
+}
+
+private func runSkinSelectionSelfTest() -> Never {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("bubu-skin-selection-\(UUID().uuidString)", isDirectory: true)
+    let config = directory.appendingPathComponent("config.toml")
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    do {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let initial = """
+        selected-avatar-id = "codex"
+        [general]
+        model = "gpt"
+        [desktop]
+        avatar-overlay-mascot-width-px = 163
+        selected-avatar-id = "custom:old-pet"
+        [features]
+        test = true
+        """
+        try initial.data(using: .utf8)?.write(to: config, options: .atomic)
+        let store = PetSelectionStore(configURL: config)
+        guard store.select(.orange), store.selectedSkin() == .orange else {
+            throw NSError(domain: "BubuSkinSelfTest", code: 1)
+        }
+        let orangeText = try String(contentsOf: config, encoding: .utf8)
+        guard orangeText.components(separatedBy: "selected-avatar-id").count - 1 == 1,
+              orangeText.contains("selected-avatar-id = \"custom:bubu-orange\"")
+        else {
+            throw NSError(domain: "BubuSkinSelfTest", code: 2)
+        }
+        guard store.select(.blue), store.selectedSkin() == .blue else {
+            throw NSError(domain: "BubuSkinSelfTest", code: 3)
+        }
+        let missingDesktop = PetSelectionStore.updatingDesktopSelection(
+            in: "[general]\nmodel = \"gpt\"\n",
+            avatarID: BubuSkin.orange.avatarID
+        )
+        guard missingDesktop.contains("[desktop]\nselected-avatar-id = \"custom:bubu-orange\"") else {
+            throw NSError(domain: "BubuSkinSelfTest", code: 4)
+        }
+    } catch {
+        fputs("skin selection self-test failed: \(error)\n", stderr)
+        exit(1)
+    }
+
+    print("skin-selection-self-test: blue=pass orange=pass persistence=pass duplicate-key=pass")
+    exit(0)
+}
+
+private func runQuotaLightstickSelfTest() -> Never {
+    let bandCases: [(Int, QuotaLightstickBand)] = [
+        (100, .blue), (51, .blue), (50, .amber), (25, .amber), (24, .red), (0, .red),
+    ]
+    for test in bandCases where quotaLightstickBand(for: test.0) != test.1 {
+        fputs("lightstick band failed for \(test.0)%\n", stderr)
+        exit(1)
+    }
+
+    let petRect = NSRect(x: 400, y: 260, width: 163, height: 177)
+    let screenRect = NSRect(x: 0, y: 0, width: 1200, height: 800)
+    let frame = quotaLightstickFrame(
+        petVisibleRect: petRect,
+        scale: 1,
+        screenVisibleFrame: screenRect
+    )
+    guard abs(frame.width - quotaLightstickBaseSize.width) < 0.01,
+          abs(frame.height - quotaLightstickBaseSize.height) < 0.01,
+          abs(frame.maxX - (petRect.minX + quotaLightstickPetOverlap)) < 0.01,
+          abs(frame.minY - (petRect.minY + quotaLightstickBottomInset)) < 0.01
+    else {
+        fputs("lightstick placement failed: \(frame)\n", stderr)
+        exit(1)
+    }
+
+    let edgeFrame = quotaLightstickFrame(
+        petVisibleRect: NSRect(x: 2, y: 2, width: 163, height: 177),
+        scale: 1,
+        screenVisibleFrame: screenRect
+    )
+    guard edgeFrame.minX >= screenRect.minX, edgeFrame.minY >= screenRect.minY else {
+        fputs("lightstick screen clamping failed: \(edgeFrame)\n", stderr)
+        exit(1)
+    }
+
+    print("quota-lightstick-self-test: bands=6/6 placement=pass scaling=pass clamping=pass")
+    exit(0)
+}
+
+private func renderQuotaLightstickPreviewOnce(to outputPath: String, remainingPercent: Int) -> Never {
+    _ = NSApplication.shared
+    let view = QuotaLightstickView(frame: NSRect(origin: .zero, size: quotaLightstickBaseSize))
+    view.remainingPercent = max(0, min(100, remainingPercent))
+    view.layoutSubtreeIfNeeded()
+
+    let scale: CGFloat = 4
+    guard let bitmap = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: Int(quotaLightstickBaseSize.width * scale),
+        pixelsHigh: Int(quotaLightstickBaseSize.height * scale),
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ) else {
+        fputs("unable to create lightstick preview canvas\n", stderr)
+        exit(1)
+    }
+    bitmap.size = quotaLightstickBaseSize
+    view.cacheDisplay(in: view.bounds, to: bitmap)
+    guard let png = bitmap.representation(using: .png, properties: [:]) else {
+        fputs("unable to encode lightstick preview\n", stderr)
+        exit(1)
+    }
+    do {
+        try png.write(to: URL(fileURLWithPath: outputPath), options: .atomic)
+        print(outputPath)
+        exit(0)
+    } catch {
+        fputs("unable to write lightstick preview: \(error.localizedDescription)\n", stderr)
+        exit(1)
+    }
 }
 
 private func renderPreviewOnce(to outputPath: String) -> Never {
     _ = NSApplication.shared
-    let previewTasks = TaskProgressSnapshot(items: [
+    var previewTaskTemplates = [
         TaskProgressItem(title: "修复 Windows 宠物替换", kind: .running, startedAt: Date()),
         TaskProgressItem(title: "整理 macOS 分享包", kind: .waitingForInput, startedAt: Date()),
-        TaskProgressItem(title: "更新 GitHub 使用说明", kind: .completed, startedAt: Date()),
-    ])
+        TaskProgressItem(title: "检查运行结果", kind: .running, startedAt: Date()),
+        TaskProgressItem(title: "检查额度面板比例", kind: .running, startedAt: Date()),
+        TaskProgressItem(title: "生成发布包", kind: .waitingForInput, startedAt: Date()),
+    ]
+    if CommandLine.arguments.contains("--preview-completed") {
+        previewTaskTemplates[0] = TaskProgressItem(
+            title: "检查完成状态图标",
+            kind: .completed,
+            startedAt: Date()
+        )
+    } else if CommandLine.arguments.contains("--preview-waiting") {
+        previewTaskTemplates[0] = TaskProgressItem(
+            title: "等待用户确认",
+            kind: .waitingForInput,
+            startedAt: Date()
+        )
+    } else if CommandLine.arguments.contains("--preview-failed") {
+        previewTaskTemplates[0] = TaskProgressItem(
+            title: "检查失败状态图标",
+            kind: .failed,
+            startedAt: Date()
+        )
+    }
+    let countFlag = "--preview-task-count"
+    let requestedPreviewCount: Int
+    if let flagIndex = CommandLine.arguments.firstIndex(of: countFlag),
+       CommandLine.arguments.indices.contains(flagIndex + 1),
+       let parsedCount = Int(CommandLine.arguments[flagIndex + 1]) {
+        requestedPreviewCount = parsedCount
+    } else {
+        requestedPreviewCount = 3
+    }
+    let previewCount = max(1, min(maximumVisibleTaskRows, requestedPreviewCount))
+    let previewTasks = TaskProgressSnapshot(
+        items: Array(previewTaskTemplates.prefix(previewCount))
+    )
     let previewPanelSize = panelSizeForTaskRows(previewTasks.rowCount)
     let view = QuotaPanelView(frame: NSRect(origin: .zero, size: previewPanelSize))
     view.pointerSide = .bottom
+    view.selectedSkin = CommandLine.arguments.contains("--preview-orange") ? .orange : .blue
     view.rows = [QuotaRow(
         name: "Codex",
         remainingPercent: 94,
@@ -3052,9 +3923,6 @@ private func renderPreviewOnce(to outputPath: String) -> Never {
     view.btcPrice = 64_169.97
     view.btcPriceDirection = 1
     view.btcStatusText = "5秒"
-    view.ethPrice = 3_420.18
-    view.ethPriceDirection = -1
-    view.ethStatusText = "5秒"
     view.layoutSubtreeIfNeeded()
 
     let scale: CGFloat = 2
@@ -3100,10 +3968,6 @@ if CommandLine.arguments.contains("--print-btc") {
     printMarketPriceOnce(symbol: "BTCUSDT", label: "BTC/USDT")
 }
 
-if CommandLine.arguments.contains("--print-eth") {
-    printMarketPriceOnce(symbol: "ETHUSDT", label: "ETH/USDT")
-}
-
 if CommandLine.arguments.contains("--print-panel-location") {
     printPanelPlacementOnce()
 }
@@ -3124,6 +3988,14 @@ if CommandLine.arguments.contains("--self-test-task-progress") {
     runTaskProgressSelfTest()
 }
 
+if CommandLine.arguments.contains("--self-test-skin-selection") {
+    runSkinSelectionSelfTest()
+}
+
+if CommandLine.arguments.contains("--self-test-quota-lightstick") {
+    runQuotaLightstickSelfTest()
+}
+
 if CommandLine.arguments.contains("--print-panel-config") {
     printPanelConfiguration()
 }
@@ -3136,6 +4008,20 @@ if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-preview"),
    CommandLine.arguments.indices.contains(previewFlag + 1)
 {
     renderPreviewOnce(to: CommandLine.arguments[previewFlag + 1])
+}
+
+if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-lightstick-preview"),
+   CommandLine.arguments.indices.contains(previewFlag + 1)
+{
+    let remainingFlag = CommandLine.arguments.firstIndex(of: "--remaining")
+    let remaining = remainingFlag.flatMap { index -> Int? in
+        guard CommandLine.arguments.indices.contains(index + 1) else { return nil }
+        return Int(CommandLine.arguments[index + 1])
+    } ?? 75
+    renderQuotaLightstickPreviewOnce(
+        to: CommandLine.arguments[previewFlag + 1],
+        remainingPercent: remaining
+    )
 }
 
 let application = NSApplication.shared

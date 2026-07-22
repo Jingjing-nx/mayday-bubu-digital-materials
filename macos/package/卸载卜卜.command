@@ -2,8 +2,7 @@
 emulate -L zsh
 setopt ERR_EXIT PIPE_FAIL NO_UNSET
 
-PET_ID="bubu-office"
-PET_DEST="${CODEX_HOME:-$HOME/.codex}/pets/$PET_ID"
+PETS_DEST_ROOT="${CODEX_HOME:-$HOME/.codex}/pets"
 APP_DEST="$HOME/Applications/卜卜额度面板.app"
 LABEL="io.github.mayday-materials.bubu-quota-panel"
 PLIST_DEST="$HOME/Library/LaunchAgents/$LABEL.plist"
@@ -12,7 +11,7 @@ DOMAIN="gui/$(id -u)"
 
 /bin/launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 /bin/rm -f "$PLIST_DEST"
-/bin/rm -rf "$APP_DEST" "$PET_DEST"
+/bin/rm -rf "$APP_DEST" "$PETS_DEST_ROOT/bubu-office"
 
 if [[ -f "$CONFIG" ]]; then
   TMP_CONFIG="$(/usr/bin/mktemp "$CONFIG.tmp.XXXXXX")"

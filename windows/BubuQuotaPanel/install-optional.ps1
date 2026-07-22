@@ -11,6 +11,8 @@ function Write-Utf8NoBom([string]$Path, [string]$Content) {
 }
 
 function Set-CodexDesktopSettings([string]$ConfigText) {
+    $selectedAvatarId = "custom:bubu-office"
+    $selectionLine = 'selected-avatar-id = "' + $selectedAvatarId + '"'
     $lines = [Text.RegularExpressions.Regex]::Split($ConfigText, "\r?\n")
     $output = New-Object Collections.Generic.List[string]
     $inDesktop = $false
@@ -21,7 +23,7 @@ function Set-CodexDesktopSettings([string]$ConfigText) {
     foreach ($line in $lines) {
         if ($line -match '^\s*\[[^\]]+\]') {
             if ($inDesktop -and -not $desktopValuesWritten) {
-                [void]$output.Add('selected-avatar-id = "custom:bubu-office"')
+                [void]$output.Add($selectionLine)
                 [void]$output.Add('avatar-overlay-mascot-width-px = 163')
                 $desktopValuesWritten = $true
             }
@@ -45,14 +47,14 @@ function Set-CodexDesktopSettings([string]$ConfigText) {
     }
 
     if ($inDesktop -and -not $desktopValuesWritten) {
-        [void]$output.Add('selected-avatar-id = "custom:bubu-office"')
+        [void]$output.Add($selectionLine)
         [void]$output.Add('avatar-overlay-mascot-width-px = 163')
     } elseif (-not $desktopSeen) {
         if ($output.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace($output[$output.Count - 1])) {
             [void]$output.Add('')
         }
         [void]$output.Add('[desktop]')
-        [void]$output.Add('selected-avatar-id = "custom:bubu-office"')
+        [void]$output.Add($selectionLine)
         [void]$output.Add('avatar-overlay-mascot-width-px = 163')
     }
 
@@ -71,11 +73,11 @@ try {
     $installDirectory = Join-Path $env:LOCALAPPDATA "BubuPet"
     $codexOnlySource = Join-Path $rootPath "CODEX-ONLY.txt"
     $marketPricesEnabled = -not (Test-Path -LiteralPath $codexOnlySource)
-    $expectedPanelHeight = if ($marketPricesEnabled) { 183 } else { 139 }
+    $expectedPanelHeight = if ($marketPricesEnabled) { 160 } else { 139 }
     $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
     $configPath = Join-Path $codexHome "config.toml"
 
-    foreach ($required in @("BubuQuotaPanel.ps1", "StartBubuPanel.vbs", "StartBubuPanel.cmd", "quota-panel-background.png")) {
+    foreach ($required in @("BubuQuotaPanel.ps1", "StartBubuPanel.vbs", "StartBubuPanel.cmd", "quota-panel-background.png", "task-running-icon.png", "task-waiting-icon.png", "task-completed-icon.png", "task-failed-icon.png")) {
         if (-not (Test-Path -LiteralPath (Join-Path $panelSource $required))) {
             throw "Missing optional panel file: $required"
         }
@@ -111,6 +113,10 @@ try {
     Copy-Item -LiteralPath (Join-Path $panelSource "StartBubuPanel.vbs") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "StartBubuPanel.cmd") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "quota-panel-background.png") -Destination $installDirectory -Force
+    Copy-Item -LiteralPath (Join-Path $panelSource "task-completed-icon.png") -Destination $installDirectory -Force
+    Copy-Item -LiteralPath (Join-Path $panelSource "task-running-icon.png") -Destination $installDirectory -Force
+    Copy-Item -LiteralPath (Join-Path $panelSource "task-waiting-icon.png") -Destination $installDirectory -Force
+    Copy-Item -LiteralPath (Join-Path $panelSource "task-failed-icon.png") -Destination $installDirectory -Force
     $installedCodexOnlyMarker = Join-Path $installDirectory "CODEX-ONLY.txt"
     if ($marketPricesEnabled) {
         Remove-Item -LiteralPath $installedCodexOnlyMarker -Force -ErrorAction SilentlyContinue
@@ -172,7 +178,7 @@ try {
                 $health = [IO.File]::ReadAllText($oldHealthPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
                 $healthProcess = Get-Process -Id ([int]$health.processId) -ErrorAction SilentlyContinue
                 $healthAge = [DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($oldHealthPath)
-                if ($health.version -eq "15" -and
+                if ($health.version -eq "16" -and
                     [bool]$health.marketPricesEnabled -eq $marketPricesEnabled -and
                     [int]$health.panelHeightPoints -eq $expectedPanelHeight -and
                     $healthProcess -and
