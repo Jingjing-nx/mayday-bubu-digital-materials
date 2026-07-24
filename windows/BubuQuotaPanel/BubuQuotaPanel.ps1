@@ -9,7 +9,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "20"
+$script:PanelVersion = "21"
 $script:PanelEdition = "blue-bubu"
 $script:BluePetId = "bubu-office"
 $script:BluePetAvatarId = "custom:bubu-office"
@@ -944,10 +944,75 @@ function Get-TaskIconBitmap([string]$name) {
     return $bitmap
 }
 
+function Get-AnimatedGifFrames([string]$name) {
+    $path = Join-Path $PSScriptRoot $name
+    if (-not (Test-Path -LiteralPath $path)) { return @() }
+
+    $stream = [IO.File]::OpenRead($path)
+    try {
+        $decoder = [Windows.Media.Imaging.GifBitmapDecoder]::new(
+            $stream,
+            [Windows.Media.Imaging.BitmapCreateOptions]::PreservePixelFormat,
+            [Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+        )
+        $frames = New-Object Collections.ArrayList
+        foreach ($frame in $decoder.Frames) {
+            $copy = [Windows.Media.Imaging.BitmapFrame]::Create($frame)
+            if ($copy.CanFreeze) { $copy.Freeze() }
+            [void]$frames.Add($copy)
+        }
+        return @($frames)
+    } finally {
+        $stream.Dispose()
+    }
+}
+
+function Start-RunningTaskBadgeAnimation([Windows.Controls.Image]$image) {
+    if ($script:RunningTaskBadgeFrames.Count -eq 0) { return $false }
+
+    $image.Source = $script:RunningTaskBadgeFrames[0]
+    $animation = [Windows.Media.Animation.ObjectAnimationUsingKeyFrames]::new()
+    $animation.Duration = [Windows.Duration]::new(
+        [TimeSpan]::FromMilliseconds(
+            $script:RunningTaskBadgeFrameDurationMs * $script:RunningTaskBadgeFrames.Count
+        )
+    )
+    $animation.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+    for ($index = 0; $index -lt $script:RunningTaskBadgeFrames.Count; $index++) {
+        $keyFrame = [Windows.Media.Animation.DiscreteObjectKeyFrame]::new()
+        $keyFrame.Value = $script:RunningTaskBadgeFrames[$index]
+        $keyFrame.KeyTime = [Windows.Media.Animation.KeyTime]::FromTimeSpan(
+            [TimeSpan]::FromMilliseconds($script:RunningTaskBadgeFrameDurationMs * $index)
+        )
+        [void]$animation.KeyFrames.Add($keyFrame)
+    }
+    $image.BeginAnimation(
+        [Windows.Controls.Image]::SourceProperty,
+        $animation,
+        [Windows.Media.Animation.HandoffBehavior]::SnapshotAndReplace
+    )
+    return $true
+}
+
+function Set-RunningTaskBadgeAnimationsActive([bool]$active) {
+    foreach ($image in @($script:RunningTaskBadgeViews)) {
+        if ($active) {
+            [void](Start-RunningTaskBadgeAnimation $image)
+        } else {
+            $image.BeginAnimation([Windows.Controls.Image]::SourceProperty, $null)
+            if ($script:RunningTaskBadgeFrames.Count -gt 0) {
+                $image.Source = $script:RunningTaskBadgeFrames[0]
+            }
+        }
+    }
+}
+
 $script:RunningTaskIconBitmap = Get-TaskIconBitmap "task-running-icon.png"
 $script:WaitingTaskIconBitmap = Get-TaskIconBitmap "task-waiting-icon.png"
 $script:CompletedTaskIconBitmap = Get-TaskIconBitmap "task-completed-icon.png"
 $script:FailedTaskIconBitmap = Get-TaskIconBitmap "task-failed-icon.png"
+$script:RunningTaskBadgeFrames = @(Get-AnimatedGifFrames "task-running-badge.gif")
+$script:RunningTaskBadgeFrameDurationMs = 100
 
 function New-Brush([string]$hex) {
     return [Windows.Media.SolidColorBrush]::new([Windows.Media.ColorConverter]::ConvertFromString($hex))
@@ -1308,18 +1373,7 @@ $script:NextTaskProgressAt = [DateTime]::UtcNow
 $script:LastTaskProgress = "reading"
 $script:LastTaskItems = @()
 $script:LastTaskSignature = ""
-$script:RunningArrowAngle = 0.0
-$script:RunningArrowTransforms = New-Object Collections.ArrayList
-$script:TaskIconAnimationTimer = [Windows.Threading.DispatcherTimer]::new(
-    [Windows.Threading.DispatcherPriority]::Render
-)
-$script:TaskIconAnimationTimer.Interval = [TimeSpan]::FromMilliseconds(33)
-$script:TaskIconAnimationTimer.Add_Tick({
-    $script:RunningArrowAngle = ($script:RunningArrowAngle + 10.0) % 360.0
-    foreach ($transform in @($script:RunningArrowTransforms)) {
-        $transform.Angle = $script:RunningArrowAngle
-    }
-})
+$script:RunningTaskBadgeViews = New-Object Collections.ArrayList
 
 function Get-TaskProgressBrush([string]$kind) {
     switch ($kind) {
@@ -1390,7 +1444,7 @@ function Set-TaskProgressUI([object[]]$tasks) {
 
     Set-TaskProgressRowCount $visibleTasks.Count
     $script:TaskProgressRows.Children.Clear()
-    $script:RunningArrowTransforms.Clear()
+    $script:RunningTaskBadgeViews.Clear()
 
     for ($index = 0; $index -lt $visibleTasks.Count; $index++) {
         $task = $visibleTasks[$index]
@@ -1431,40 +1485,58 @@ function Set-TaskProgressUI([object[]]$tasks) {
 
             # Completed and failed artwork already contains its status badge.
             if ($kind -ne "completed" -and $kind -ne "failed") {
-                $badge = [Windows.Shapes.Ellipse]::new()
-                $badge.Width = 8.4
-                $badge.Height = 8.4
-                $badge.Fill = switch ($kind) {
-                    "running" { New-Brush "#1F76F5"; break }
-                    "waiting" { New-Brush "#FFC21A"; break }
-                    "failed" { New-Brush "#E83320"; break }
+                $usesAnimatedBadge = $false
+                if ($kind -eq "running" -and $script:RunningTaskBadgeFrames.Count -gt 0) {
+                    $runningBadge = [Windows.Controls.Image]::new()
+                    $runningBadge.Width = 8.4
+                    $runningBadge.Height = 8.4
+                    $runningBadge.Stretch = [Windows.Media.Stretch]::Fill
+                    $runningBadge.SnapsToDevicePixels = $true
+                    [Windows.Media.RenderOptions]::SetBitmapScalingMode(
+                        $runningBadge,
+                        [Windows.Media.BitmapScalingMode]::HighQuality
+                    )
+                    [Windows.Controls.Canvas]::SetLeft($runningBadge, 22.6)
+                    [Windows.Controls.Canvas]::SetTop($runningBadge, $rowTop + 4.4)
+                    $runningBadge.Source = $script:RunningTaskBadgeFrames[0]
+                    $usesAnimatedBadge = $true
+                    [void]$script:TaskProgressRows.Children.Add($runningBadge)
+                    [void]$script:RunningTaskBadgeViews.Add($runningBadge)
+                    if ($script:Window.IsVisible) {
+                        [void](Start-RunningTaskBadgeAnimation $runningBadge)
+                    }
                 }
-                [Windows.Controls.Canvas]::SetLeft($badge, 22.6)
-                [Windows.Controls.Canvas]::SetTop($badge, $rowTop + 4.4)
-                [void]$script:TaskProgressRows.Children.Add($badge)
 
-                $badgeSymbol = [Windows.Controls.TextBlock]::new()
-                $badgeSymbol.Text = switch ($kind) {
-                    "running" { "↻"; break }
-                    "waiting" { "?"; break }
-                    "failed" { "×"; break }
+                if (-not $usesAnimatedBadge) {
+                    $badge = [Windows.Shapes.Ellipse]::new()
+                    $badge.Width = 8.4
+                    $badge.Height = 8.4
+                    $badge.Fill = switch ($kind) {
+                        "running" { New-Brush "#1F76F5"; break }
+                        "waiting" { New-Brush "#FFC21A"; break }
+                        "failed" { New-Brush "#E83320"; break }
+                    }
+                    [Windows.Controls.Canvas]::SetLeft($badge, 22.6)
+                    [Windows.Controls.Canvas]::SetTop($badge, $rowTop + 4.4)
+                    [void]$script:TaskProgressRows.Children.Add($badge)
+
+                    $badgeSymbol = [Windows.Controls.TextBlock]::new()
+                    $badgeSymbol.Text = switch ($kind) {
+                        "running" { "↻"; break }
+                        "waiting" { "?"; break }
+                        "failed" { "×"; break }
+                    }
+                    $badgeSymbol.Width = 8.4
+                    $badgeSymbol.Height = 10
+                    $badgeSymbol.FontFamily = [Windows.Media.FontFamily]::new("Segoe UI Symbol")
+                    $badgeSymbol.FontSize = if ($kind -eq "failed") { 8.6 } else { 7.8 }
+                    $badgeSymbol.FontWeight = [Windows.FontWeights]::Bold
+                    $badgeSymbol.Foreground = $script:WhiteBrush
+                    $badgeSymbol.TextAlignment = [Windows.TextAlignment]::Center
+                    [Windows.Controls.Canvas]::SetLeft($badgeSymbol, 22.6)
+                    [Windows.Controls.Canvas]::SetTop($badgeSymbol, $rowTop + 3.0)
+                    [void]$script:TaskProgressRows.Children.Add($badgeSymbol)
                 }
-                $badgeSymbol.Width = 8.4
-                $badgeSymbol.Height = 10
-                $badgeSymbol.FontFamily = [Windows.Media.FontFamily]::new("Segoe UI Symbol")
-                $badgeSymbol.FontSize = if ($kind -eq "failed") { 8.6 } else { 7.8 }
-                $badgeSymbol.FontWeight = [Windows.FontWeights]::Bold
-                $badgeSymbol.Foreground = $script:WhiteBrush
-                $badgeSymbol.TextAlignment = [Windows.TextAlignment]::Center
-                [Windows.Controls.Canvas]::SetLeft($badgeSymbol, 22.6)
-                [Windows.Controls.Canvas]::SetTop($badgeSymbol, $rowTop + 3.0)
-                if ($kind -eq "running") {
-                    $rotation = [Windows.Media.RotateTransform]::new($script:RunningArrowAngle)
-                    $badgeSymbol.RenderTransformOrigin = [Windows.Point]::new(0.5, 0.5)
-                    $badgeSymbol.RenderTransform = $rotation
-                    [void]$script:RunningArrowTransforms.Add($rotation)
-                }
-                [void]$script:TaskProgressRows.Children.Add($badgeSymbol)
             }
         } else {
             $dot = [Windows.Shapes.Ellipse]::new()
@@ -1514,11 +1586,6 @@ function Set-TaskProgressUI([object[]]$tasks) {
     $script:LastTaskItems = @($visibleTasks)
     $script:LastTaskProgress = (@($visibleTasks | ForEach-Object { [string]$_.Kind }) -join ",")
     $script:LastTaskSignature = $signature
-    if ($script:RunningArrowTransforms.Count -gt 0) {
-        $script:TaskIconAnimationTimer.Start()
-    } else {
-        $script:TaskIconAnimationTimer.Stop()
-    }
 }
 
 function Get-TaskTitle([string]$message) {
@@ -3231,11 +3298,12 @@ if ($ValidateTaskProgress) {
         $script:LastTaskItems[0].Title -ne "保留的活动任务" -or
         $script:LastTaskItems[2].Title -ne "保留的已完成任务" -or
         $script:LastTaskItems[3].Title -ne "失败任务" -or
-        $script:RunningArrowTransforms.Count -ne 1) {
+        $script:RunningTaskBadgeFrames.Count -ne 12 -or
+        $script:RunningTaskBadgeViews.Count -ne 1) {
         throw "Task status icon UI rendering failed."
     }
 
-    Write-Output "task-progress-validation: lifecycle=7/7; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=4/4"
+    Write-Output "task-progress-validation: lifecycle=7/7; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=4/4; running-gif=12f/100ms"
     $script:Window.Close()
     exit 0
 }
@@ -3570,6 +3638,9 @@ function Set-PanelHiddenByUser([bool]$hidden) {
 
 $script:HideButton.Add_Click({ Set-PanelHiddenByUser $true })
 $script:ShowButton.Add_Click({ Set-PanelHiddenByUser $false })
+$script:Window.Add_IsVisibleChanged({
+    Set-RunningTaskBadgeAnimationsActive $script:Window.IsVisible
+})
 $script:Window.Add_Closed({
     $script:LastPositionMode = "closed"
     Write-PanelHealth $true
@@ -3580,7 +3651,6 @@ $script:Window.Add_Closed({
     if ($script:FollowFallbackTimer) { $script:FollowFallbackTimer.Stop() }
     if ($script:TargetTimer) { $script:TargetTimer.Stop() }
     if ($script:ServiceTimer) { $script:ServiceTimer.Stop() }
-    if ($script:TaskIconAnimationTimer) { $script:TaskIconAnimationTimer.Stop() }
     Stop-QuotaProcess
     if ($script:HttpClient) { $script:HttpClient.Dispose() }
     if ($script:instanceMutex) {

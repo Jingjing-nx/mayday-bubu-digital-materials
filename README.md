@@ -45,13 +45,13 @@
       <td rowspan="2"><strong>蓝色卜卜</strong></td>
       <td rowspan="2" align="center"><img src="shared/preview/blue-bubu-panel-preview.png" alt="蓝色卜卜额度与任务看板示意图" width="180"></td>
       <td>Web3 版</td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-macOS-Universal-20.zip">版本 20 下载</a></td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-Windows-10-11-20.zip">版本 20 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/21/Mayday-Bubu-macOS-Universal-21.zip">版本 21 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/21/Mayday-Bubu-Windows-10-11-21.zip">版本 21 下载</a></td>
     </tr>
     <tr>
       <td>普通版</td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-macOS-Universal-Codex-Only-20.zip">版本 20 下载</a></td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-Windows-10-11-Codex-Only-20.zip">版本 20 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/21/Mayday-Bubu-macOS-Universal-Codex-Only-21.zip">版本 21 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/21/Mayday-Bubu-Windows-10-11-Codex-Only-21.zip">版本 21 下载</a></td>
     </tr>
     <tr>
       <td rowspan="2"><strong>橙色卜卜</strong></td>
@@ -70,7 +70,7 @@
 
 - **Web3 版**：包含 Codex 额度、任务进度与 BTC 行情。
 - **普通版**：保留 Codex 额度和任务进度，不显示、也不请求 BTC 行情。
-- 当前流水版本为 **20**；每次发布新 Release 后，表格中的蓝色卜卜下载链接会自动更新。
+- 当前流水版本为 **21**；每次发布新 Release 后，表格中的蓝色卜卜下载链接会自动更新。
 <!-- DOWNLOAD_TABLE:END -->
 
 macOS 支持 12.3+、Apple 芯片与 Intel Mac；Windows 支持 Windows 10/11、x64 与 ARM64。压缩包的系统和版本不能混用。
@@ -104,7 +104,7 @@ macOS 支持 12.3+、Apple 芯片与 Intel Mac；Windows 支持 Windows 10/11、
 - 向右拖动：变成无手脚圆球，弹奏深蓝色电吉他。
 - 双击卜卜：在“显示面板”和“隐藏面板”之间循环切换；只识别卜卜本体范围，普通单击与拖动不会误触。
 - 额度面板：跟随在卜卜头顶约 14 px，并随卜卜同比放大缩小；额度每 5 分钟更新，可隐藏和显示。
-- 任务进度：约每 2 秒读取本机 Codex 任务索引，用每个任务的唯一 ID 对应左侧任务列表里的正式名称。四种状态使用同一套角色图标：正在执行为蓝色眼镜球与持续旋转的蓝色循环箭头，等你确认为橙色手机球与黄色问号，已完成为粉色球与绿色勾，执行失败为红色球与红色叉。Codex 自动化生成的定时任务不会计入面板。带蓝点、尚未查看的已完成或失败手动任务会保留在面板底部，用户在 Codex 中点开该任务、蓝点消失后，面板同步移除该行。多个手动任务按开始时间依次向下排列，最多显示前 5 个真实任务，不显示额外汇总行。任务名称与已读状态只在本机读取和显示，不写入面板日志，也不上传；旧版 Codex 没有相关索引时才会回退到任务消息摘要与短时完成提示。
+- 任务进度：约每 2 秒读取本机 Codex 任务索引，用每个任务的唯一 ID 对应左侧任务列表里的正式名称。四种状态使用同一套角色图标：正在执行为蓝色眼镜球与持续旋转的蓝色循环箭头，等你确认为橙色手机球与黄色问号，已完成为粉色球与绿色勾，执行失败为红色球与红色叉。循环箭头使用 32×32、12 帧、每帧 100ms 的透明 GIF，只刷新 8.4px 的徽章，不再用 30fps 定时器重绘整个面板。Codex 自动化生成的定时任务不会计入面板。带蓝点、尚未查看的已完成或失败手动任务会保留在面板底部，用户在 Codex 中点开该任务、蓝点消失后，面板同步移除该行。多个手动任务按开始时间依次向下排列，最多显示前 5 个真实任务，不显示额外汇总行。任务名称与已读状态只在本机读取和显示，不写入面板日志，也不上传；旧版 Codex 没有相关索引时才会回退到任务消息摘要与短时完成提示。
 - 完整版另含每 5 秒更新的 BTC；`Codex-Only` 版会缩短面板并完全关闭行情请求。
 
 ## 性能与兼容性

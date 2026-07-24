@@ -90,7 +90,7 @@ try {
         throw "Other-project code was mixed into the blue Bubu panel."
     }
 
-    foreach ($required in @("BubuQuotaPanel.ps1", "StartBubuPanel.vbs", "StartBubuPanel.cmd", "quota-panel-background.png", "task-running-icon.png", "task-waiting-icon.png", "task-completed-icon.png", "task-failed-icon.png")) {
+    foreach ($required in @("BubuQuotaPanel.ps1", "StartBubuPanel.vbs", "StartBubuPanel.cmd", "quota-panel-background.png", "task-running-icon.png", "task-running-badge.gif", "task-waiting-icon.png", "task-completed-icon.png", "task-failed-icon.png")) {
         if (-not (Test-Path -LiteralPath (Join-Path $panelSource $required))) {
             throw "Missing optional panel file: $required"
         }
@@ -129,6 +129,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $panelSource "quota-panel-background.png") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "task-completed-icon.png") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "task-running-icon.png") -Destination $installDirectory -Force
+    Copy-Item -LiteralPath (Join-Path $panelSource "task-running-badge.gif") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "task-waiting-icon.png") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "task-failed-icon.png") -Destination $installDirectory -Force
     $installedCodexOnlyMarker = Join-Path $installDirectory "CODEX-ONLY.txt"
@@ -192,7 +193,7 @@ try {
                 $health = [IO.File]::ReadAllText($oldHealthPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
                 $healthProcess = Get-Process -Id ([int]$health.processId) -ErrorAction SilentlyContinue
                 $healthAge = [DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($oldHealthPath)
-                if ($health.version -eq "20" -and
+                if ($health.version -eq "21" -and
                     $health.edition -eq "blue-bubu" -and
                     $health.petID -eq "bubu-office" -and
                     [bool]$health.marketPricesEnabled -eq $marketPricesEnabled -and
