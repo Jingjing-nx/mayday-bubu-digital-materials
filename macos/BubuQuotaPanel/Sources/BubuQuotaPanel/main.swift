@@ -5,7 +5,7 @@ import Foundation
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
 private let taskProgressRefreshInterval: TimeInterval = 2
-private let panelVersion = "20"
+private let panelVersion = "21"
 private let panelEdition = "blue-bubu"
 private let bluePetID = "bubu-office"
 private let bluePetAvatarID = "custom:\(bluePetID)"
@@ -1198,7 +1198,7 @@ private final class QuotaPanelView: NSView {
         didSet {
             if taskProgress != oldValue {
                 needsDisplay = true
-                updateRunningArrowTimer()
+                syncRunningTaskBadges()
             }
         }
     }
@@ -1209,6 +1209,7 @@ private final class QuotaPanelView: NSView {
         didSet {
             guard pointerSide != oldValue else { return }
             needsDisplay = true
+            syncRunningTaskBadges()
             window?.invalidateCursorRects(for: self)
         }
     }
@@ -1221,7 +1222,8 @@ private final class QuotaPanelView: NSView {
     var onRequestHide: (() -> Void)?
     private var hideButtonTrackingArea: NSTrackingArea?
     private var isHideButtonHovered = false
-    private var runningArrowTimer: Timer?
+    private var runningTaskBadgeViews: [NSImageView] = []
+    private var runningTaskBadgeAnimationsEnabled = false
 
     private lazy var backgroundImage: NSImage? = {
         guard let resourceURL = Bundle.main.resourceURL?
@@ -1244,6 +1246,13 @@ private final class QuotaPanelView: NSView {
         return NSImage(contentsOf: resourceURL)
     }()
 
+    private lazy var runningTaskBadgeAnimation: NSImage? = {
+        guard let resourceURL = Bundle.main.resourceURL?
+            .appendingPathComponent("task-running-badge.gif")
+        else { return nil }
+        return NSImage(contentsOf: resourceURL)
+    }()
+
     private lazy var waitingTaskIcon: NSImage? = {
         guard let resourceURL = Bundle.main.resourceURL?
             .appendingPathComponent("task-waiting-icon.png")
@@ -1260,26 +1269,52 @@ private final class QuotaPanelView: NSView {
 
     override var isFlipped: Bool { true }
 
-    deinit {
-        runningArrowTimer?.invalidate()
-    }
-
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        updateRunningArrowTimer()
+        syncRunningTaskBadges()
     }
 
-    private func updateRunningArrowTimer() {
-        let shouldAnimate = window != nil && taskProgress.items.contains { $0.kind == .running }
-        if shouldAnimate, runningArrowTimer == nil {
-            let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-                self?.needsDisplay = true
-            }
-            RunLoop.main.add(timer, forMode: .common)
-            runningArrowTimer = timer
-        } else if !shouldAnimate {
-            runningArrowTimer?.invalidate()
-            runningArrowTimer = nil
+    func setRunningTaskBadgeAnimationsEnabled(_ enabled: Bool) {
+        runningTaskBadgeAnimationsEnabled = enabled
+        for imageView in runningTaskBadgeViews {
+            imageView.animates = enabled
+        }
+    }
+
+    private func syncRunningTaskBadges() {
+        for imageView in runningTaskBadgeViews {
+            imageView.animates = false
+            imageView.removeFromSuperview()
+        }
+        runningTaskBadgeViews.removeAll(keepingCapacity: true)
+
+        guard window != nil, let animation = runningTaskBadgeAnimation else { return }
+        let taskItems = taskProgress.items.isEmpty
+            ? TaskProgressSnapshot.idle.items
+            : taskProgress.items
+        let contentX = panelBodyRect().minX + 14
+        for (index, item) in taskItems.enumerated() where item.kind == .running {
+            let iconRect = NSRect(
+                x: contentX - 2,
+                y: 103 + CGFloat(index) * taskProgressRowHeight,
+                width: 20,
+                height: 15
+            )
+            let badgeRect = NSRect(
+                x: iconRect.minX + 10.6,
+                y: iconRect.minY + 0.4,
+                width: 8.4,
+                height: 8.4
+            )
+            let imageView = NSImageView(frame: badgeRect)
+            imageView.image = animation
+            imageView.imageAlignment = .alignCenter
+            imageView.imageScaling = .scaleAxesIndependently
+            imageView.imageFrameStyle = .none
+            imageView.isEditable = false
+            imageView.animates = runningTaskBadgeAnimationsEnabled
+            addSubview(imageView)
+            runningTaskBadgeViews.append(imageView)
         }
     }
 
@@ -1646,9 +1681,12 @@ private final class QuotaPanelView: NSView {
         let badge = NSBezierPath(ovalIn: badgeRect)
         switch kind {
         case .running:
+            // The animated GIF is hosted in a tiny NSImageView so AppKit only
+            // refreshes this badge instead of redrawing the entire panel at 30 fps.
+            // Keep one static frame underneath for previews and asset-load fallback.
             NSColor(calibratedRed: 0.12, green: 0.46, blue: 0.96, alpha: 1).setFill()
             badge.fill()
-            drawRunningArrow(in: badgeRect)
+            drawStaticRunningArrow(in: badgeRect)
         case .waitingForInput:
             NSColor(calibratedRed: 1.0, green: 0.76, blue: 0.10, alpha: 1).setFill()
             badge.fill()
@@ -1677,12 +1715,10 @@ private final class QuotaPanelView: NSView {
         }
     }
 
-    private func drawRunningArrow(in badgeRect: NSRect) {
+    private func drawStaticRunningArrow(in badgeRect: NSRect) {
         let center = NSPoint(x: badgeRect.midX, y: badgeRect.midY)
         let radius = badgeRect.width * 0.31
-        let progress = Date.timeIntervalSinceReferenceDate
-            .truncatingRemainder(dividingBy: 1.2) / 1.2
-        let rotation = CGFloat(progress) * 2 * .pi
+        let rotation: CGFloat = 0
         let start: CGFloat = rotation - .pi * 0.40
         let sweep: CGFloat = .pi * 1.56
         let segments = 18
@@ -2686,6 +2722,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        quotaView.setRunningTaskBadgeAnimationsEnabled(false)
         refreshTimer?.invalidate()
         taskProgressTimer?.invalidate()
         btcRefreshTimer?.invalidate()
@@ -2765,6 +2802,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func hidePanelByUser() {
         isPanelHiddenByUser = true
+        quotaView.setRunningTaskBadgeAnimationsEnabled(false)
         panel.orderOut(nil)
         statusItem?.isVisible = true
         healthWriter.write(
@@ -2798,6 +2836,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         guard codexDesktopRunning(at: now) else {
             lastLocatedPet = nil
             lastLocatedAt = 0
+            quotaView.setRunningTaskBadgeAnimationsEnabled(false)
             panel.orderOut(nil)
             healthWriter.write(
                 status: "waiting-for-codex",
@@ -2819,6 +2858,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             // transition. Never leave the panel at an unrelated screen corner.
             pet = recent
         } else {
+            quotaView.setRunningTaskBadgeAnimationsEnabled(false)
             panel.orderOut(nil)
             healthWriter.write(
                 status: "waiting-for-pet-location",
@@ -2833,9 +2873,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let basePanelSize = currentBasePanelSize
         currentPanelScale = normalizedPanelScale(pet.panelScale)
         if isPanelHiddenByUser {
+            quotaView.setRunningTaskBadgeAnimationsEnabled(false)
             panel.orderOut(nil)
             return
         }
+
+        quotaView.setRunningTaskBadgeAnimationsEnabled(true)
 
         let currentPanelSize = scaledPanelSize(basePanelSize, scale: currentPanelScale)
         let placement = panelPlacement(
@@ -3449,6 +3492,7 @@ private func runTaskProgressSelfTest() -> Never {
 
     let taskIconNames = [
         "task-running-icon.png",
+        "task-running-badge.gif",
         "task-waiting-icon.png",
         "task-completed-icon.png",
         "task-failed-icon.png",

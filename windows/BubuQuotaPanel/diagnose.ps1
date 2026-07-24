@@ -55,7 +55,7 @@ $statePaths = @(
 
 Add-Report ""
 Add-Report "=== Installed panel ==="
-foreach ($name in @("BubuQuotaPanel.ps1", "StartBubuPanel.vbs", "StartBubuPanel.cmd", "quota-panel-background.png", "task-running-icon.png", "task-waiting-icon.png", "task-completed-icon.png", "task-failed-icon.png")) {
+foreach ($name in @("BubuQuotaPanel.ps1", "StartBubuPanel.vbs", "StartBubuPanel.cmd", "quota-panel-background.png", "task-running-icon.png", "task-running-badge.gif", "task-waiting-icon.png", "task-completed-icon.png", "task-failed-icon.png")) {
     $path = Join-Path $installDirectory $name
     Add-Report ($name + ": " + $(if (Test-Path -LiteralPath $path) { "OK" } else { "MISSING" }))
 }
