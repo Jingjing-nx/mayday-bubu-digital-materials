@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  pet-and-macos:
+  orange-pet-and-macos:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -15,189 +15,123 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install Pillow
       - run: python scripts/validate_pet.py
+      - name: Verify frozen release contract
+        run: |
+          test "$(shasum -a 256 shared/pet/bubu-orange/spritesheet.webp | cut -d' ' -f1)" = "9b179850352e7ff69040c55d5d0d87f06247e8651c465a0f2a13df9e97ff866d"
+          jq -e '.release == 28 and .panel_version == 36 and (.actions | length) == 11' shared/pet/bubu-orange/qa/release-freeze-v28.json
+          jq -e '.release_version == 28 and .panel_version == 36 and .panel.gap_above_visible_pet == 14' shared/pet/bubu-orange/qa/runtime-geometry-lock.json
       - run: ./macos/BubuQuotaPanel/scripts/build.sh
-      - run: file macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel
-      - run: lipo macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel -verify_arch arm64 x86_64
-      - name: Verify macOS 12.3 deployment target
+      - name: Verify macOS Universal 2 app and behavior
         run: |
-          APP="macos/BubuQuotaPanel/build/卜卜额度面板.app"
+          APP='macos/BubuQuotaPanel/build/橙色卜卜额度面板.app'
+          BIN="$APP/Contents/MacOS/OrangeBubuQuotaPanel"
+          lipo "$BIN" -verify_arch arm64 x86_64
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist")" = "12.3"
-          test "$(vtool -show-build "$APP/Contents/MacOS/BubuQuotaPanel" | grep -c 'minos 12.3')" -eq 2
-      - run: codesign --verify --deep --strict macos/BubuQuotaPanel/build/卜卜额度面板.app
-      - name: Verify saved-position fallback
-        run: |
-          STATE="$(mktemp)"
-          printf '%s\n' '{"electron-avatar-overlay-open":true,"electron-avatar-overlay-bounds":{"x":100,"y":300,"width":356,"height":320,"mascot":{"left":165,"top":70,"width":163}}}' > "$STATE"
-          BUBU_CODEX_STATE_FILE="$STATE" macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --print-saved-panel-location | grep 'source=saved-state-mascot.*gap=14.0 centerError=0.0'
-          printf '%s\n' '{"electron-avatar-overlay-open":true,"electron-avatar-overlay-bounds":{"x":100,"y":300,"width":356,"height":320,"anchor":{"x":265,"y":435,"width":163,"height":177}}}' > "$STATE"
-          BUBU_CODEX_STATE_FILE="$STATE" macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --print-saved-panel-location | grep 'source=saved-state-anchor.*gap=14.0 centerError=0.0'
-          printf '%s\n' '{"electron-avatar-overlay-open":true,"electron-avatar-overlay-bounds":{"x":100,"y":300,"width":178,"height":160,"mascot":{"left":82.5,"top":35,"width":81.5,"height":88.5}}}' > "$STATE"
-          BUBU_CODEX_STATE_FILE="$STATE" BUBU_SHOW_MARKET_PRICES=false macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --print-saved-panel-location | grep 'panelScale=0.500 panelWidth=112.0 panelHeight=69.5.*gap=14.0'
-          printf '%s\n' '{"electron-avatar-overlay-open":true,"electron-avatar-overlay-bounds":{"x":100,"y":300,"width":712,"height":640,"mascot":{"left":330,"top":140,"width":326,"height":354}}}' > "$STATE"
-          BUBU_CODEX_STATE_FILE="$STATE" BUBU_SHOW_MARKET_PRICES=false macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel --print-saved-panel-location | grep 'panelScale=2.000 panelWidth=448.0 panelHeight=278.0.*gap=14.0'
-          rm -f "$STATE"
-      - name: Verify panel/pet geometry
-        run: |
-          BIN='macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel'
-          "$BIN" --self-test-placement | grep 'visual-scaling=6/6; panel-scaling=6/6'
-          BUBU_SHOW_MARKET_PRICES=false "$BIN" --self-test-placement | grep 'visual-scaling=6/6; panel-scaling=6/6'
-          "$BIN" --self-test-lifecycle | grep 'desktop-app=5/5 visibility=4/4 pet-double-click=3/3 hidden-window=orderOut status-item=restore'
-          "$BIN" --self-test-task-progress | grep '7/7; title=1/1; index=1/1; completed-hidden=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated'
-          "$BIN" --self-test-skin-selection | grep 'blue=pass orange=pass persistence=pass duplicate-key=pass'
-          ! grep -q 'collapsedPanelSize\|isCollapsed\|onToggleCollapsed' macos/BubuQuotaPanel/Sources/BubuQuotaPanel/main.swift
-      - name: Verify Gatekeeper help entries
-        run: |
-          plutil -lint 'macos/package/如果仍无法打开-Apple官方步骤.webloc'
-          test "$(plutil -extract URL raw 'macos/package/如果仍无法打开-Apple官方步骤.webloc')" = 'https://support.apple.com/guide/mac-help/mh40616/mac'
-          grep -Fq 'x-apple.systempreferences:com.apple.preference.security?General' 'macos/package/安装被拦截-打开隐私与安全.html'
-          ! grep -R 'x-apple.systempreferences:' macos/package --include='*.webloc'
-      - name: Verify panel runtime health
-        run: |
-          BIN='macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel'
-          "$BIN" --print-panel-config | grep 'version=16 marketPricesEnabled=true width=224 height=160'
-          BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config | grep 'version=16 marketPricesEnabled=false width=224 height=139'
-          HEALTH="$(mktemp)"
-          rm -f "$HEALTH"
-          BUBU_PANEL_HEALTH_FILE="$HEALTH" "$BIN" &
-          PID=$!
-          trap 'kill "$PID" 2>/dev/null || true; rm -f "$HEALTH"' EXIT
-          for _ in {1..50}; do
-            test -s "$HEALTH" && break
-            sleep 0.1
-          done
-          grep '"version":"16"' "$HEALTH"
-          grep '"marketPricesEnabled":true' "$HEALTH"
-          kill "$PID" 2>/dev/null || true
-          wait "$PID" 2>/dev/null || true
-          rm -f "$HEALTH"
-          BUBU_PANEL_HEALTH_FILE="$HEALTH" BUBU_SHOW_MARKET_PRICES=false "$BIN" &
-          PID=$!
-          for _ in {1..50}; do
-            test -s "$HEALTH" && break
-            sleep 0.1
-          done
-          grep '"version":"16"' "$HEALTH"
-          grep '"marketPricesEnabled":false' "$HEALTH"
-          grep '"panelHeightPoints":139' "$HEALTH"
-          kill "$PID" 2>/dev/null || true
-          wait "$PID" 2>/dev/null || true
-      - name: Build macOS releases
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")" = "36"
+          test "$(vtool -show-build "$BIN" | grep -c 'minos 12.3')" -eq 2
+          codesign --verify --deep --strict "$APP"
+          "$BIN" --print-panel-config | grep 'version=36 marketPricesEnabled=true width=224 height=75'
+          BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config | grep 'version=36 marketPricesEnabled=false width=224 height=53'
+          "$BIN" --self-test-placement | grep 'realtime-follow=2/2.*gap=14.0; centerError=0.0'
+          "$BIN" --self-test-lifecycle | grep 'pet-double-click=3/3'
+          "$BIN" --self-test-task-progress | grep 'completed-hidden=pass.*list=5-truncated'
+          "$BIN" --self-test-skin-selection | grep 'project=orange orange=pass'
+          "$BIN" --self-test-runtime-geometry | grep 'panel=224x75 gap=14.*uniform-2x=pass'
+          "$BIN" --self-test-quota-lightstick | grep 'rewind-no-lightsticks=pass.*chairside-live-no-external-accessories=pass'
+      - name: Build and inspect macOS variants
         run: |
           ./scripts/build-macos-release.sh
-          test -f dist/Mayday-Bubu-macOS-Universal-Codex-Only-16.zip
-          test -f dist/Mayday-Bubu-macOS-Universal-16.zip
-          test -f build/release/卜卜-macOS-仅Codex额度/CODEX-ONLY.txt
-          test -f build/release/卜卜-macOS-仅Codex额度/pet/bubu-office/spritesheet.webp
-          test ! -e build/release/卜卜-macOS-仅Codex额度/pet/bubu-orange
+          test -f dist/Orange-Bubu-macOS-Universal-28.zip
+          test -f dist/Orange-Bubu-macOS-Universal-Codex-Only-28.zip
+          test ! -e build/release/橙色卜卜-macOS/CODEX-ONLY.txt
+          test -e build/release/橙色卜卜-macOS-仅Codex额度/CODEX-ONLY.txt
+          test -e build/release/橙色卜卜-macOS/pet/bubu-orange/spritesheet.webp
+          test ! -e build/release/橙色卜卜-macOS/pet/bubu-office
+          ./scripts/validate-orange-isolation.sh build/release/橙色卜卜-macOS
+          ./scripts/validate-orange-isolation.sh build/release/橙色卜卜-macOS-仅Codex额度
+          unzip -tq dist/Orange-Bubu-macOS-Universal-28.zip
+          unzip -tq dist/Orange-Bubu-macOS-Universal-Codex-Only-28.zip
+          ./scripts/privacy-audit.sh
+      - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-16
+          name: orange-bubu-macos-28
           if-no-files-found: error
           path: |
-            dist/Mayday-Bubu-macOS-Universal-16.zip
-            dist/Mayday-Bubu-macOS-Universal-Codex-Only-16.zip
-      - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh
+            dist/Orange-Bubu-macOS-Universal-28.zip
+            dist/Orange-Bubu-macOS-Universal-Codex-Only-28.zip
 
-  windows-syntax:
+  orange-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - shell: powershell
+      - name: Parse PowerShell sources
+        shell: powershell
         run: |
           $failed = $false
-          Get-ChildItem -Path windows -Filter *.ps1 -Recurse | ForEach-Object {
-            $tokens = $null
-            $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
-            if ($errors.Count -gt 0) {
-              $failed = $true
-              Write-Error ("Parse errors in " + $_.FullName + ": " + ($errors | Out-String))
+          @(Get-ChildItem -Path windows -Filter *.ps1 -Recurse) +
+            @(Get-Item .\scripts\build-windows-release.ps1) | ForEach-Object {
+              $tokens = $null
+              $errors = $null
+              [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+              if ($errors.Count -gt 0) {
+                $failed = $true
+                Write-Error ("Parse errors in " + $_.FullName + ": " + ($errors | Out-String))
+              }
             }
-          }
           if ($failed) { exit 1 }
-      - name: Verify Windows panel modes and tracking filters
+      - name: Verify Windows modes, geometry and interactions
         shell: powershell
         run: |
           $panel = ".\windows\BubuQuotaPanel\BubuQuotaPanel.ps1"
-          $fullConfig = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
-          if ($LASTEXITCODE -ne 0 -or $fullConfig -notmatch "version=16 marketPricesEnabled=true width=224 height=160") {
-            throw "Unexpected full panel configuration: $fullConfig"
-          }
+          $full = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
+          if ($LASTEXITCODE -ne 0 -or $full -notmatch 'version=36 marketPricesEnabled=true width=224 height=75') { throw "Unexpected Web3 config: $full" }
           $fullXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
-          if ($LASTEXITCODE -ne 0 -or $fullXaml -notmatch "height=160 marketRows=Visible") {
-            throw "Full panel XAML validation failed: $fullXaml"
-          }
-
-          $env:BUBU_SHOW_MARKET_PRICES = "false"
-          $onlyConfig = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
-          if ($LASTEXITCODE -ne 0 -or $onlyConfig -notmatch "version=16 marketPricesEnabled=false width=224 height=139") {
-            throw "Unexpected Codex-only panel configuration: $onlyConfig"
-          }
-          $onlyXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
-          if ($LASTEXITCODE -ne 0 -or $onlyXaml -notmatch "height=139 marketRows=Collapsed") {
-            throw "Codex-only panel XAML validation failed: $onlyXaml"
-          }
-          $trackingFilters = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateTrackingFilters
-          if ($LASTEXITCODE -ne 0 -or $trackingFilters -notmatch "pet=True ime-size=True ime-class=True no-activate=True placement-matrix=20 scale-matrix=20 visual-scale-matrix=11 capture-coordinate-matrix=12 layout-scale-matrix=2 state-aware-selection=True center-calibration=True drag-center=True anchor-monitor=True flicker-grace=True scale-stability=True pet-double-click=True") {
-            throw "Tracking-filter validation failed: $trackingFilters"
-          }
-          $taskProgress = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateTaskProgress
-          if ($LASTEXITCODE -ne 0 -or $taskProgress -notmatch "7/7; title=1/1; index=1/1; completed-hidden=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=3/3") {
-            throw "Task-progress validation failed: $taskProgress"
-          }
-          $skinSelection = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateSkinSelection
-          if ($LASTEXITCODE -ne 0 -or $skinSelection -notmatch "blue=True orange=True persistence=True duplicate-key=True") {
-            throw "Skin-selection validation failed: $skinSelection"
-          }
+          if ($LASTEXITCODE -ne 0 -or $fullXaml -notmatch 'height=75 marketRows=Visible.*lightstick=True.*independentDefaultOnly=True') { throw "Web3 XAML validation failed: $fullXaml" }
+          $geometry = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateRuntimeGeometry
+          if ($LASTEXITCODE -ne 0 -or $geometry -notmatch 'panel=224x75 gap=14.*uniform-2x=pass') { throw "Geometry validation failed: $geometry" }
+          $tracking = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateTrackingFilters
+          if ($LASTEXITCODE -ne 0 -or $tracking -notmatch 'state-aware-selection=True center-calibration=True drag-center=True.*scale-stability=True pet-double-click=True') { throw "Tracking validation failed: $tracking" }
+          $tasks = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateTaskProgress
+          if ($LASTEXITCODE -ne 0 -or $tasks -notmatch 'completed-hidden=pass.*list=5-truncated.*running-gif=12x100ms') { throw "Task validation failed: $tasks" }
+          $skin = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateSkinSelection
+          if ($LASTEXITCODE -ne 0 -or $skin -notmatch 'project=orange orange=True') { throw "Skin validation failed: $skin" }
+          $env:BUBU_SHOW_MARKET_PRICES = 'false'
+          $standard = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
+          if ($LASTEXITCODE -ne 0 -or $standard -notmatch 'version=36 marketPricesEnabled=false width=224 height=53') { throw "Unexpected standard config: $standard" }
+          $standardXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
+          if ($LASTEXITCODE -ne 0 -or $standardXaml -notmatch 'height=53 marketRows=Collapsed') { throw "Standard XAML validation failed: $standardXaml" }
           Remove-Item Env:BUBU_SHOW_MARKET_PRICES
-      - name: Build and install-test Windows releases
+      - name: Build and install-test Windows variants
         shell: powershell
         run: |
           .\scripts\build-windows-release.ps1
-          $zip = "dist\Mayday-Bubu-Windows-10-11-Codex-Only-16.zip"
-          if (-not (Test-Path -LiteralPath $zip)) { throw "Codex-only ZIP missing" }
-          if (-not (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-16.zip")) { throw "Full ZIP missing" }
-
-          $extractRoot = Join-Path $env:RUNNER_TEMP "bubu-windows-release-extracted"
-          Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
-          Expand-Archive -LiteralPath $zip -DestinationPath $extractRoot -Force
-          $stage = Join-Path $extractRoot "卜卜-Windows-仅Codex额度"
-          $packagePet = Join-Path $stage "pet\bubu-office"
-          if (-not (Test-Path -LiteralPath $stage)) { throw "Windows ZIP root directory missing after extraction" }
-          if (-not (Test-Path -LiteralPath (Join-Path $stage "CODEX-ONLY.txt"))) { throw "Codex-only marker missing" }
-          if (Test-Path -LiteralPath (Join-Path $stage "pet\bubu-orange")) { throw "Orange preview pet leaked into the blue release" }
-          $manifest = Get-Content -Raw -LiteralPath (Join-Path $packagePet "pet.json") | ConvertFrom-Json
-          if ($manifest.spritesheetPath -ne "spritesheet-win-16.webp") { throw "Versioned blue pet atlas path missing" }
-          $packageAtlas = Join-Path $packagePet $manifest.spritesheetPath
-          if (-not (Test-Path -LiteralPath $packageAtlas)) { throw "Versioned pet atlas missing" }
-          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $packageAtlas).Hash -ne
-              (Get-FileHash -Algorithm SHA256 -LiteralPath "shared\pet\bubu-office\spritesheet.webp").Hash) {
-            throw "Packaged pet atlas differs from validated source atlas"
-          }
-          $testHome = Join-Path $env:RUNNER_TEMP "bubu-codex-home"
-          Remove-Item -LiteralPath $testHome -Recurse -Force -ErrorAction SilentlyContinue
-          $oldPet = Join-Path $testHome "pets\bubu-office"
-          New-Item -ItemType Directory -Force -Path $oldPet | Out-Null
-          Set-Content -LiteralPath (Join-Path $oldPet "spritesheet.webp") -Value "stale pet"
-          Set-Content -LiteralPath (Join-Path $oldPet "pet.json") -Value '{"id":"stale"}'
+          $web3Zip = 'dist\Orange-Bubu-Windows-10-11-28.zip'
+          $standardZip = 'dist\Orange-Bubu-Windows-10-11-Codex-Only-28.zip'
+          if (-not (Test-Path $web3Zip) -or -not (Test-Path $standardZip)) { throw 'Windows v28 ZIP missing' }
+          $extractRoot = Join-Path $env:RUNNER_TEMP 'orange-bubu-v28'
+          Expand-Archive -LiteralPath $standardZip -DestinationPath $extractRoot -Force
+          $stage = Join-Path $extractRoot '橙色卜卜-Windows-仅Codex额度'
+          $pet = Join-Path $stage 'pet\bubu-orange'
+          if (-not (Test-Path (Join-Path $stage 'CODEX-ONLY.txt'))) { throw 'Codex-only marker missing' }
+          if (Test-Path (Join-Path $stage 'pet\bubu-office')) { throw 'Blue pet leaked into Orange package' }
+          $manifest = Get-Content -Raw (Join-Path $pet 'pet.json') | ConvertFrom-Json
+          if ($manifest.id -ne 'bubu-orange' -or $manifest.spritesheetPath -ne 'spritesheet-win-28.webp') { throw 'Orange manifest mismatch' }
+          $atlas = Join-Path $pet $manifest.spritesheetPath
+          if ((Get-FileHash -Algorithm SHA256 $atlas).Hash.ToLowerInvariant() -ne '9b179850352e7ff69040c55d5d0d87f06247e8651c465a0f2a13df9e97ff866d') { throw 'Atlas fingerprint mismatch' }
+          $testHome = Join-Path $env:RUNNER_TEMP 'orange-bubu-codex-home'
           $env:CODEX_HOME = $testHome
-          $env:BUBU_INSTALL_NONINTERACTIVE = "1"
-          & (Join-Path $stage "Install-Bubu.cmd") /petonly
-          if ($LASTEXITCODE -ne 0) { throw "Codex-only pet installer simulation failed" }
-          if (Test-Path -LiteralPath (Join-Path $oldPet "spritesheet.webp")) { throw "Stale pet atlas was not removed" }
-          if (-not (Test-Path -LiteralPath (Join-Path $oldPet "spritesheet-win-16.webp"))) { throw "New blue pet atlas was not installed" }
-          $installedConfig = Get-Content -Raw -LiteralPath (Join-Path $testHome "config.toml")
-          if ($installedConfig -notmatch '(?ms)^\s*\[desktop\].*?^\s*selected-avatar-id\s*=\s*"custom:bubu-office"\s*$') {
-            throw "Bubu was not selected in the installed config"
-          }
-          $widthMatches = [regex]::Matches($installedConfig, '(?m)^\s*avatar-overlay-mascot-width-px\s*=\s*163\s*$')
-          if ($widthMatches.Count -ne 1) { throw "Bubu's canonical 163px width was not written exactly once" }
+          $env:BUBU_INSTALL_NONINTERACTIVE = '1'
+          & (Join-Path $stage 'Install-Bubu.cmd') /petonly
+          if ($LASTEXITCODE -ne 0) { throw 'Pet-only install failed' }
+          $config = Get-Content -Raw (Join-Path $testHome 'config.toml')
+          if ($config -notmatch 'selected-avatar-id\s*=\s*"custom:bubu-orange"') { throw 'Orange Bubu was not selected' }
           Remove-Item Env:CODEX_HOME
           Remove-Item Env:BUBU_INSTALL_NONINTERACTIVE
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-16
+          name: orange-bubu-windows-28
           if-no-files-found: error
           path: |
-            dist/Mayday-Bubu-Windows-10-11-16.zip
-            dist/Mayday-Bubu-Windows-10-11-Codex-Only-16.zip
+            dist/Orange-Bubu-Windows-10-11-28.zip
+            dist/Orange-Bubu-Windows-10-11-Codex-Only-28.zip
