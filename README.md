@@ -55,7 +55,7 @@
     </tr>
     <tr>
       <td rowspan="2"><strong>橙色卜卜</strong></td>
-      <td rowspan="2" align="center"><img src="shared/preview/orange-bubu-static.png" alt="橙色卜卜静态示意图" width="80"></td>
+      <td rowspan="2" align="center"><img src="shared/preview/orange-bubu-static.png" alt="橙色卜卜完整效果示意图" width="80"></td>
       <td>Web3 版</td>
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/28/Orange-Bubu-macOS-Universal-28.zip">版本 28 下载</a></td>
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/28/Orange-Bubu-Windows-10-11-28.zip">版本 28 下载</a></td>
