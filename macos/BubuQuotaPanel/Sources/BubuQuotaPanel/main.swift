@@ -1,46 +1,82 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import ImageIO
+import QuartzCore
 
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
 private let taskProgressRefreshInterval: TimeInterval = 2
-private let panelVersion = "21"
-private let panelEdition = "blue-bubu"
-private let bluePetID = "bubu-office"
-private let bluePetAvatarID = "custom:\(bluePetID)"
+private let panelVersion = "36"
 private let marketPricesEnabled: Bool = {
     guard let rawValue = ProcessInfo.processInfo.environment["BUBU_SHOW_MARKET_PRICES"] else {
         return true
     }
     return !["0", "false", "no", "off"].contains(rawValue.lowercased())
 }()
-// Track fast enough that the panel preserves its 14 px visual gap while the
-// pet window is moving between animation positions.
+// Follow the live Electron window at roughly 33 fps. Window movement only
+// changes panel frames; it never redraws the panel contents unconditionally.
 private let followInterval: TimeInterval = 0.03
-private let desktopClientCheckInterval: TimeInterval = 0.20
-private let taskProgressRowHeight: CGFloat = 23
-private let maximumVisibleTaskRows = 5
-// The blue Bubu panel keeps the original 93 pt quota header, followed by the
-// task rows and (in the Web3 build) one BTC row.
-private let baseExpandedPanelHeight: CGFloat = marketPricesEnabled ? 137 : 116
+private let interactionFollowBurstDuration: TimeInterval = 0.60
+private let savedAnchorRefreshInterval: TimeInterval = 0.20
+private let recentLocationGraceInterval: TimeInterval = 2.50
+private let desktopClientCheckInterval: TimeInterval = 2.0
+// Single source of truth for Orange Bubu's approved on-screen composition.
+// These are logical AppKit points at 1x. Every attached element must multiply
+// this geometry by the same pet-derived scale; no element may apply a private
+// compensation factor. Update the shared runtime-geometry-lock.json and its
+// regression test deliberately before changing any value in this contract.
+private enum OrangeBubuRuntimeGeometry {
+    static let schemaVersion = 1
+
+    static let taskProgressRowHeight: CGFloat = 23
+    static let maximumVisibleTaskRows = 5
+    static let panelWidth: CGFloat = 224
+    static let panelBaseHeightWithMarket: CGFloat = 52
+    static let panelBaseHeightWithoutMarket: CGFloat = 30
+    static let panelPetGap: CGFloat = 14
+    static let pointerTipBottomInset: CGFloat = 1
+
+    static let canonicalPetSpriteSize = NSSize(width: 163, height: 177)
+    static let petAtlasFrameSize = NSSize(width: 192, height: 208)
+    static let petSpriteTopPaddingInsideAnchor: CGFloat = 7
+
+    static let accessoryScaleFactor: CGFloat = 0.785
+    static let lightstickBaseSize = NSSize(width: 38, height: 102)
+    static let lightstickOriginXFromOverlayCenter: CGFloat = -91
+    static let lightstickOriginYFromOverlayTop: CGFloat = -206
+    static let lightstickGuitarXFromOverlayCenter: CGFloat = 54
+    static let lightstickProductOffsetX: CGFloat = 8.4
+    static let lightstickChairTiltDegrees: CGFloat = -12
+    static let lightstickGuitarTiltDegrees: CGFloat = 12
+
+    static let airplaneBaseSize = NSSize(width: 78, height: 65)
+    static let airplaneOriginXFromOverlayCenter: CGFloat = -130
+    static let airplaneOriginYFromOverlayTop: CGFloat = -105
+}
+
+private let taskProgressRowHeight = OrangeBubuRuntimeGeometry.taskProgressRowHeight
+private let maximumVisibleTaskRows = OrangeBubuRuntimeGeometry.maximumVisibleTaskRows
+// Orange Bubu uses the approved compact water panel: active task rows and,
+// in the Web3 build, one BTC row. Remaining quota lives on the lightstick.
+private let baseExpandedPanelHeight: CGFloat = marketPricesEnabled
+    ? OrangeBubuRuntimeGeometry.panelBaseHeightWithMarket
+    : OrangeBubuRuntimeGeometry.panelBaseHeightWithoutMarket
 private func panelSizeForTaskRows(_ count: Int) -> NSSize {
     let safeCount = max(1, min(maximumVisibleTaskRows, count))
     return NSSize(
-        width: 224,
+        width: OrangeBubuRuntimeGeometry.panelWidth,
         height: baseExpandedPanelHeight + taskProgressRowHeight * CGFloat(safeCount)
     )
 }
 private let expandedPanelSize = panelSizeForTaskRows(1)
-private let panelPetGap: CGFloat = 14
-private let panelScreenMargin: CGFloat = 8
-private let pointerTipBottomInset: CGFloat = 1
-private let pointerHorizontalSafeInset: CGFloat = 18
-private let canonicalPetSpriteSize = NSSize(width: 163, height: 177)
-private let petAtlasFrameSize = NSSize(width: 192, height: 208)
+private let panelPetGap = OrangeBubuRuntimeGeometry.panelPetGap
+private let pointerTipBottomInset = OrangeBubuRuntimeGeometry.pointerTipBottomInset
+private let canonicalPetSpriteSize = OrangeBubuRuntimeGeometry.canonicalPetSpriteSize
+private let petAtlasFrameSize = OrangeBubuRuntimeGeometry.petAtlasFrameSize
 // Alpha bounds (threshold 20) of every distinct visible frame in the 8x11
 // office atlas. Matching both width and height lets us recover the zoom factor
-// without mistaking coffee/singing/guitar animation padding for a resize.
+// without mistaking coffee/rewind/chairside-live padding for a resize.
 private let petFrameVisiblePixelSizes: [NSSize] = [
     NSSize(width: 109, height: 166), NSSize(width: 109, height: 186),
     NSSize(width: 110, height: 172), NSSize(width: 110, height: 185),
@@ -68,15 +104,150 @@ private let petFrameVisiblePixelSizes: [NSSize] = [
     NSSize(width: 153, height: 198), NSSize(width: 154, height: 198),
     NSSize(width: 155, height: 198), NSSize(width: 157, height: 198),
     NSSize(width: 161, height: 198),
+    // Orange Bubu uses the same 192x208 cells, but the beach chair and the
+    // chairside-live microphone create a second set of visible alpha bounds.
+    NSSize(width: 127, height: 198), NSSize(width: 128, height: 198),
+    NSSize(width: 129, height: 198), NSSize(width: 130, height: 198),
+    NSSize(width: 132, height: 182), NSSize(width: 132, height: 189),
+    NSSize(width: 133, height: 185), NSSize(width: 133, height: 186),
+    NSSize(width: 133, height: 191), NSSize(width: 133, height: 192),
+    NSSize(width: 133, height: 195), NSSize(width: 133, height: 196),
+    NSSize(width: 133, height: 197), NSSize(width: 134, height: 193),
+    NSSize(width: 134, height: 194), NSSize(width: 134, height: 195),
+    NSSize(width: 134, height: 196), NSSize(width: 134, height: 197),
+    NSSize(width: 134, height: 198), NSSize(width: 137, height: 198),
+    NSSize(width: 138, height: 198), NSSize(width: 139, height: 198),
+    NSSize(width: 140, height: 198), NSSize(width: 141, height: 198),
+    NSSize(width: 142, height: 198), NSSize(width: 146, height: 198),
+    NSSize(width: 151, height: 198), NSSize(width: 152, height: 198),
+    NSSize(width: 156, height: 198), NSSize(width: 158, height: 198),
+    NSSize(width: 163, height: 198), NSSize(width: 170, height: 198),
+    NSSize(width: 182, height: 165), NSSize(width: 182, height: 171),
+    NSSize(width: 182, height: 173), NSSize(width: 182, height: 174),
+    NSSize(width: 182, height: 177),
+    // Refreshed true-round short-velour orange Bubu frame families.
+    NSSize(width: 122, height: 197), NSSize(width: 124, height: 197),
+    NSSize(width: 126, height: 198), NSSize(width: 131, height: 197),
+    NSSize(width: 131, height: 198), NSSize(width: 135, height: 198),
+    NSSize(width: 159, height: 198), NSSize(width: 160, height: 198),
+    NSSize(width: 165, height: 198), NSSize(width: 182, height: 183),
+    NSSize(width: 129, height: 202), NSSize(width: 130, height: 200),
+    NSSize(width: 130, height: 201), NSSize(width: 131, height: 200),
+    NSSize(width: 132, height: 200), NSSize(width: 133, height: 200),
+    NSSize(width: 182, height: 167),
 ]
 private let visualScaleTolerance: CGFloat = 0.12
 private let minimumPanelScale: CGFloat = 0.20
 private let maximumPanelScale: CGFloat = 8
 // The v2 sprite has a small transparent top padding inside Codex's stored
 // mascot anchor. Add it so the panel measures from Bubu's visible top tuft.
-private let petSpriteTopPaddingInsideAnchor: CGFloat = 7
+private let petSpriteTopPaddingInsideAnchor = OrangeBubuRuntimeGeometry.petSpriteTopPaddingInsideAnchor
+// Geometry traced from the approved reference: the complete lightstick is
+// 62.6% of the chair height, leans 12 degrees toward the chair, and its top
+// edge only touches the chair's left rail. Keep these constants literal so a
+// later styling pass cannot make the lightstick larger or move it away.
+private let quotaLightstickBaseSize = OrangeBubuRuntimeGeometry.lightstickBaseSize
+// Keep the approved product at about 30x80 points beside the default chair.
+// The old 0.655 value depended on a stale 1.199 panel-scale compensation; once
+// panel calibration was corrected to 1x it shrank the product to about 25x67.
+// This is a composition ratio, so it follows later pet zoom uniformly without
+// borrowing any hidden panel-scale correction.
+private let quotaLightstickPetRenderScaleFactor = OrangeBubuRuntimeGeometry.accessoryScaleFactor
+private let quotaLightstickOriginXFromOverlayCenter = OrangeBubuRuntimeGeometry.lightstickOriginXFromOverlayCenter
+private let quotaLightstickOriginYFromOverlayTop = OrangeBubuRuntimeGeometry.lightstickOriginYFromOverlayTop
+private let quotaLightstickGuitarXFromOverlayCenter = OrangeBubuRuntimeGeometry.lightstickGuitarXFromOverlayCenter
+private let quotaLightstickLeftProductOffsetX = OrangeBubuRuntimeGeometry.lightstickProductOffsetX
+private let quotaLightstickRightProductOffsetX = OrangeBubuRuntimeGeometry.lightstickProductOffsetX
+private let quotaAirplaneBaseSize = OrangeBubuRuntimeGeometry.airplaneBaseSize
+private let quotaAirplaneOriginXFromOverlayCenter = OrangeBubuRuntimeGeometry.airplaneOriginXFromOverlayCenter
+private let quotaAirplaneOriginYFromOverlayTop = OrangeBubuRuntimeGeometry.airplaneOriginYFromOverlayTop
+private let rewindTicketDuration: CFTimeInterval = 0.8
+private let rewindTicketStartXFromOverlayCenter: CGFloat = 96
 
-private final class BluePetSelectionStore {
+private enum QuotaLightstickMode {
+    case chair
+    case rewind
+    case live
+}
+
+private func shouldShowQuotaLightstick(for mode: QuotaLightstickMode) -> Bool {
+    mode == .chair
+}
+
+private func shouldShowQuotaAirplane(for mode: QuotaLightstickMode) -> Bool {
+    mode == .chair
+}
+
+private func rewindTicketProgress(
+    startedAt: CFAbsoluteTime?,
+    now: CFAbsoluteTime
+) -> CGFloat? {
+    guard let startedAt else { return nil }
+    let elapsed = max(0, now - startedAt)
+    guard elapsed < rewindTicketDuration else { return nil }
+    return CGFloat(elapsed / rewindTicketDuration)
+}
+
+private func rewindTicketXFromOverlayCenter(progress: CGFloat) -> CGFloat {
+    let clamped = min(max(progress, 0), 1)
+    let eased = clamped * clamped * (3 - 2 * clamped)
+    return rewindTicketStartXFromOverlayCenter
+        + (quotaAirplaneOriginXFromOverlayCenter - rewindTicketStartXFromOverlayCenter) * eased
+}
+
+private func quotaLightstickFrame(
+    petOverlayRect: NSRect,
+    petRenderScale: CGFloat,
+    screenVisibleFrame: NSRect,
+    originXFromOverlayCenter: CGFloat = quotaLightstickOriginXFromOverlayCenter
+) -> NSRect {
+    let safeScale = normalizedPanelScale(petRenderScale)
+    let size = scaledPanelSize(quotaLightstickBaseSize, scale: safeScale)
+    let desiredOrigin = NSPoint(
+        x: petOverlayRect.midX + originXFromOverlayCenter * safeScale,
+        y: petOverlayRect.maxY + quotaLightstickOriginYFromOverlayTop * safeScale
+    )
+    let maximumX = max(screenVisibleFrame.minX, screenVisibleFrame.maxX - size.width)
+    let maximumY = max(screenVisibleFrame.minY, screenVisibleFrame.maxY - size.height)
+    return NSRect(
+        x: min(max(desiredOrigin.x, screenVisibleFrame.minX), maximumX),
+        y: min(max(desiredOrigin.y, screenVisibleFrame.minY), maximumY),
+        width: size.width,
+        height: size.height
+    )
+}
+
+private func quotaAirplaneFrame(
+    petOverlayRect: NSRect,
+    petRenderScale: CGFloat,
+    screenVisibleFrame: NSRect,
+    originXFromOverlayCenter: CGFloat = quotaAirplaneOriginXFromOverlayCenter
+) -> NSRect {
+    let safeScale = normalizedPanelScale(petRenderScale)
+    let size = scaledPanelSize(quotaAirplaneBaseSize, scale: safeScale)
+    let desiredOrigin = NSPoint(
+        x: petOverlayRect.midX + originXFromOverlayCenter * safeScale,
+        y: petOverlayRect.maxY + quotaAirplaneOriginYFromOverlayTop * safeScale
+    )
+    let maximumX = max(screenVisibleFrame.minX, screenVisibleFrame.maxX - size.width)
+    let maximumY = max(screenVisibleFrame.minY, screenVisibleFrame.maxY - size.height)
+    return NSRect(
+        x: min(max(desiredOrigin.x, screenVisibleFrame.minX), maximumX),
+        y: min(max(desiredOrigin.y, screenVisibleFrame.minY), maximumY),
+        width: size.width,
+        height: size.height
+    )
+}
+
+private enum BubuSkin: String, CaseIterable {
+    case orange
+
+    var petID: String { "bubu-orange" }
+
+    var avatarID: String { "custom:\(petID)" }
+}
+
+private final class PetSelectionStore {
     private let configURL: URL
 
     init(configURL: URL? = nil) {
@@ -92,9 +263,9 @@ private final class BluePetSelectionStore {
             .appendingPathComponent("config.toml")
     }
 
-    func bluePetIsSelected() -> Bool {
+    func selectedSkin() -> BubuSkin? {
         guard let text = try? String(contentsOf: configURL, encoding: .utf8) else {
-            return false
+            return nil
         }
         var section = ""
         for rawLine in text.components(separatedBy: .newlines) {
@@ -108,23 +279,24 @@ private final class BluePetSelectionStore {
             else { continue }
             let remainder = line[line.index(after: quoteStart)...]
             guard let quoteEnd = remainder.firstIndex(of: "\"") else { continue }
-            return String(remainder[..<quoteEnd]) == bluePetAvatarID
+            let avatarID = String(remainder[..<quoteEnd])
+            return BubuSkin.allCases.first { $0.avatarID == avatarID }
         }
-        return false
+        return nil
     }
 
     @discardableResult
-    func selectBluePet() -> Bool {
+    func select(_ skin: BubuSkin) -> Bool {
         do {
             let original = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
-            let updated = Self.updatingDesktopSelection(in: original, avatarID: bluePetAvatarID)
+            let updated = Self.updatingDesktopSelection(in: original, avatarID: skin.avatarID)
             try FileManager.default.createDirectory(
                 at: configURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
             guard let data = updated.data(using: .utf8) else { return false }
             try data.write(to: configURL, options: .atomic)
-            return bluePetIsSelected()
+            return selectedSkin() == skin
         } catch {
             return false
         }
@@ -207,13 +379,11 @@ private func panelPlacement(
     petVisibleRect: NSRect,
     panelSize: NSSize,
     panelScale: CGFloat,
-    screenVisibleFrame: NSRect
+    screenVisibleFrame _: NSRect
 ) -> PanelPlacement {
-    let minX = screenVisibleFrame.minX + panelScreenMargin
-    let maxX = max(minX, screenVisibleFrame.maxX - panelSize.width - panelScreenMargin)
-    let desiredX = petVisibleRect.midX - panelSize.width / 2
-    let x = min(max(desiredX, minX), maxX)
-
+    // The attachment invariant is stronger than keeping the panel fully on
+    // screen: Bubu must stay directly under the panel even at a display edge.
+    let x = petVisibleRect.midX - panelSize.width / 2
     let desiredTipY = petVisibleRect.maxY + panelPetGap
     let desiredY = desiredTipY - pointerTipBottomInset * panelScale
     // Keep the pointer attached even near a display's top edge. Vertically
@@ -223,10 +393,7 @@ private func panelPlacement(
 
     let originX = x
     let originY = y
-    let rawPointerCenterX = petVisibleRect.midX - originX
-    let safeMinX = min(pointerHorizontalSafeInset * panelScale, panelSize.width / 2)
-    let safeMaxX = max(safeMinX, panelSize.width - safeMinX)
-    let pointerCenterX = min(max(rawPointerCenterX, safeMinX), safeMaxX)
+    let pointerCenterX = panelSize.width / 2
     let actualPointerX = originX + pointerCenterX
     let actualPointerTipY = originY + pointerTipBottomInset * panelScale
 
@@ -246,6 +413,17 @@ private func normalizedPanelScale(_ value: CGFloat) -> CGFloat {
 private func scaledPanelSize(_ baseSize: NSSize, scale: CGFloat) -> NSSize {
     let safeScale = normalizedPanelScale(scale)
     return NSSize(width: baseSize.width * safeScale, height: baseSize.height * safeScale)
+}
+
+private func rectApproximatelyEqual(
+    _ lhs: NSRect,
+    _ rhs: NSRect,
+    tolerance: CGFloat = 0.1
+) -> Bool {
+    abs(lhs.origin.x - rhs.origin.x) <= tolerance
+        && abs(lhs.origin.y - rhs.origin.y) <= tolerance
+        && abs(lhs.size.width - rhs.size.width) <= tolerance
+        && abs(lhs.size.height - rhs.size.height) <= tolerance
 }
 
 private func isCodexDesktopApplication(
@@ -306,7 +484,7 @@ private final class RuntimeHealthWriter {
             return URL(fileURLWithPath: override)
         }
         return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Caches/io.github.mayday-materials.bubu-quota-panel/panel-health.json")
+            .appendingPathComponent("Library/Caches/io.github.mayday-materials.orange-bubu-quota-panel/panel-health.json")
     }()
     private var lastSignature = ""
     private var lastWriteAt: CFAbsoluteTime = 0
@@ -332,8 +510,6 @@ private final class RuntimeHealthWriter {
 
         var payload: [String: Any] = [
             "version": panelVersion,
-            "edition": panelEdition,
-            "petID": bluePetID,
             "pid": ProcessInfo.processInfo.processIdentifier,
             "status": status,
             "panelVisible": panelVisible,
@@ -470,13 +646,14 @@ private struct TaskProgressSnapshot: Equatable {
     )])
 
     static func displaying(_ sourceItems: [TaskProgressItem]) -> TaskProgressSnapshot {
-        guard !sourceItems.isEmpty else { return .idle }
+        let activeItems = sourceItems.filter { $0.kind != .completed }
+        guard !activeItems.isEmpty else { return .idle }
 
         // Recurring Codex tasks create a new thread on every run. Multiple
         // rows with the same title are indistinguishable in this compact view,
         // so show the highest-priority/newest sorted instance only.
         var seenTitles = Set<String>()
-        let deduplicated = sourceItems.filter { item in
+        let deduplicated = activeItems.filter { item in
             let key = item.title
                 .components(separatedBy: .whitespacesAndNewlines)
                 .filter { !$0.isEmpty }
@@ -759,7 +936,8 @@ private final class CodexTaskProgressReader {
         unreadState: UnreadThreadState,
         fallbackVisibility: TimeInterval = 2 * 60
     ) -> Bool {
-        guard kind == .completed || kind == .failed else { return true }
+        if kind == .completed { return false }
+        guard kind == .failed else { return true }
         if unreadState.isAvailable, let threadID {
             return unreadState.ids.contains(threadID)
         }
@@ -1190,6 +1368,365 @@ private final class MarketPriceClient {
     }
 }
 
+private struct QuotaLightstickAssets {
+    let unlit: NSImage
+    let tubeEmission: NSImage
+    let glow: NSImage
+    let specular: NSImage
+
+    static let shared: QuotaLightstickAssets? = {
+        func image(_ name: String) -> NSImage? {
+            guard let url = Bundle.main.url(
+                forResource: name,
+                withExtension: "png",
+                subdirectory: "Lightstick"
+            ) else { return nil }
+            return NSImage(contentsOf: url)
+        }
+        guard let unlit = image("lightstick-unlit"),
+              let tubeEmission = image("lightstick-tube-emission"),
+              let glow = image("lightstick-glow"),
+              let specular = image("lightstick-specular")
+        else { return nil }
+        return QuotaLightstickAssets(
+            unlit: unlit,
+            tubeEmission: tubeEmission,
+            glow: glow,
+            specular: specular
+        )
+    }()
+}
+
+private final class QuotaLightstickView: NSView {
+    var remainingPercent: Int? {
+        didSet {
+            guard remainingPercent != oldValue else { return }
+            let target = CGFloat(max(0, min(100, remainingPercent ?? 0)))
+            if oldValue == nil {
+                displayedPercent = target
+                needsDisplay = true
+            } else {
+                animateRemainingPercent(to: target)
+            }
+        }
+    }
+    var tiltDegrees: CGFloat = OrangeBubuRuntimeGeometry.lightstickChairTiltDegrees {
+        didSet { if tiltDegrees != oldValue { needsDisplay = true } }
+    }
+    private var displayedPercent: CGFloat = 0
+    private var animationTimer: Timer?
+    private var animationStartedAt: CFAbsoluteTime = 0
+    private var animationStartPercent: CGFloat = 0
+    private var animationTargetPercent: CGFloat = 0
+    private let animationDuration: CFTimeInterval = 0.35
+
+    deinit {
+        animationTimer?.invalidate()
+    }
+
+    override var isFlipped: Bool { false }
+
+    private func animateRemainingPercent(to target: CGFloat) {
+        animationTimer?.invalidate()
+        animationStartPercent = displayedPercent
+        animationTargetPercent = target
+        animationStartedAt = CFAbsoluteTimeGetCurrent()
+        let timer = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            let elapsed = CFAbsoluteTimeGetCurrent() - self.animationStartedAt
+            let linear = min(1, max(0, elapsed / self.animationDuration))
+            let eased = 1 - pow(1 - linear, 3)
+            self.displayedPercent = self.animationStartPercent
+                + (self.animationTargetPercent - self.animationStartPercent) * CGFloat(eased)
+            self.needsDisplay = true
+            if linear >= 1 {
+                self.displayedPercent = self.animationTargetPercent
+                timer.invalidate()
+                self.animationTimer = nil
+            }
+        }
+        animationTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let assets = QuotaLightstickAssets.shared else { return }
+        NSGraphicsContext.current?.imageInterpolation = .high
+
+        let sourceAspect = assets.unlit.size.width / max(1, assets.unlit.size.height)
+        let productHeight: CGFloat = 96
+        let productRect = NSRect(
+            x: tiltDegrees <= 0
+                ? quotaLightstickLeftProductOffsetX
+                : quotaLightstickRightProductOffsetX,
+            y: 3,
+            width: productHeight * sourceAspect,
+            height: productHeight
+        )
+        // Fractions come from the aligned 219x1221 high-resolution material
+        // master. Quota affects only the emission/glow clip; shell geometry,
+        // chrome reflections, handle texture and emblem never get redrawn.
+        let tubeTopFraction: CGFloat = 17 / 1221
+        let tubeBottomFraction: CGFloat = 657 / 1221
+        let tubeTopY = productRect.maxY - productRect.height * tubeTopFraction
+        let tubeBottomY = productRect.maxY - productRect.height * tubeBottomFraction
+        let tubeHeight = max(0, tubeTopY - tubeBottomY)
+        let progress = max(0, min(1, displayedPercent / 100))
+        let fillTopY = tubeBottomY + tubeHeight * progress
+
+        NSGraphicsContext.saveGraphicsState()
+        let tilt = NSAffineTransform()
+        tilt.translateX(by: productRect.midX, yBy: 51)
+        tilt.rotate(byDegrees: tiltDegrees)
+        tilt.translateX(by: -productRect.midX, yBy: -51)
+        tilt.concat()
+
+        if progress > 0 {
+            NSGraphicsContext.saveGraphicsState()
+            let glowRect = NSRect(
+                x: productRect.minX + 2.5,
+                y: tubeBottomY,
+                width: productRect.width - 5,
+                height: max(0.8, fillTopY - tubeBottomY)
+            )
+            let glowPath = NSBezierPath(
+                roundedRect: glowRect,
+                xRadius: min(glowRect.width / 2, glowRect.height / 2),
+                yRadius: min(glowRect.width / 2, glowRect.height / 2)
+            )
+            let glow = NSShadow()
+            glow.shadowColor = NSColor(
+                calibratedRed: 0.00,
+                green: 0.45,
+                blue: 1.00,
+                alpha: 0.55
+            )
+            glow.shadowBlurRadius = 2.2
+            glow.shadowOffset = .zero
+            glow.set()
+            NSColor(
+                calibratedRed: 0.00,
+                green: 0.84,
+                blue: 1.00,
+                alpha: 0.18
+            ).setFill()
+            glowPath.fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
+
+        assets.unlit.draw(
+            in: productRect,
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: true,
+            hints: [.interpolation: NSImageInterpolation.high]
+        )
+
+        if progress > 0 {
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(rect: NSRect(
+                x: productRect.minX,
+                y: tubeBottomY,
+                width: productRect.width,
+                height: fillTopY - tubeBottomY
+            )).addClip()
+            assets.tubeEmission.draw(
+                in: productRect,
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1,
+                respectFlipped: true,
+                hints: [.interpolation: NSImageInterpolation.high]
+            )
+            NSGraphicsContext.restoreGraphicsState()
+        }
+
+        assets.specular.draw(
+            in: productRect,
+            from: .zero,
+            operation: .screen,
+            fraction: 0.62,
+            respectFlipped: true,
+            hints: [.interpolation: NSImageInterpolation.high]
+        )
+
+        if progress > 0, progress < 1 {
+            let surface = NSBezierPath()
+            surface.move(to: NSPoint(x: productRect.minX + 3.1, y: fillTopY))
+            surface.line(to: NSPoint(x: productRect.maxX - 3.1, y: fillTopY))
+            NSColor(calibratedRed: 0.70, green: 0.97, blue: 1.00, alpha: 0.92).setStroke()
+            surface.lineWidth = 0.65
+            surface.stroke()
+        }
+        NSGraphicsContext.restoreGraphicsState()
+
+    }
+}
+
+private struct QuotaAirplaneAssets {
+    let material: NSImage
+    let flightMaterial: NSImage
+
+    static let shared: QuotaAirplaneAssets? = {
+        guard let url = Bundle.main.url(
+            forResource: "quota-airplane-material",
+            withExtension: "png",
+            subdirectory: "Airplane"
+        ), let flightURL = Bundle.main.url(
+            forResource: "quota-airplane-flight-material",
+            withExtension: "png",
+            subdirectory: "Airplane"
+        ), let material = NSImage(contentsOf: url),
+           let flightMaterial = NSImage(contentsOf: flightURL)
+        else { return nil }
+        return QuotaAirplaneAssets(material: material, flightMaterial: flightMaterial)
+    }()
+}
+
+private final class QuotaAirplaneView: NSView {
+    var isFlying = false {
+        didSet {
+            guard isFlying != oldValue else { return }
+            needsDisplay = true
+        }
+    }
+
+    var remainingPercent: Int? {
+        didSet {
+            guard remainingPercent != oldValue else { return }
+            let target = CGFloat(max(0, min(100, remainingPercent ?? 0)))
+            if oldValue == nil {
+                displayedPercent = target
+                needsDisplay = true
+            } else {
+                animateRemainingPercent(to: target)
+            }
+        }
+    }
+
+    private var displayedPercent: CGFloat = 0
+    private var animationTimer: Timer?
+    private var animationStartedAt: CFAbsoluteTime = 0
+    private var animationStartPercent: CGFloat = 0
+    private var animationTargetPercent: CGFloat = 0
+    private let animationDuration: CFTimeInterval = 0.35
+
+    deinit { animationTimer?.invalidate() }
+
+    override var isFlipped: Bool { false }
+
+    private func animateRemainingPercent(to target: CGFloat) {
+        animationTimer?.invalidate()
+        animationStartPercent = displayedPercent
+        animationTargetPercent = target
+        animationStartedAt = CFAbsoluteTimeGetCurrent()
+        let timer = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            let elapsed = CFAbsoluteTimeGetCurrent() - self.animationStartedAt
+            let linear = min(1, max(0, elapsed / self.animationDuration))
+            let eased = 1 - pow(1 - linear, 3)
+            self.displayedPercent = self.animationStartPercent
+                + (self.animationTargetPercent - self.animationStartPercent) * CGFloat(eased)
+            self.needsDisplay = true
+            if linear >= 1 {
+                self.displayedPercent = self.animationTargetPercent
+                timer.invalidate()
+                self.animationTimer = nil
+            }
+        }
+        animationTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let assets = QuotaAirplaneAssets.shared else { return }
+        NSGraphicsContext.current?.imageInterpolation = .high
+        let material = isFlying ? assets.flightMaterial : assets.material
+        material.draw(
+            in: bounds,
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: true,
+            hints: [.interpolation: NSImageInterpolation.high]
+        )
+
+        let percentText = "\(Int(displayedPercent.rounded()))"
+        let percentFontSize: CGFloat = percentText.count >= 3 ? 9.4 : 11.6
+        let percentAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: percentFontSize, weight: .bold),
+            .foregroundColor: NSColor(
+                calibratedRed: 0.91,
+                green: 0.99,
+                blue: 1.00,
+                alpha: 0.98
+            ),
+        ]
+        let percentSize = percentText.size(withAttributes: percentAttributes)
+        let numberCenter = NSPoint(x: 36.25, y: quotaAirplaneBaseSize.height - 30.90)
+        percentText.draw(
+            at: NSPoint(
+                x: numberCenter.x - percentSize.width / 2,
+                y: numberCenter.y - percentSize.height / 2
+            ),
+            withAttributes: percentAttributes
+        )
+
+        let trackStartX: CGFloat = 17.35
+        let trackY = quotaAirplaneBaseSize.height - 38.00
+        let trackWidth: CGFloat = 34.00
+        let progress = max(0, min(1, displayedPercent / 100))
+        let track = NSBezierPath()
+        track.move(to: NSPoint(x: trackStartX, y: trackY))
+        track.line(to: NSPoint(x: trackStartX + trackWidth, y: trackY))
+        NSColor(calibratedRed: 0.01, green: 0.20, blue: 0.34, alpha: 0.34).setStroke()
+        track.lineWidth = 0.65
+        track.stroke()
+        if progress > 0 {
+            let fill = NSBezierPath()
+            fill.move(to: NSPoint(x: trackStartX, y: trackY))
+            fill.line(to: NSPoint(x: trackStartX + trackWidth * progress, y: trackY))
+            NSColor(calibratedRed: 0.70, green: 0.97, blue: 1.00, alpha: 0.95).setStroke()
+            fill.lineWidth = 0.95
+            fill.stroke()
+        }
+    }
+}
+
+private final class RunningTaskBadgeView: NSView {
+    private let frames: [CGImage]
+
+    init(frames: [CGImage]) {
+        self.frames = frames
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.contentsGravity = .resize
+        layer?.minificationFilter = .linear
+        layer?.magnificationFilter = .linear
+        layer?.actions = ["contents": NSNull()]
+        showFrame(at: 0)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func showFrame(at index: Int) {
+        guard !frames.isEmpty else { return }
+        layer?.contents = frames[index % frames.count]
+    }
+}
+
 private final class QuotaPanelView: NSView {
     var rows: [QuotaRow] = [] { didSet { needsDisplay = true } }
     var statusText = "正在读取额度…" { didSet { needsDisplay = true } }
@@ -1198,7 +1735,7 @@ private final class QuotaPanelView: NSView {
         didSet {
             if taskProgress != oldValue {
                 needsDisplay = true
-                syncRunningTaskBadges()
+                rebuildRunningBadgeViews()
             }
         }
     }
@@ -1209,112 +1746,187 @@ private final class QuotaPanelView: NSView {
         didSet {
             guard pointerSide != oldValue else { return }
             needsDisplay = true
-            syncRunningTaskBadges()
+            needsLayout = true
             window?.invalidateCursorRects(for: self)
         }
     }
     var pointerCenterX: CGFloat? {
         didSet {
-            guard pointerCenterX != oldValue else { return }
+            if let pointerCenterX, let oldValue,
+               abs(pointerCenterX - oldValue) <= 0.1 {
+                return
+            }
+            guard pointerCenterX != nil || oldValue != nil else { return }
             needsDisplay = true
         }
     }
     var onRequestHide: (() -> Void)?
+    var onSelectSkin: ((BubuSkin) -> Bool)?
+    var selectedSkin: BubuSkin = .orange {
+        didSet {
+            guard selectedSkin != oldValue else { return }
+            needsDisplay = true
+        }
+    }
     private var hideButtonTrackingArea: NSTrackingArea?
     private var isHideButtonHovered = false
-    private var runningTaskBadgeViews: [NSImageView] = []
-    private var runningTaskBadgeAnimationsEnabled = false
+    private var runningBadgeViews: [(view: RunningTaskBadgeView, taskIndex: Int)] = []
+    private var isPanelVisibleForAnimation = false
+    private var runningBadgeFrameIndex = 0
+    private var runningBadgeTimer: Timer?
 
     private lazy var backgroundImage: NSImage? = {
         guard let resourceURL = Bundle.main.resourceURL?
             .appendingPathComponent("quota-panel-background.png")
         else { return nil }
-        return NSImage(contentsOf: resourceURL)
+        let image = NSImage(contentsOf: resourceURL)
+        image?.cacheMode = .always
+        return image
     }()
 
     private lazy var completedTaskIcon: NSImage? = {
         guard let resourceURL = Bundle.main.resourceURL?
             .appendingPathComponent("task-completed-icon.png")
         else { return nil }
-        return NSImage(contentsOf: resourceURL)
+        let image = NSImage(contentsOf: resourceURL)
+        image?.cacheMode = .always
+        return image
     }()
 
     private lazy var runningTaskIcon: NSImage? = {
         guard let resourceURL = Bundle.main.resourceURL?
             .appendingPathComponent("task-running-icon.png")
         else { return nil }
-        return NSImage(contentsOf: resourceURL)
+        let image = NSImage(contentsOf: resourceURL)
+        image?.cacheMode = .always
+        return image
     }()
 
-    private lazy var runningTaskBadgeAnimation: NSImage? = {
+    private lazy var runningBadgeFrames: [CGImage] = {
         guard let resourceURL = Bundle.main.resourceURL?
             .appendingPathComponent("task-running-badge.gif")
-        else { return nil }
-        return NSImage(contentsOf: resourceURL)
+        else { return [] }
+        guard let source = CGImageSourceCreateWithURL(resourceURL as CFURL, nil) else {
+            return []
+        }
+        return (0..<CGImageSourceGetCount(source)).compactMap { index in
+            guard let image = CGImageSourceCreateImageAtIndex(source, index, nil) else {
+                return nil
+            }
+            // Materialize each tiny frame once. The 100 ms animation loop then
+            // swaps cached layer contents without asking AppKit to decode or
+            // redraw the complete translucent panel at display-link speed.
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            guard let context = CGContext(
+                data: nil,
+                width: image.width,
+                height: image.height,
+                bitsPerComponent: 8,
+                bytesPerRow: image.width * 4,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return image }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return context.makeImage() ?? image
+        }
     }()
 
     private lazy var waitingTaskIcon: NSImage? = {
         guard let resourceURL = Bundle.main.resourceURL?
             .appendingPathComponent("task-waiting-icon.png")
         else { return nil }
-        return NSImage(contentsOf: resourceURL)
+        let image = NSImage(contentsOf: resourceURL)
+        image?.cacheMode = .always
+        return image
     }()
 
     private lazy var failedTaskIcon: NSImage? = {
         guard let resourceURL = Bundle.main.resourceURL?
             .appendingPathComponent("task-failed-icon.png")
         else { return nil }
-        return NSImage(contentsOf: resourceURL)
+        let image = NSImage(contentsOf: resourceURL)
+        image?.cacheMode = .always
+        return image
     }()
 
     override var isFlipped: Bool { true }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        syncRunningTaskBadges()
+        rebuildRunningBadgeViews()
     }
 
-    func setRunningTaskBadgeAnimationsEnabled(_ enabled: Bool) {
-        runningTaskBadgeAnimationsEnabled = enabled
-        for imageView in runningTaskBadgeViews {
-            imageView.animates = enabled
-        }
+    deinit {
+        runningBadgeTimer?.invalidate()
     }
 
-    private func syncRunningTaskBadges() {
-        for imageView in runningTaskBadgeViews {
-            imageView.animates = false
-            imageView.removeFromSuperview()
-        }
-        runningTaskBadgeViews.removeAll(keepingCapacity: true)
+    private var displayedTaskItems: [TaskProgressItem] {
+        taskProgress.items.isEmpty ? TaskProgressSnapshot.idle.items : taskProgress.items
+    }
 
-        guard window != nil, let animation = runningTaskBadgeAnimation else { return }
-        let taskItems = taskProgress.items.isEmpty
-            ? TaskProgressSnapshot.idle.items
-            : taskProgress.items
+    private func rebuildRunningBadgeViews() {
+        runningBadgeTimer?.invalidate()
+        runningBadgeTimer = nil
+        runningBadgeFrameIndex = 0
+        for entry in runningBadgeViews {
+            entry.view.removeFromSuperview()
+        }
+        runningBadgeViews.removeAll(keepingCapacity: true)
+
+        guard !runningBadgeFrames.isEmpty else { return }
+        for (index, item) in displayedTaskItems.enumerated() where item.kind == .running {
+            let badgeView = RunningTaskBadgeView(frames: runningBadgeFrames)
+            addSubview(badgeView)
+            runningBadgeViews.append((badgeView, index))
+        }
+        needsLayout = true
+        updateRunningBadgeAnimationState()
+    }
+
+    func setPanelAnimationVisible(_ visible: Bool) {
+        isPanelVisibleForAnimation = visible
+        updateRunningBadgeAnimationState()
+    }
+
+    private func updateRunningBadgeAnimationState() {
+        let shouldAnimate = isPanelVisibleForAnimation
+            && !runningBadgeViews.isEmpty
+            && runningBadgeFrames.count > 1
+        guard shouldAnimate else {
+            runningBadgeTimer?.invalidate()
+            runningBadgeTimer = nil
+            runningBadgeFrameIndex = 0
+            for entry in runningBadgeViews {
+                entry.view.showFrame(at: 0)
+            }
+            return
+        }
+        guard runningBadgeTimer == nil else { return }
+
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.runningBadgeFrameIndex =
+                (self.runningBadgeFrameIndex + 1) % self.runningBadgeFrames.count
+            for entry in self.runningBadgeViews {
+                entry.view.showFrame(at: self.runningBadgeFrameIndex)
+            }
+        }
+        timer.tolerance = 0.02
+        runningBadgeTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    override func layout() {
+        super.layout()
         let contentX = panelBodyRect().minX + 14
-        for (index, item) in taskItems.enumerated() where item.kind == .running {
-            let iconRect = NSRect(
-                x: contentX - 2,
-                y: 103 + CGFloat(index) * taskProgressRowHeight,
-                width: 20,
-                height: 15
-            )
-            let badgeRect = NSRect(
-                x: iconRect.minX + 10.6,
-                y: iconRect.minY + 0.4,
+        for entry in runningBadgeViews {
+            let y = 17 + CGFloat(entry.taskIndex) * taskProgressRowHeight
+            entry.view.frame = NSRect(
+                x: contentX + 8.6,
+                y: y + 0.4,
                 width: 8.4,
                 height: 8.4
             )
-            let imageView = NSImageView(frame: badgeRect)
-            imageView.image = animation
-            imageView.imageAlignment = .alignCenter
-            imageView.imageScaling = .scaleAxesIndependently
-            imageView.imageFrameStyle = .none
-            imageView.isEditable = false
-            imageView.animates = runningTaskBadgeAnimationsEnabled
-            addSubview(imageView)
-            runningTaskBadgeViews.append(imageView)
         }
     }
 
@@ -1325,13 +1937,19 @@ private final class QuotaPanelView: NSView {
         let bodyRect = panelBodyRect()
 
         let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.38)
+        shadow.shadowColor = NSColor(
+            calibratedRed: 0.0,
+            green: 0.26,
+            blue: 0.30,
+            alpha: 0.42
+        )
         shadow.shadowBlurRadius = 12
         shadow.shadowOffset = NSSize(width: 0, height: -3)
         shadow.set()
 
-        let background = NSColor(calibratedRed: 0.035, green: 0.045, blue: 0.085, alpha: 0.97)
-        let border = NSColor.white.withAlphaComponent(0.22)
+        let background = NSColor(calibratedRed: 0.035, green: 0.54, blue: 0.58, alpha: 0.32)
+        let pointerBackground = NSColor(calibratedRed: 0.035, green: 0.52, blue: 0.56, alpha: 0.78)
+        let border = NSColor.white.withAlphaComponent(0.62)
         let bodyPath = NSBezierPath(roundedRect: bodyRect, xRadius: 17, yRadius: 17)
         background.setFill()
         bodyPath.fill()
@@ -1339,9 +1957,12 @@ private final class QuotaPanelView: NSView {
         if let backgroundImage {
             NSGraphicsContext.saveGraphicsState()
             bodyPath.addClip()
-            drawFiveBallBand(backgroundImage, in: bodyRect)
-            NSColor.black.withAlphaComponent(0.08).setFill()
-            bodyPath.fill()
+            drawAspectFill(backgroundImage, in: bodyRect)
+            let tint = NSGradient(
+                starting: NSColor(calibratedRed: 0.015, green: 0.34, blue: 0.38, alpha: 0.18),
+                ending: NSColor(calibratedRed: 0.015, green: 0.43, blue: 0.46, alpha: 0.07)
+            )
+            tint?.draw(in: bodyRect, angle: -90)
             NSGraphicsContext.restoreGraphicsState()
         }
 
@@ -1372,7 +1993,7 @@ private final class QuotaPanelView: NSView {
             arrow.line(to: NSPoint(x: centerX + 8, y: bodyRect.maxY - 1))
         }
         arrow.close()
-        background.setFill()
+        pointerBackground.setFill()
         arrow.fill()
         border.setStroke()
         arrow.lineWidth = 1
@@ -1382,63 +2003,13 @@ private final class QuotaPanelView: NSView {
 
         let contentX = bodyRect.minX + 14
         let contentWidth = bodyRect.width - 28
-        let hideButton = hideButtonRect(in: bodyRect)
-        let hideButtonPath = NSBezierPath(roundedRect: hideButton, xRadius: 8, yRadius: 8)
-        NSColor.white.withAlphaComponent(isHideButtonHovered ? 0.20 : 0.11).setFill()
-        hideButtonPath.fill()
-        NSColor.white.withAlphaComponent(isHideButtonHovered ? 0.38 : 0.20).setStroke()
-        hideButtonPath.lineWidth = 0.75
-        hideButtonPath.stroke()
-        drawText(
-            "隐藏",
-            in: NSRect(x: hideButton.minX, y: hideButton.minY + 2, width: hideButton.width, height: 15),
-            font: .systemFont(ofSize: 9.5, weight: .medium),
-            color: NSColor.white.withAlphaComponent(isHideButtonHovered ? 1.0 : 0.86),
-            alignment: .center
-        )
-
-        if let errorText {
-            drawText(
-                errorText,
-                in: NSRect(x: contentX, y: 14, width: contentWidth - 48, height: 38),
-                font: .systemFont(ofSize: 12, weight: .medium),
-                color: NSColor(calibratedRed: 1.0, green: 0.72, blue: 0.38, alpha: 1)
-            )
-        } else if rows.isEmpty {
-            drawText(
-                "正在向 Codex 本机服务查询…",
-                in: NSRect(x: contentX, y: 14, width: contentWidth - 48, height: 20),
-                font: .systemFont(ofSize: 11.5, weight: .medium),
-                color: NSColor.white.withAlphaComponent(0.68)
-            )
-        } else {
-            for (index, row) in rows.prefix(1).enumerated() {
-                draw(row: row, index: index, x: contentX, width: contentWidth)
-            }
-        }
-
-        drawText(
-            statusText,
-            in: NSRect(
-                x: contentX + 96,
-                y: 77,
-                width: contentWidth - 96,
-                height: 14
-            ),
-            font: .systemFont(ofSize: 9.2, weight: .regular),
-            color: NSColor.white.withAlphaComponent(0.72),
-            alignment: .right
-        )
-
-        let taskItems = taskProgress.items.isEmpty
-            ? TaskProgressSnapshot.idle.items
-            : taskProgress.items
+        let taskItems = displayedTaskItems
         for (index, item) in taskItems.enumerated() {
             drawTaskProgressItem(
                 item,
                 index: index,
-                y: 103 + CGFloat(index) * taskProgressRowHeight,
-                separatorY: 96 + CGFloat(index) * taskProgressRowHeight,
+                y: 17 + CGFloat(index) * taskProgressRowHeight,
+                separatorY: 10 + CGFloat(index) * taskProgressRowHeight,
                 contentX: contentX,
                 contentWidth: contentWidth
             )
@@ -1453,8 +2024,8 @@ private final class QuotaPanelView: NSView {
                 price: btcPrice,
                 direction: btcPriceDirection,
                 statusText: btcStatusText,
-                y: 103 + taskProgressSectionHeight,
-                separatorY: 96 + taskProgressSectionHeight,
+                y: 17 + taskProgressSectionHeight,
+                separatorY: 10 + taskProgressSectionHeight,
                 contentX: contentX,
                 contentWidth: contentWidth
             )
@@ -1465,15 +2036,8 @@ private final class QuotaPanelView: NSView {
         super.updateTrackingAreas()
         if let hideButtonTrackingArea {
             removeTrackingArea(hideButtonTrackingArea)
+            self.hideButtonTrackingArea = nil
         }
-        let trackingArea = NSTrackingArea(
-            rect: hideButtonRect(in: panelBodyRect()),
-            options: [.mouseEnteredAndExited, .activeAlways],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(trackingArea)
-        hideButtonTrackingArea = trackingArea
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -1487,12 +2051,6 @@ private final class QuotaPanelView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        let bodyRect = panelBodyRect()
-        if hideButtonRect(in: bodyRect).contains(point) {
-            onRequestHide?()
-            return
-        }
         super.mouseDown(with: event)
     }
 
@@ -1502,7 +2060,6 @@ private final class QuotaPanelView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        addCursorRect(hideButtonRect(in: panelBodyRect()), cursor: .pointingHand)
     }
 
     private func panelBodyRect() -> NSRect {
@@ -1569,30 +2126,30 @@ private final class QuotaPanelView: NSView {
         )
     }
 
-    private func drawFiveBallBand(_ image: NSImage, in destinationRect: NSRect) {
+    private func drawAspectFill(_ image: NSImage, in destinationRect: NSRect) {
         let imageSize = image.size
         guard imageSize.width > 0, imageSize.height > 0 else { return }
 
-        // The poster's central band contains the five balls without either
-        // MAYDAY text stripe. Restrict it to the fixed quota header.
-        let sourceRect = NSRect(
-            x: 0,
-            y: imageSize.height * 0.34,
-            width: imageSize.width,
-            height: imageSize.height * 0.32
+        let scale = max(
+            destinationRect.width / imageSize.width,
+            destinationRect.height / imageSize.height
+        )
+        let drawnSize = NSSize(
+            width: imageSize.width * scale,
+            height: imageSize.height * scale
         )
         let imageRect = NSRect(
-            x: destinationRect.minX,
-            y: destinationRect.minY,
-            width: destinationRect.width,
-            height: min(93, destinationRect.height)
+            x: destinationRect.midX - drawnSize.width / 2,
+            y: destinationRect.midY - drawnSize.height / 2,
+            width: drawnSize.width,
+            height: drawnSize.height
         )
 
         image.draw(
             in: imageRect,
-            from: sourceRect,
+            from: NSRect(origin: .zero, size: imageSize),
             operation: .sourceOver,
-            fraction: 1,
+            fraction: 0.78,
             respectFlipped: true,
             hints: [.interpolation: NSImageInterpolation.high]
         )
@@ -1678,15 +2235,21 @@ private final class QuotaPanelView: NSView {
             width: 8.4,
             height: 8.4
         )
+        if kind == .running, !runningBadgeFrames.isEmpty {
+            return
+        }
         let badge = NSBezierPath(ovalIn: badgeRect)
         switch kind {
         case .running:
-            // The animated GIF is hosted in a tiny NSImageView so AppKit only
-            // refreshes this badge instead of redrawing the entire panel at 30 fps.
-            // Keep one static frame underneath for previews and asset-load fallback.
             NSColor(calibratedRed: 0.12, green: 0.46, blue: 0.96, alpha: 1).setFill()
             badge.fill()
-            drawStaticRunningArrow(in: badgeRect)
+            drawText(
+                "↻",
+                in: badgeRect.offsetBy(dx: 0, dy: -0.6),
+                font: .systemFont(ofSize: 6.8, weight: .bold),
+                color: .white,
+                alignment: .center
+            )
         case .waitingForInput:
             NSColor(calibratedRed: 1.0, green: 0.76, blue: 0.10, alpha: 1).setFill()
             badge.fill()
@@ -1713,44 +2276,6 @@ private final class QuotaPanelView: NSView {
         case .reading, .completed, .idle:
             break
         }
-    }
-
-    private func drawStaticRunningArrow(in badgeRect: NSRect) {
-        let center = NSPoint(x: badgeRect.midX, y: badgeRect.midY)
-        let radius = badgeRect.width * 0.31
-        let rotation: CGFloat = 0
-        let start: CGFloat = rotation - .pi * 0.40
-        let sweep: CGFloat = .pi * 1.56
-        let segments = 18
-        let arc = NSBezierPath()
-        for index in 0...segments {
-            let angle = start + sweep * CGFloat(index) / CGFloat(segments)
-            let point = NSPoint(
-                x: center.x + cos(angle) * radius,
-                y: center.y + sin(angle) * radius
-            )
-            if index == 0 { arc.move(to: point) } else { arc.line(to: point) }
-        }
-        NSColor.white.setStroke()
-        arc.lineWidth = 1.05
-        arc.lineCapStyle = .round
-        arc.stroke()
-
-        let end = start + sweep
-        let tip = NSPoint(
-            x: center.x + cos(end) * radius,
-            y: center.y + sin(end) * radius
-        )
-        let tangent = NSPoint(x: -sin(end), y: cos(end))
-        let normal = NSPoint(x: -tangent.y, y: tangent.x)
-        let base = NSPoint(x: tip.x - tangent.x * 1.6, y: tip.y - tangent.y * 1.6)
-        let head = NSBezierPath()
-        head.move(to: tip)
-        head.line(to: NSPoint(x: base.x + normal.x * 0.72, y: base.y + normal.y * 0.72))
-        head.line(to: NSPoint(x: base.x - normal.x * 0.72, y: base.y - normal.y * 0.72))
-        head.close()
-        NSColor.white.setFill()
-        head.fill()
     }
 
     private func drawMarketPriceRow(
@@ -1918,6 +2443,130 @@ private struct LocatedPet {
     let source: String
 }
 
+/// Locks Bubu's visible center/top to the live Electron overlay. Codex's saved
+/// x/y is accurate but can trail a drag; the live Quartz window is immediate
+/// but includes transparent padding. One calibration combines both strengths.
+private struct PetAnchorCalibration {
+    let referenceOverlayRect: NSRect
+    let referenceVisibleSize: NSSize
+    let centerOffsetX: CGFloat
+    let topOffsetY: CGFloat
+    let referencePanelScale: CGFloat
+
+    static func acceptsLiveGeometrySource(_ source: String) -> Bool {
+        source.hasPrefix("window-")
+    }
+
+    init?(savedAnchor: LocatedPet, liveGeometry: LocatedPet) {
+        // `locate()` can legitimately fall back to the persisted pet anchor
+        // during the first few launch frames. That 163x177 anchor is not the
+        // Electron overlay's outer bounds and must never become a scale base.
+        guard Self.acceptsLiveGeometrySource(liveGeometry.source) else { return nil }
+        self.init(
+            savedVisibleRect: savedAnchor.visibleRect,
+            savedPanelScale: savedAnchor.panelScale,
+            liveOverlayRect: liveGeometry.overlayRect
+        )
+    }
+
+    init?(
+        savedVisibleRect: NSRect,
+        savedPanelScale: CGFloat,
+        liveOverlayRect: NSRect
+    ) {
+        guard liveOverlayRect.width > 0,
+              liveOverlayRect.height > 0,
+              savedVisibleRect.width > 0,
+              savedVisibleRect.height > 0
+        else { return nil }
+
+        referenceOverlayRect = liveOverlayRect
+        referenceVisibleSize = savedVisibleRect.size
+        centerOffsetX = savedVisibleRect.midX - liveOverlayRect.minX
+        topOffsetY = savedVisibleRect.maxY - liveOverlayRect.maxY
+        referencePanelScale = normalizedPanelScale(savedPanelScale)
+    }
+
+    func projection(for liveOverlayRect: NSRect) -> (visibleRect: NSRect, panelScale: CGFloat)? {
+        guard referenceOverlayRect.width > 0,
+              referenceOverlayRect.height > 0,
+              liveOverlayRect.width > 0,
+              liveOverlayRect.height > 0
+        else { return nil }
+
+        let scaleX = liveOverlayRect.width / referenceOverlayRect.width
+        let scaleY = liveOverlayRect.height / referenceOverlayRect.height
+        guard scaleX.isFinite,
+              scaleY.isFinite,
+              scaleX >= 0.20,
+              scaleX <= 8,
+              scaleY >= 0.20,
+              scaleY <= 8,
+              abs(log(scaleX / scaleY)) <= 0.30
+        else { return nil }
+
+        let visibleSize = NSSize(
+            width: referenceVisibleSize.width * scaleX,
+            height: referenceVisibleSize.height * scaleY
+        )
+        let visibleCenterX = liveOverlayRect.minX + centerOffsetX * scaleX
+        let visibleTop = liveOverlayRect.maxY + topOffsetY * scaleY
+        let visibleRect = NSRect(
+            x: visibleCenterX - visibleSize.width / 2,
+            y: visibleTop - visibleSize.height,
+            width: visibleSize.width,
+            height: visibleSize.height
+        )
+        return (
+            visibleRect,
+            normalizedPanelScale(referencePanelScale * sqrt(scaleX * scaleY))
+        )
+    }
+}
+
+private func locationUsingRealtimeCalibration(
+    _ calibration: PetAnchorCalibration,
+    geometry: LocatedPet
+) -> LocatedPet? {
+    guard let projection = calibration.projection(for: geometry.overlayRect) else { return nil }
+    return LocatedPet(
+        overlayRect: geometry.overlayRect,
+        visibleRect: projection.visibleRect,
+        panelScale: projection.panelScale,
+        screen: geometry.screen,
+        source: "window-calibrated-live"
+    )
+}
+
+private func locationUsingSavedAnchor(
+    _ savedAnchor: LocatedPet,
+    geometry: LocatedPet
+) -> LocatedPet {
+    // External-display x/y persistence identifies Bubu's visible top-left,
+    // while the live Quartz window remains the reliable source for scale and
+    // accessory-window geometry. Combine the two instead of mixing their
+    // coordinate origins.
+    let hasTrustedVisualScale = geometry.source.contains("visual-probe")
+    let visibleSize = hasTrustedVisualScale
+        ? geometry.visibleRect.size
+        : savedAnchor.visibleRect.size
+    let visibleRect = NSRect(
+        x: savedAnchor.visibleRect.midX - visibleSize.width / 2,
+        y: savedAnchor.visibleRect.maxY - visibleSize.height,
+        width: visibleSize.width,
+        height: visibleSize.height
+    )
+    return LocatedPet(
+        overlayRect: geometry.overlayRect,
+        visibleRect: visibleRect,
+        panelScale: hasTrustedVisualScale ? geometry.panelScale : savedAnchor.panelScale,
+        screen: savedAnchor.screen,
+        source: hasTrustedVisualScale
+            ? "window-visual-probe+saved-anchor"
+            : savedAnchor.source
+    )
+}
+
 private final class PetWindowLocator {
     private struct StoredMascotMetrics {
         let left: CGFloat
@@ -1950,9 +2599,13 @@ private final class PetWindowLocator {
     private var storedOverlayLocations: [StoredOverlayLocation] = []
     private(set) var overlayOpen: Bool?
 
-    func locate() -> LocatedPet? {
+    func locate(
+        allowVisualProbe: Bool = true,
+        refreshStoredState: Bool = true,
+        allowSavedFallback: Bool = true
+    ) -> LocatedPet? {
         let now = CFAbsoluteTimeGetCurrent()
-        if now - lastOverlayStateReadAt >= 0.05 {
+        if refreshStoredState, now - lastOverlayStateReadAt >= 0.05 {
             lastOverlayStateReadAt = now
             refreshStoredOverlayState()
         }
@@ -1961,7 +2614,11 @@ private final class PetWindowLocator {
            let windows = CGWindowListCopyWindowInfo(.optionIncludingWindow, cachedWindowID) as? [[String: Any]],
            let window = windows.first,
            let candidate = candidate(from: window),
-           let location = makeLocation(from: candidate.rect, windowID: cachedWindowID)
+           let location = makeLocation(
+               from: candidate.rect,
+               windowID: cachedWindowID,
+               allowVisualProbe: allowVisualProbe
+           )
         {
             return location
         }
@@ -1969,7 +2626,7 @@ private final class PetWindowLocator {
         cachedWindowID = nil
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         guard let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
-            return storedOverlayLocation()
+            return allowSavedFallback ? storedOverlayLocation() : nil
         }
 
         let candidates: [(id: CGWindowID, rect: CGRect, score: Double)] = windows.compactMap { window in
@@ -1980,10 +2637,14 @@ private final class PetWindowLocator {
         }
 
         guard let best = candidates.min(by: { $0.score < $1.score }) else {
-            return storedOverlayLocation()
+            return allowSavedFallback ? storedOverlayLocation() : nil
         }
         cachedWindowID = best.id
-        return makeLocation(from: best.rect, windowID: best.id) ?? storedOverlayLocation()
+        return makeLocation(
+            from: best.rect,
+            windowID: best.id,
+            allowVisualProbe: allowVisualProbe
+        ) ?? (allowSavedFallback ? storedOverlayLocation() : nil)
     }
 
     func locateSavedState() -> LocatedPet? {
@@ -1991,11 +2652,16 @@ private final class PetWindowLocator {
         return storedOverlayLocation()
     }
 
-    private func makeLocation(from quartzRect: CGRect, windowID: CGWindowID) -> LocatedPet? {
+    private func makeLocation(
+        from quartzRect: CGRect,
+        windowID: CGWindowID,
+        allowVisualProbe: Bool
+    ) -> LocatedPet? {
         guard let converted = convertToAppKit(quartzRect) else { return nil }
         let visualMetrics = currentVisualMetrics(
             windowID: windowID,
-            overlayRect: quartzRect
+            overlayRect: quartzRect,
+            allowProbe: allowVisualProbe
         )
 
         if let matched = bestStoredMetrics(matching: quartzRect),
@@ -2125,12 +2791,37 @@ private final class PetWindowLocator {
                   let y = entry["y"] as? NSNumber
             else { return }
 
-            // Some Codex builds update x/y and placement immediately but omit
-            // width, height and mascot while the overlay is on an external
-            // display. Retain that current-display entry with the canonical
-            // reference size; it will be scaled against the live Quartz window.
-            let width = (entry["width"] as? NSNumber)?.doubleValue ?? 356
-            let height = (entry["height"] as? NSNumber)?.doubleValue ?? 320
+            // On external displays, current Codex builds often persist only
+            // x/y. Those coordinates are the visible mascot's top-left anchor,
+            // not the 356x320 transparent overlay origin. Treating them as the
+            // overlay origin shifts Orange Bubu's panel about 90 px sideways.
+            guard let widthNumber = entry["width"] as? NSNumber,
+                  let heightNumber = entry["height"] as? NSNumber
+            else {
+                let rect = CGRect(
+                    x: x.doubleValue,
+                    y: y.doubleValue,
+                    width: canonicalPetSpriteSize.width,
+                    height: canonicalPetSpriteSize.height
+                )
+                let directAnchor = StoredMascotMetrics(
+                    left: 0,
+                    top: 0,
+                    width: canonicalPetSpriteSize.width,
+                    height: canonicalPetSpriteSize.height,
+                    topPadding: 0,
+                    source: "state-direct-anchor"
+                )
+                locations.append(StoredOverlayLocation(
+                    rect: rect,
+                    mascot: directAnchor,
+                    isPrimary: isPrimary
+                ))
+                return
+            }
+
+            let width = widthNumber.doubleValue
+            let height = heightNumber.doubleValue
             guard width > 0, height > 0 else { return }
 
             let rect = CGRect(
@@ -2414,10 +3105,11 @@ private final class PetWindowLocator {
 
     private func currentVisualMetrics(
         windowID: CGWindowID,
-        overlayRect: CGRect
+        overlayRect: CGRect,
+        allowProbe: Bool
     ) -> StoredMascotMetrics? {
         let now = CFAbsoluteTimeGetCurrent()
-        if now - lastVisualProbeAt >= 0.12 {
+        if allowProbe, now - lastVisualProbeAt >= 0.12 {
             lastVisualProbeAt = now
             if let metrics = probeVisibleMascotMetrics(
                 windowID: windowID,
@@ -2665,21 +3357,40 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let btcPriceClient = MarketPriceClient(symbol: "BTCUSDT")
     private let locator = PetWindowLocator()
     private let healthWriter = RuntimeHealthWriter()
-    private let petSelectionStore = BluePetSelectionStore()
+    private let petSelectionStore = PetSelectionStore()
     private let quotaView = QuotaPanelView(frame: NSRect(origin: .zero, size: expandedPanelSize))
+    private let quotaLightstickView = QuotaLightstickView(
+        frame: NSRect(origin: .zero, size: quotaLightstickBaseSize)
+    )
+    private let secondaryQuotaLightstickView = QuotaLightstickView(
+        frame: NSRect(origin: .zero, size: quotaLightstickBaseSize)
+    )
+    private let quotaAirplaneView = QuotaAirplaneView(
+        frame: NSRect(origin: .zero, size: quotaAirplaneBaseSize)
+    )
     private var panel: NSPanel!
+    private var quotaLightstickPanel: NSPanel!
+    private var secondaryQuotaLightstickPanel: NSPanel!
+    private var quotaAirplanePanel: NSPanel!
     private var statusItem: NSStatusItem?
     private var refreshTimer: Timer?
     private var taskProgressTimer: Timer?
     private var btcRefreshTimer: Timer?
     private var followTimer: Timer?
     private var globalMouseMonitor: Any?
+    private var petDragStart: NSPoint?
+    private var fastFollowUntil: CFAbsoluteTime = 0
+    private var quotaLightstickMode: QuotaLightstickMode = .chair
+    private var rewindTicketStartedAt: CFAbsoluteTime?
     private var isRefreshing = false
     private var isRefreshingTaskProgress = false
     private var isRefreshingBTCPrice = false
     private var lastBTCPrice: Double?
     private var lastLocatedPet: LocatedPet?
     private var lastLocatedAt: CFAbsoluteTime = 0
+    private var cachedSavedAnchor: LocatedPet?
+    private var lastSavedAnchorReadAt: CFAbsoluteTime = 0
+    private var petAnchorCalibration: PetAnchorCalibration?
     private var currentPanelScale: CGFloat = 1
     private var currentBasePanelSize = expandedPanelSize
     private var isPanelHiddenByUser = false
@@ -2688,10 +3399,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        // This executable is blue-only. Always restore the matching pet after
-        // replacing an older mixed experimental build.
-        _ = petSelectionStore.selectBluePet()
+        // This executable belongs only to the Orange Bubu project. Never
+        // inherit or write another pet project's selection.
+        _ = petSelectionStore.select(.orange)
+        quotaView.selectedSkin = .orange
         makePanel()
+        makeQuotaLightstickPanel()
         makeStatusItem()
         startPetDoubleClickMonitor()
         healthWriter.write(status: "started", panelVisible: false, locationSource: nil, force: true)
@@ -2702,9 +3415,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             refreshBTCPrice()
         }
 
-        followTimer = Timer.scheduledTimer(withTimeInterval: followInterval, repeats: true) { [weak self] _ in
-            self?.followPet()
-        }
+        scheduleNextFollow()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             self?.refreshQuota()
         }
@@ -2722,17 +3433,20 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        quotaView.setRunningTaskBadgeAnimationsEnabled(false)
         refreshTimer?.invalidate()
         taskProgressTimer?.invalidate()
         btcRefreshTimer?.invalidate()
         followTimer?.invalidate()
+        quotaView.setPanelAnimationVisible(false)
         if let globalMouseMonitor {
             NSEvent.removeMonitor(globalMouseMonitor)
         }
         if let statusItem {
             NSStatusBar.system.removeStatusItem(statusItem)
         }
+        quotaLightstickPanel?.orderOut(nil)
+        secondaryQuotaLightstickPanel?.orderOut(nil)
+        quotaAirplanePanel?.orderOut(nil)
         healthWriter.write(status: "terminated", panelVisible: false, locationSource: nil, force: true)
     }
 
@@ -2760,10 +3474,84 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func makeQuotaLightstickPanel() {
+        quotaLightstickPanel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: quotaLightstickBaseSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        quotaLightstickPanel.contentView = quotaLightstickView
+        quotaLightstickPanel.isOpaque = false
+        quotaLightstickPanel.backgroundColor = .clear
+        quotaLightstickPanel.hasShadow = false
+        quotaLightstickPanel.level = .statusBar
+        quotaLightstickPanel.hidesOnDeactivate = false
+        quotaLightstickPanel.ignoresMouseEvents = true
+        quotaLightstickPanel.isMovable = false
+        quotaLightstickPanel.isReleasedWhenClosed = false
+        quotaLightstickPanel.isFloatingPanel = true
+        quotaLightstickPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+
+        secondaryQuotaLightstickPanel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: quotaLightstickBaseSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        secondaryQuotaLightstickPanel.contentView = secondaryQuotaLightstickView
+        secondaryQuotaLightstickPanel.isOpaque = false
+        secondaryQuotaLightstickPanel.backgroundColor = .clear
+        secondaryQuotaLightstickPanel.hasShadow = false
+        secondaryQuotaLightstickPanel.level = .statusBar
+        secondaryQuotaLightstickPanel.hidesOnDeactivate = false
+        secondaryQuotaLightstickPanel.ignoresMouseEvents = true
+        secondaryQuotaLightstickPanel.isMovable = false
+        secondaryQuotaLightstickPanel.isReleasedWhenClosed = false
+        secondaryQuotaLightstickPanel.isFloatingPanel = true
+        secondaryQuotaLightstickPanel.collectionBehavior = [
+            .canJoinAllSpaces, .fullScreenAuxiliary, .stationary,
+        ]
+
+        quotaAirplanePanel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: quotaAirplaneBaseSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        quotaAirplanePanel.contentView = quotaAirplaneView
+        quotaAirplanePanel.isOpaque = false
+        quotaAirplanePanel.backgroundColor = .clear
+        quotaAirplanePanel.hasShadow = false
+        quotaAirplanePanel.level = .statusBar
+        quotaAirplanePanel.hidesOnDeactivate = false
+        quotaAirplanePanel.ignoresMouseEvents = true
+        quotaAirplanePanel.isMovable = false
+        quotaAirplanePanel.isReleasedWhenClosed = false
+        quotaAirplanePanel.isFloatingPanel = true
+        quotaAirplanePanel.collectionBehavior = [
+            .canJoinAllSpaces, .fullScreenAuxiliary, .stationary,
+        ]
+    }
+
+    private func selectSkin(_ skin: BubuSkin) -> Bool {
+        guard petSelectionStore.select(skin) else { return false }
+        quotaView.selectedSkin = skin
+        healthWriter.write(
+            status: "skin-selected-\(skin.rawValue)",
+            panelVisible: panel.isVisible,
+            locationSource: lastLocatedPet?.source,
+            panelScale: currentPanelScale,
+            panelSize: scaledPanelSize(currentBasePanelSize, scale: currentPanelScale),
+            force: true
+        )
+        return true
+    }
+
     private func makeStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.title = "卜卜"
-        item.button?.toolTip = "显示卜卜额度面板"
+        item.button?.toolTip = "显示橙色卜卜额度面板"
         item.button?.target = self
         item.button?.action = #selector(showPanelFromStatusItem)
         item.isVisible = false
@@ -2771,20 +3559,99 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startPetDoubleClickMonitor() {
-        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) {
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .scrollWheel]
+        ) {
             [weak self] event in
-            guard event.clickCount == 2 else { return }
-            let clickCount = event.clickCount
-            let clickLocation = NSEvent.mouseLocation
+            let location = NSEvent.mouseLocation
             DispatchQueue.main.async {
-                self?.handlePetDoubleClick(at: clickLocation, clickCount: clickCount)
+                guard let self else { return }
+                switch event.type {
+                case .leftMouseDown:
+                    self.beginPetDragIfNeeded(at: location)
+                    if event.clickCount == 2 {
+                        self.handlePetDoubleClick(at: location, clickCount: event.clickCount)
+                    }
+                case .leftMouseDragged:
+                    self.updateLightstickModeForPetDrag(at: location)
+                case .leftMouseUp:
+                    self.endPetDrag()
+                case .scrollWheel:
+                    self.beginFastFollowBurstIfNeeded(at: location)
+                default:
+                    break
+                }
             }
         }
     }
 
+    private func scheduleNextFollow() {
+        followTimer?.invalidate()
+        let timer = Timer(timeInterval: followInterval, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.followPet()
+            self.scheduleNextFollow()
+        }
+        timer.tolerance = 0.003
+        followTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func beginFastFollowBurstIfNeeded(at location: NSPoint) {
+        guard lastLocatedPet?.overlayRect.contains(location) == true else { return }
+        fastFollowUntil = CFAbsoluteTimeGetCurrent() + interactionFollowBurstDuration
+        followPet()
+        scheduleNextFollow()
+    }
+
+    private func beginPetDragIfNeeded(at location: NSPoint) {
+        let now = CFAbsoluteTimeGetCurrent()
+        guard codexDesktopRunning(at: now), let pet = lastLocatedPet,
+              pet.visibleRect.contains(location)
+        else {
+            petDragStart = nil
+            return
+        }
+        petDragStart = location
+        lastLocatedPet = pet
+        lastLocatedAt = now
+        followPet()
+        scheduleNextFollow()
+    }
+
+    private func updateLightstickModeForPetDrag(at location: NSPoint) {
+        guard let start = petDragStart else { return }
+        let deltaX = location.x - start.x
+        let nextMode: QuotaLightstickMode
+        if deltaX <= -12 {
+            nextMode = .rewind
+        } else if deltaX >= 12 {
+            nextMode = .live
+        } else {
+            nextMode = .chair
+        }
+        guard nextMode != quotaLightstickMode else { return }
+        quotaLightstickMode = nextMode
+        rewindTicketStartedAt = nextMode == .rewind ? CFAbsoluteTimeGetCurrent() : nil
+        followPet()
+    }
+
+    private func endPetDrag() {
+        let wasDraggingPet = petDragStart != nil
+        petDragStart = nil
+        let shouldRestoreChair = quotaLightstickMode != .chair
+        if shouldRestoreChair {
+            quotaLightstickMode = .chair
+        }
+        rewindTicketStartedAt = nil
+        guard wasDraggingPet || shouldRestoreChair else { return }
+        followPet()
+        scheduleNextFollow()
+    }
+
     private func handlePetDoubleClick(at location: NSPoint, clickCount: Int) {
         let now = CFAbsoluteTimeGetCurrent()
-        guard codexDesktopRunning(at: now), let pet = locator.locate() else { return }
+        guard codexDesktopRunning(at: now), let pet = lastLocatedPet else { return }
         guard shouldTogglePanelForPetDoubleClick(
             clickCount: clickCount,
             clickLocation: location,
@@ -2802,7 +3669,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func hidePanelByUser() {
         isPanelHiddenByUser = true
-        quotaView.setRunningTaskBadgeAnimationsEnabled(false)
+        quotaView.setPanelAnimationVisible(false)
         panel.orderOut(nil)
         statusItem?.isVisible = true
         healthWriter.write(
@@ -2836,8 +3703,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         guard codexDesktopRunning(at: now) else {
             lastLocatedPet = nil
             lastLocatedAt = 0
-            quotaView.setRunningTaskBadgeAnimationsEnabled(false)
+            cachedSavedAnchor = nil
+            lastSavedAnchorReadAt = 0
+            petAnchorCalibration = nil
+            quotaView.setPanelAnimationVisible(false)
             panel.orderOut(nil)
+            quotaLightstickPanel.orderOut(nil)
+            secondaryQuotaLightstickPanel.orderOut(nil)
+            quotaAirplanePanel.orderOut(nil)
             healthWriter.write(
                 status: "waiting-for-codex",
                 panelVisible: false,
@@ -2849,17 +3722,63 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let pet: LocatedPet
-        if let located = locator.locate() {
+        let shouldProbeVisualPixels = petDragStart != nil || now < fastFollowUntil
+        if lastSavedAnchorReadAt == 0
+            || now - lastSavedAnchorReadAt >= savedAnchorRefreshInterval
+        {
+            lastSavedAnchorReadAt = now
+            cachedSavedAnchor = locator.locateSavedState()
+        }
+        let savedAnchor = cachedSavedAnchor
+        // The cached Quartz window id makes this a cheap bounds read. Persisted
+        // JSON is intentionally not reread here; it is calibration, not motion.
+        let liveLocation = locator.locate(
+            allowVisualProbe: shouldProbeVisualPixels || petAnchorCalibration == nil,
+            refreshStoredState: false,
+            allowSavedFallback: false
+        )
+        let located: LocatedPet?
+        if let liveLocation {
+            if petAnchorCalibration == nil, let savedAnchor {
+                petAnchorCalibration = PetAnchorCalibration(
+                    savedAnchor: savedAnchor,
+                    liveGeometry: liveLocation
+                )
+            }
+            if let petAnchorCalibration,
+               let calibrated = locationUsingRealtimeCalibration(
+                   petAnchorCalibration,
+                   geometry: liveLocation
+               )
+            {
+                located = calibrated
+            } else if let savedAnchor {
+                located = locationUsingSavedAnchor(savedAnchor, geometry: liveLocation)
+            } else {
+                located = liveLocation
+            }
+        } else {
+            located = savedAnchor
+        }
+        if let located {
             lastLocatedPet = located
             lastLocatedAt = now
             pet = located
-        } else if let recent = lastLocatedPet, now - lastLocatedAt <= 0.50 {
+        } else if locator.overlayOpen != false,
+                  let recent = lastLocatedPet,
+                  now - lastLocatedAt <= recentLocationGraceInterval {
             // Preserve the last exact attachment only across a brief window-list
             // transition. Never leave the panel at an unrelated screen corner.
             pet = recent
         } else {
-            quotaView.setRunningTaskBadgeAnimationsEnabled(false)
+            cachedSavedAnchor = nil
+            lastSavedAnchorReadAt = 0
+            petAnchorCalibration = nil
+            quotaView.setPanelAnimationVisible(false)
             panel.orderOut(nil)
+            quotaLightstickPanel.orderOut(nil)
+            secondaryQuotaLightstickPanel.orderOut(nil)
+            quotaAirplanePanel.orderOut(nil)
             healthWriter.write(
                 status: "waiting-for-pet-location",
                 panelVisible: false,
@@ -2872,13 +3791,82 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let basePanelSize = currentBasePanelSize
         currentPanelScale = normalizedPanelScale(pet.panelScale)
+        let lightstickPetScale = normalizedPanelScale(
+            currentPanelScale * quotaLightstickPetRenderScaleFactor
+        )
+        if shouldShowQuotaLightstick(for: quotaLightstickMode) {
+            let primaryOriginX = quotaLightstickOriginXFromOverlayCenter
+            quotaLightstickView.tiltDegrees = OrangeBubuRuntimeGeometry.lightstickChairTiltDegrees
+            let lightstickFrame = quotaLightstickFrame(
+                petOverlayRect: pet.overlayRect,
+                petRenderScale: lightstickPetScale,
+                screenVisibleFrame: pet.screen.visibleFrame,
+                originXFromOverlayCenter: primaryOriginX
+            )
+            if !rectApproximatelyEqual(quotaLightstickPanel.frame, lightstickFrame) {
+                quotaLightstickPanel.setFrame(lightstickFrame, display: false)
+            }
+            let lightstickViewFrame = NSRect(origin: .zero, size: lightstickFrame.size)
+            let lightstickViewBounds = NSRect(origin: .zero, size: quotaLightstickBaseSize)
+            if !rectApproximatelyEqual(quotaLightstickView.frame, lightstickViewFrame)
+                || !rectApproximatelyEqual(quotaLightstickView.bounds, lightstickViewBounds)
+            {
+                quotaLightstickView.frame = lightstickViewFrame
+                quotaLightstickView.bounds = lightstickViewBounds
+                quotaLightstickView.needsDisplay = true
+            }
+            if !quotaLightstickPanel.isVisible {
+                quotaLightstickPanel.orderFrontRegardless()
+            }
+        } else {
+            quotaLightstickPanel.orderOut(nil)
+        }
+        // Rewind and chairside Live intentionally keep both external
+        // lightsticks out of the frame. The former second stick remains
+        // allocated only for upgrade safety and is never shown.
+        secondaryQuotaLightstickPanel.orderOut(nil)
+
+        let activeRewindTicketProgress = quotaLightstickMode == .rewind
+            ? rewindTicketProgress(startedAt: rewindTicketStartedAt, now: now)
+            : nil
+        if shouldShowQuotaAirplane(for: quotaLightstickMode)
+            || activeRewindTicketProgress != nil
+        {
+            let originX = activeRewindTicketProgress.map {
+                rewindTicketXFromOverlayCenter(progress: $0)
+            } ?? quotaAirplaneOriginXFromOverlayCenter
+            quotaAirplaneView.isFlying = activeRewindTicketProgress != nil
+            let airplaneFrame = quotaAirplaneFrame(
+                petOverlayRect: pet.overlayRect,
+                petRenderScale: lightstickPetScale,
+                screenVisibleFrame: pet.screen.visibleFrame,
+                originXFromOverlayCenter: originX
+            )
+            if !rectApproximatelyEqual(quotaAirplanePanel.frame, airplaneFrame) {
+                quotaAirplanePanel.setFrame(airplaneFrame, display: false)
+            }
+            let airplaneViewFrame = NSRect(origin: .zero, size: airplaneFrame.size)
+            let airplaneViewBounds = NSRect(origin: .zero, size: quotaAirplaneBaseSize)
+            if !rectApproximatelyEqual(quotaAirplaneView.frame, airplaneViewFrame)
+                || !rectApproximatelyEqual(quotaAirplaneView.bounds, airplaneViewBounds)
+            {
+                quotaAirplaneView.frame = airplaneViewFrame
+                quotaAirplaneView.bounds = airplaneViewBounds
+                quotaAirplaneView.needsDisplay = true
+            }
+            if !quotaAirplanePanel.isVisible {
+                quotaAirplanePanel.orderFrontRegardless()
+            }
+        } else {
+            quotaAirplaneView.isFlying = false
+            quotaAirplanePanel.orderOut(nil)
+        }
+
         if isPanelHiddenByUser {
-            quotaView.setRunningTaskBadgeAnimationsEnabled(false)
+            quotaView.setPanelAnimationVisible(false)
             panel.orderOut(nil)
             return
         }
-
-        quotaView.setRunningTaskBadgeAnimationsEnabled(true)
 
         let currentPanelSize = scaledPanelSize(basePanelSize, scale: currentPanelScale)
         let placement = panelPlacement(
@@ -2902,10 +3890,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         // Keep the view's design coordinate system at the current task-list
         // height while its frame follows the scaled window. AppKit then scales
         // every visual and hit target together without changing proportions.
-        quotaView.frame = NSRect(origin: .zero, size: currentPanelSize)
-        quotaView.bounds = NSRect(origin: .zero, size: basePanelSize)
-        quotaView.needsDisplay = true
-        panel.invalidateCursorRects(for: quotaView)
+        let quotaViewFrame = NSRect(origin: .zero, size: currentPanelSize)
+        let quotaViewBounds = NSRect(origin: .zero, size: basePanelSize)
+        if !rectApproximatelyEqual(quotaView.frame, quotaViewFrame)
+            || !rectApproximatelyEqual(quotaView.bounds, quotaViewBounds)
+        {
+            quotaView.frame = quotaViewFrame
+            quotaView.bounds = quotaViewBounds
+            quotaView.needsDisplay = true
+            quotaView.needsLayout = true
+            panel.invalidateCursorRects(for: quotaView)
+        }
         if shouldPresentPanel(
             codexDesktopRunning: true,
             hiddenByUser: isPanelHiddenByUser,
@@ -2913,6 +3908,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         ), !panel.isVisible {
             panel.orderFrontRegardless()
         }
+        quotaView.setPanelAnimationVisible(panel.isVisible)
         healthWriter.write(
             status: "following-pet",
             panelVisible: true,
@@ -2942,6 +3938,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 case .success(let response):
                     let rows = Self.makeRows(from: response)
                     self.quotaView.rows = rows
+                    self.quotaLightstickView.remainingPercent = rows.first?.remainingPercent
+                    self.secondaryQuotaLightstickView.remainingPercent = rows.first?.remainingPercent
+                    self.quotaAirplaneView.remainingPercent = rows.first?.remainingPercent
                     self.quotaView.errorText = nil
                     self.quotaView.statusText = "\(Self.timeFormatter.string(from: Date())) 更新 · 5分钟"
                 case .failure(let error):
@@ -3072,7 +4071,6 @@ private func printMarketPriceOnce(symbol: String, label: String) -> Never {
 private func printPanelConfiguration() -> Never {
     print(
         "panel-config: version=\(panelVersion) "
-            + "edition=\(panelEdition) petID=\(bluePetID) "
             + "marketPricesEnabled=\(marketPricesEnabled) "
             + "width=\(Int(expandedPanelSize.width)) "
             + "height=\(Int(expandedPanelSize.height))"
@@ -3197,6 +4195,10 @@ private func runPlacementSelfTest() -> Never {
             fputs("\(test.name): centerError=\(placement.centerError)\n", stderr)
             exit(1)
         }
+        guard abs(placement.origin.x + test.panelSize.width / 2 - test.petRect.midX) <= 0.01 else {
+            fputs("\(test.name): panel itself is not centered over pet\n", stderr)
+            exit(1)
+        }
     }
 
     guard PetWindowLocator().scalingSelfTest() else {
@@ -3204,7 +4206,44 @@ private func runPlacementSelfTest() -> Never {
         exit(1)
     }
 
-    print("placement-self-test: 6/6 passed; mascot-scaling=6/6; visual-scaling=6/6; panel-scaling=6/6; gap=14.0; centerError=0.0")
+    guard PetAnchorCalibration.acceptsLiveGeometrySource("window-state-direct-anchor"),
+          PetAnchorCalibration.acceptsLiveGeometrySource("window-visual-probe"),
+          !PetAnchorCalibration.acceptsLiveGeometrySource("saved-state-direct-anchor")
+    else {
+        fputs("saved anchor was accepted as realtime scale geometry\n", stderr)
+        exit(1)
+    }
+
+    let referenceOverlay = NSRect(x: 100, y: 100, width: 356, height: 320)
+    let savedVisibleRect = NSRect(x: 260, y: 235, width: 163, height: 177)
+    guard let calibration = PetAnchorCalibration(
+        savedVisibleRect: savedVisibleRect,
+        savedPanelScale: 1,
+        liveOverlayRect: referenceOverlay
+    ) else {
+        fputs("realtime calibration could not be created\n", stderr)
+        exit(1)
+    }
+    let movedOverlay = referenceOverlay.offsetBy(dx: 47, dy: -32)
+    guard let moved = calibration.projection(for: movedOverlay),
+          abs(moved.visibleRect.midX - (savedVisibleRect.midX + 47)) <= 0.01,
+          abs(moved.visibleRect.maxY - (savedVisibleRect.maxY - 32)) <= 0.01,
+          abs(moved.panelScale - 1) <= 0.01
+    else {
+        fputs("realtime calibration did not follow translation exactly\n", stderr)
+        exit(1)
+    }
+    let scaledOverlay = NSRect(x: 50, y: 25, width: 712, height: 640)
+    guard let scaled = calibration.projection(for: scaledOverlay),
+          abs(scaled.visibleRect.midX - 533) <= 0.01,
+          abs(scaled.visibleRect.maxY - 649) <= 0.01,
+          abs(scaled.panelScale - 2) <= 0.01
+    else {
+        fputs("realtime calibration did not follow proportional scaling exactly\n", stderr)
+        exit(1)
+    }
+
+    print("placement-self-test: 6/6 passed; realtime-follow=2/2; live-source-gate=3/3; mascot-scaling=6/6; visual-scaling=6/6; panel-scaling=6/6; gap=14.0; centerError=0.0")
     exit(0)
 }
 
@@ -3240,9 +4279,9 @@ private func runLifecycleSelfTest() -> Never {
             expected: true
         ),
         DesktopCase(
-            bundleIdentifier: "io.github.mayday-materials.bubu-quota-panel",
-            localizedName: "卜卜额度面板",
-            bundlePath: "/Applications/卜卜额度面板.app",
+            bundleIdentifier: "io.github.mayday-materials.orange-bubu-quota-panel",
+            localizedName: "橙色卜卜额度面板",
+            bundlePath: "/Applications/橙色卜卜额度面板.app",
             activationPolicy: .accessory,
             expected: false
         ),
@@ -3380,7 +4419,7 @@ private func runTaskProgressSelfTest() -> Never {
         isAvailable: false
     )
     let completedVisibilityCases = [
-        CodexTaskProgressReader.shouldDisplay(
+        !CodexTaskProgressReader.shouldDisplay(
             kind: .completed,
             threadID: indexedThreadID,
             modificationDate: now.addingTimeInterval(-3600),
@@ -3394,7 +4433,7 @@ private func runTaskProgressSelfTest() -> Never {
             now: now,
             unreadState: readState
         ),
-        CodexTaskProgressReader.shouldDisplay(
+        !CodexTaskProgressReader.shouldDisplay(
             kind: .completed,
             threadID: indexedThreadID,
             modificationDate: now,
@@ -3464,7 +4503,7 @@ private func runTaskProgressSelfTest() -> Never {
         exit(1)
     }
 
-    let completedPresentation = TaskProgressSnapshot.displaying([
+    let completedFiltering = TaskProgressSnapshot.displaying([
         TaskProgressItem(
             title: "AI 观点运营台 · Codex Chrome 单条发布与回复",
             kind: .completed,
@@ -3480,39 +4519,21 @@ private func runTaskProgressSelfTest() -> Never {
         TaskProgressItem(title: "相同标题的实时任务", kind: .running, startedAt: now),
         TaskProgressItem(title: "相同标题的实时任务", kind: .running, startedAt: now),
     ])
-    guard completedPresentation.items.count == 2,
-          completedPresentation.items[0].kind == .completed,
-          completedPresentation.items[0].statusText == "最新",
-          completedPresentation.items[1].kind == .running,
-          completedPresentation.items[1].title == "相同标题的实时任务"
+    guard completedFiltering.items.count == 1,
+          completedFiltering.items[0].kind == .running,
+          completedFiltering.items[0].title == "相同标题的实时任务"
     else {
         fputs("task presentation deduplication failed\n", stderr)
         exit(1)
     }
 
-    let taskIconNames = [
-        "task-running-icon.png",
-        "task-running-badge.gif",
-        "task-waiting-icon.png",
-        "task-completed-icon.png",
-        "task-failed-icon.png",
-    ]
-    guard let resourceURL = Bundle.main.resourceURL,
-          taskIconNames.allSatisfy({
-              NSImage(contentsOf: resourceURL.appendingPathComponent($0)) != nil
-          })
-    else {
-        fputs("task status icon assets failed\n", stderr)
-        exit(1)
-    }
-
-    print("task-progress-self-test: lifecycle=7/7; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; task-dedup=pass; status-icons=4/4")
+    print("task-progress-self-test: lifecycle=7/7; title=1/1; index=1/1; completed-hidden=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; task-dedup=pass")
     exit(0)
 }
 
-private func runBlueEditionSelfTest() -> Never {
+private func runSkinSelectionSelfTest() -> Never {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("bubu-blue-edition-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("bubu-skin-selection-\(UUID().uuidString)", isDirectory: true)
     let config = directory.appendingPathComponent("config.toml")
     defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -3529,30 +4550,311 @@ private func runBlueEditionSelfTest() -> Never {
         test = true
         """
         try initial.data(using: .utf8)?.write(to: config, options: .atomic)
-        let store = BluePetSelectionStore(configURL: config)
-        guard store.selectBluePet(), store.bluePetIsSelected() else {
-            throw NSError(domain: "BubuBlueEditionSelfTest", code: 1)
+        let store = PetSelectionStore(configURL: config)
+        guard store.select(.orange), store.selectedSkin() == .orange else {
+            throw NSError(domain: "BubuSkinSelfTest", code: 1)
         }
-        let blueText = try String(contentsOf: config, encoding: .utf8)
-        guard blueText.components(separatedBy: "selected-avatar-id").count - 1 == 1,
-              blueText.contains("selected-avatar-id = \"custom:bubu-office\"")
+        let orangeText = try String(contentsOf: config, encoding: .utf8)
+        guard orangeText.components(separatedBy: "selected-avatar-id").count - 1 == 1,
+              orangeText.contains("selected-avatar-id = \"custom:bubu-orange\"")
         else {
-            throw NSError(domain: "BubuBlueEditionSelfTest", code: 2)
+            throw NSError(domain: "BubuSkinSelfTest", code: 2)
         }
-        let missingDesktop = BluePetSelectionStore.updatingDesktopSelection(
+        let missingDesktop = PetSelectionStore.updatingDesktopSelection(
             in: "[general]\nmodel = \"gpt\"\n",
-            avatarID: bluePetAvatarID
+            avatarID: BubuSkin.orange.avatarID
         )
-        guard missingDesktop.contains("[desktop]\nselected-avatar-id = \"custom:bubu-office\"") else {
-            throw NSError(domain: "BubuBlueEditionSelfTest", code: 3)
+        guard missingDesktop.contains("[desktop]\nselected-avatar-id = \"custom:bubu-orange\"") else {
+            throw NSError(domain: "BubuSkinSelfTest", code: 4)
         }
     } catch {
-        fputs("blue edition self-test failed: \(error)\n", stderr)
+        fputs("skin selection self-test failed: \(error)\n", stderr)
         exit(1)
     }
 
-    print("blue-edition-self-test: edition=blue-bubu pet=bubu-office persistence=pass duplicate-key=pass")
+    print("skin-selection-self-test: project=orange orange=pass persistence=pass duplicate-key=pass")
     exit(0)
+}
+
+private func runRuntimeGeometryLockSelfTest() -> Never {
+    let tolerance: CGFloat = 0.02
+    func matches(_ actual: CGFloat, _ expected: CGFloat) -> Bool {
+        abs(actual - expected) <= tolerance
+    }
+
+    let expectedPanelHeight: CGFloat = marketPricesEnabled ? 75 : 53
+    guard OrangeBubuRuntimeGeometry.schemaVersion == 1,
+          matches(canonicalPetSpriteSize.width, 163),
+          matches(canonicalPetSpriteSize.height, 177),
+          matches(petAtlasFrameSize.width, 192),
+          matches(petAtlasFrameSize.height, 208),
+          matches(expandedPanelSize.width, 224),
+          matches(expandedPanelSize.height, expectedPanelHeight),
+          matches(taskProgressRowHeight, 23),
+          maximumVisibleTaskRows == 5,
+          matches(panelPetGap, 14),
+          matches(pointerTipBottomInset, 1)
+    else {
+        fputs("runtime geometry lock changed the pet or panel baseline\n", stderr)
+        exit(1)
+    }
+
+    let petRect = NSRect(x: 500, y: 300, width: 163, height: 177)
+    let screenRect = NSRect(x: 0, y: 0, width: 2_000, height: 1_200)
+    let accessoryScale = quotaLightstickPetRenderScaleFactor
+    let lightstick = quotaLightstickFrame(
+        petOverlayRect: petRect,
+        petRenderScale: accessoryScale,
+        screenVisibleFrame: screenRect
+    )
+    let airplane = quotaAirplaneFrame(
+        petOverlayRect: petRect,
+        petRenderScale: accessoryScale,
+        screenVisibleFrame: screenRect
+    )
+    guard matches(accessoryScale, 0.785),
+          matches(lightstick.width, 29.83),
+          matches(lightstick.height, 80.07),
+          matches(airplane.width, 61.23),
+          matches(airplane.height, 51.025),
+          matches(quotaLightstickOriginXFromOverlayCenter, -91),
+          matches(quotaLightstickOriginYFromOverlayTop, -206),
+          matches(quotaLightstickGuitarXFromOverlayCenter, 54),
+          matches(quotaAirplaneOriginXFromOverlayCenter, -130),
+          matches(quotaAirplaneOriginYFromOverlayTop, -105),
+          matches(OrangeBubuRuntimeGeometry.lightstickChairTiltDegrees, -12),
+          matches(OrangeBubuRuntimeGeometry.lightstickGuitarTiltDegrees, 12)
+    else {
+        fputs("runtime geometry lock changed an accessory size, anchor, or tilt\n", stderr)
+        exit(1)
+    }
+
+    let lightstickAtTwoX = quotaLightstickFrame(
+        petOverlayRect: petRect,
+        petRenderScale: accessoryScale * 2,
+        screenVisibleFrame: screenRect
+    )
+    let airplaneAtTwoX = quotaAirplaneFrame(
+        petOverlayRect: petRect,
+        petRenderScale: accessoryScale * 2,
+        screenVisibleFrame: screenRect
+    )
+    let panelAtTwoX = scaledPanelSize(expandedPanelSize, scale: 2)
+    guard matches(lightstickAtTwoX.width, lightstick.width * 2),
+          matches(lightstickAtTwoX.height, lightstick.height * 2),
+          matches(airplaneAtTwoX.width, airplane.width * 2),
+          matches(airplaneAtTwoX.height, airplane.height * 2),
+          matches(panelAtTwoX.width, expandedPanelSize.width * 2),
+          matches(panelAtTwoX.height, expandedPanelSize.height * 2)
+    else {
+        fputs("runtime geometry lock lost uniform 2x scaling\n", stderr)
+        exit(1)
+    }
+
+    guard shouldShowQuotaLightstick(for: .chair),
+          !shouldShowQuotaLightstick(for: .rewind),
+          !shouldShowQuotaLightstick(for: .live),
+          shouldShowQuotaAirplane(for: .chair),
+          !shouldShowQuotaAirplane(for: .rewind),
+          !shouldShowQuotaAirplane(for: .live)
+    else {
+        fputs("runtime accessory visibility no longer isolates gesture modes\n", stderr)
+        exit(1)
+    }
+
+    guard matches(rewindTicketProgress(startedAt: 100, now: 100.4) ?? -1, 0.5),
+          rewindTicketProgress(startedAt: 100, now: 100.801) == nil,
+          matches(rewindTicketXFromOverlayCenter(progress: 0), 96),
+          matches(
+              rewindTicketXFromOverlayCenter(progress: 1),
+              quotaAirplaneOriginXFromOverlayCenter
+          )
+    else {
+        fputs("0.8 second rewind ticket path is no longer deterministic\n", stderr)
+        exit(1)
+    }
+
+    print(
+        "runtime-geometry-lock-self-test: schema=1 "
+            + "pet=163x177 panel=224x\(Int(expectedPanelHeight)) gap=14 "
+            + "lightstick=29.83x80.07 airplane=61.23x51.03 "
+            + "anchors=pass uniform-2x=pass"
+    )
+    exit(0)
+}
+
+private func runQuotaLightstickSelfTest() -> Never {
+    let petRect = NSRect(x: 400, y: 260, width: 163, height: 177)
+    let screenRect = NSRect(x: 0, y: 0, width: 1200, height: 800)
+    let frame = quotaLightstickFrame(
+        petOverlayRect: petRect,
+        petRenderScale: 1,
+        screenVisibleFrame: screenRect
+    )
+    guard abs(frame.width - quotaLightstickBaseSize.width) < 0.01,
+          abs(frame.height - quotaLightstickBaseSize.height) < 0.01,
+          abs(frame.minX - (petRect.midX + quotaLightstickOriginXFromOverlayCenter)) < 0.01,
+          abs(frame.minY - (petRect.maxY + quotaLightstickOriginYFromOverlayTop)) < 0.01
+    else {
+        fputs("lightstick placement failed: \(frame)\n", stderr)
+        exit(1)
+    }
+    let approvedRuntimeFrame = quotaLightstickFrame(
+        petOverlayRect: petRect,
+        petRenderScale: quotaLightstickPetRenderScaleFactor,
+        screenVisibleFrame: screenRect
+    )
+    guard abs(approvedRuntimeFrame.width - 29.83) < 0.02,
+          abs(approvedRuntimeFrame.height - 80.07) < 0.02
+    else {
+        fputs("lightstick no longer matches the approved 30x80 runtime proportion\n", stderr)
+        exit(1)
+    }
+    let preservedProductX = petRect.midX - 91 + 8.4
+    guard abs(frame.minX + quotaLightstickLeftProductOffsetX - preservedProductX) < 0.01 else {
+        fputs("airplane canvas moved the approved product anchor\n", stderr)
+        exit(1)
+    }
+
+    let edgeFrame = quotaLightstickFrame(
+        petOverlayRect: NSRect(x: 2, y: 2, width: 163, height: 177),
+        petRenderScale: 1,
+        screenVisibleFrame: screenRect
+    )
+    guard edgeFrame.minX >= screenRect.minX, edgeFrame.minY >= screenRect.minY else {
+        fputs("lightstick screen clamping failed: \(edgeFrame)\n", stderr)
+        exit(1)
+    }
+
+    guard let assets = QuotaLightstickAssets.shared,
+          assets.unlit.size.width >= 200,
+          assets.unlit.size.height >= 1200,
+          assets.tubeEmission.size == assets.unlit.size,
+          assets.glow.size == assets.unlit.size,
+          assets.specular.size == assets.unlit.size
+    else {
+        fputs("lightstick high-resolution material layers are missing or misaligned\n", stderr)
+        exit(1)
+    }
+
+    let airplaneFrame = quotaAirplaneFrame(
+        petOverlayRect: petRect,
+        petRenderScale: 1,
+        screenVisibleFrame: screenRect
+    )
+    guard abs(airplaneFrame.width - quotaAirplaneBaseSize.width) < 0.01,
+          abs(airplaneFrame.height - quotaAirplaneBaseSize.height) < 0.01,
+          abs(airplaneFrame.minX - (petRect.midX + quotaAirplaneOriginXFromOverlayCenter)) < 0.01,
+          abs(airplaneFrame.minY - (petRect.maxY + quotaAirplaneOriginYFromOverlayTop)) < 0.01,
+          let airplaneAssets = QuotaAirplaneAssets.shared,
+          airplaneAssets.material.size.width >= 342,
+          airplaneAssets.material.size.height >= 284,
+          airplaneAssets.flightMaterial.size.width >= 342,
+          airplaneAssets.flightMaterial.size.height >= 284
+    else {
+        fputs("independent high-resolution airplane material or placement failed\n", stderr)
+        exit(1)
+    }
+
+    guard shouldShowQuotaLightstick(for: .chair),
+          !shouldShowQuotaLightstick(for: .rewind),
+          !shouldShowQuotaLightstick(for: .live),
+          shouldShowQuotaAirplane(for: .chair),
+          !shouldShowQuotaAirplane(for: .rewind),
+          !shouldShowQuotaAirplane(for: .live)
+    else {
+        fputs("quota accessory mode isolation failed\n", stderr)
+        exit(1)
+    }
+
+    print("quota-lightstick-self-test: lightstick-materials=219x1221 airplane-material=342x284 independent-default-only=pass product-anchor-preserved=pass dynamic-glow=pass scaling=pass rewind-no-lightsticks=pass rewind-ticket-0.8s=pass chairside-live-no-external-accessories=pass")
+    exit(0)
+}
+
+private func renderQuotaLightstickPreviewOnce(
+    to outputPath: String,
+    remainingPercent: Int,
+    tiltDegrees: CGFloat = OrangeBubuRuntimeGeometry.lightstickChairTiltDegrees
+) -> Never {
+    _ = NSApplication.shared
+    let view = QuotaLightstickView(frame: NSRect(origin: .zero, size: quotaLightstickBaseSize))
+    view.tiltDegrees = tiltDegrees
+    view.remainingPercent = max(0, min(100, remainingPercent))
+    view.layoutSubtreeIfNeeded()
+
+    let scale: CGFloat = 4
+    guard let bitmap = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: Int(quotaLightstickBaseSize.width * scale),
+        pixelsHigh: Int(quotaLightstickBaseSize.height * scale),
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ) else {
+        fputs("unable to create lightstick preview canvas\n", stderr)
+        exit(1)
+    }
+    bitmap.size = quotaLightstickBaseSize
+    view.cacheDisplay(in: view.bounds, to: bitmap)
+    guard let png = bitmap.representation(using: .png, properties: [:]) else {
+        fputs("unable to encode lightstick preview\n", stderr)
+        exit(1)
+    }
+    do {
+        try png.write(to: URL(fileURLWithPath: outputPath), options: .atomic)
+        print(outputPath)
+        exit(0)
+    } catch {
+        fputs("unable to write lightstick preview: \(error.localizedDescription)\n", stderr)
+        exit(1)
+    }
+}
+
+private func renderQuotaAirplanePreviewOnce(
+    to outputPath: String,
+    remainingPercent: Int,
+    isFlying: Bool = false
+) -> Never {
+    _ = NSApplication.shared
+    let view = QuotaAirplaneView(frame: NSRect(origin: .zero, size: quotaAirplaneBaseSize))
+    view.isFlying = isFlying
+    view.remainingPercent = max(0, min(100, remainingPercent))
+    view.layoutSubtreeIfNeeded()
+
+    let scale: CGFloat = 4
+    guard let bitmap = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: Int(quotaAirplaneBaseSize.width * scale),
+        pixelsHigh: Int(quotaAirplaneBaseSize.height * scale),
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ) else {
+        fputs("unable to create airplane preview canvas\n", stderr)
+        exit(1)
+    }
+    bitmap.size = quotaAirplaneBaseSize
+    view.cacheDisplay(in: view.bounds, to: bitmap)
+    guard let png = bitmap.representation(using: .png, properties: [:]) else {
+        fputs("unable to encode airplane preview\n", stderr)
+        exit(1)
+    }
+    do {
+        try png.write(to: URL(fileURLWithPath: outputPath), options: .atomic)
+        print(outputPath)
+        exit(0)
+    } catch {
+        fputs("unable to write airplane preview: \(error.localizedDescription)\n", stderr)
+        exit(1)
+    }
 }
 
 private func renderPreviewOnce(to outputPath: String) -> Never {
@@ -3599,6 +4901,7 @@ private func renderPreviewOnce(to outputPath: String) -> Never {
     let previewPanelSize = panelSizeForTaskRows(previewTasks.rowCount)
     let view = QuotaPanelView(frame: NSRect(origin: .zero, size: previewPanelSize))
     view.pointerSide = .bottom
+    view.selectedSkin = .orange
     view.rows = [QuotaRow(
         name: "Codex",
         remainingPercent: 94,
@@ -3674,8 +4977,16 @@ if CommandLine.arguments.contains("--self-test-task-progress") {
     runTaskProgressSelfTest()
 }
 
-if CommandLine.arguments.contains("--self-test-blue-edition") {
-    runBlueEditionSelfTest()
+if CommandLine.arguments.contains("--self-test-skin-selection") {
+    runSkinSelectionSelfTest()
+}
+
+if CommandLine.arguments.contains("--self-test-quota-lightstick") {
+    runQuotaLightstickSelfTest()
+}
+
+if CommandLine.arguments.contains("--self-test-runtime-geometry") {
+    runRuntimeGeometryLockSelfTest()
 }
 
 if CommandLine.arguments.contains("--print-panel-config") {
@@ -3690,6 +5001,43 @@ if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-preview"),
    CommandLine.arguments.indices.contains(previewFlag + 1)
 {
     renderPreviewOnce(to: CommandLine.arguments[previewFlag + 1])
+}
+
+if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-lightstick-preview"),
+   CommandLine.arguments.indices.contains(previewFlag + 1)
+{
+    let remainingFlag = CommandLine.arguments.firstIndex(of: "--remaining")
+    let remaining = remainingFlag.flatMap { index -> Int? in
+        guard CommandLine.arguments.indices.contains(index + 1) else { return nil }
+        return Int(CommandLine.arguments[index + 1])
+    } ?? 75
+    let tiltFlag = CommandLine.arguments.firstIndex(of: "--tilt")
+    let tilt = tiltFlag.flatMap { index -> CGFloat? in
+        guard CommandLine.arguments.indices.contains(index + 1),
+              let value = Double(CommandLine.arguments[index + 1])
+        else { return nil }
+        return CGFloat(value)
+    } ?? -12
+    renderQuotaLightstickPreviewOnce(
+        to: CommandLine.arguments[previewFlag + 1],
+        remainingPercent: remaining,
+        tiltDegrees: tilt
+    )
+}
+
+if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-airplane-preview"),
+   CommandLine.arguments.indices.contains(previewFlag + 1)
+{
+    let remainingFlag = CommandLine.arguments.firstIndex(of: "--remaining")
+    let remaining = remainingFlag.flatMap { index -> Int? in
+        guard CommandLine.arguments.indices.contains(index + 1) else { return nil }
+        return Int(CommandLine.arguments[index + 1])
+    } ?? 75
+    renderQuotaAirplanePreviewOnce(
+        to: CommandLine.arguments[previewFlag + 1],
+        remainingPercent: remaining,
+        isFlying: CommandLine.arguments.contains("--flight")
+    )
 }
 
 let application = NSApplication.shared

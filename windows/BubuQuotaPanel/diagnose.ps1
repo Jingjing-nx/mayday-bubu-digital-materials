@@ -41,7 +41,7 @@ Add-Report ("Version: " + $PSVersionTable.PSVersion)
 Add-Report ("LanguageMode: " + $ExecutionContext.SessionState.LanguageMode)
 Add-Report ("ExecutionPolicy: " + (Get-ExecutionPolicy -List | Out-String).Trim())
 
-$installDirectory = Join-Path $env:LOCALAPPDATA "BubuPet"
+$installDirectory = Join-Path $env:LOCALAPPDATA "OrangeBubuPet"
 $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $statePath = Join-Path $codexHome ".codex-global-state.json"
 $statePaths = @(
@@ -64,9 +64,9 @@ Add-Report ("Panel variant: " + $(if (Test-Path -LiteralPath $codexOnlyMarker) {
 
 Add-Report ""
 Add-Report "=== Startup ==="
-$runValue = (Get-ItemProperty -LiteralPath "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "BubuQuotaPanel").BubuQuotaPanel
+$runValue = (Get-ItemProperty -LiteralPath "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "OrangeBubuQuotaPanel").OrangeBubuQuotaPanel
 Add-Report ("Registry Run: " + $(if ($runValue) { "CONFIGURED" } else { "MISSING" }))
-$startupCommand = Join-Path ([Environment]::GetFolderPath("Startup")) "BubuQuotaPanel.cmd"
+$startupCommand = Join-Path ([Environment]::GetFolderPath("Startup")) "OrangeBubuQuotaPanel.cmd"
 Add-Report ("Startup folder command: " + $(if (Test-Path -LiteralPath $startupCommand) { "OK" } else { "MISSING" }))
 
 Add-Report ""

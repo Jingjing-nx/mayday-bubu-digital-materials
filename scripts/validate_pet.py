@@ -6,7 +6,7 @@ from PIL import Image
 
 
 root = pathlib.Path(__file__).resolve().parents[1]
-pet_ids = ("bubu-office",)
+pet_ids = ("bubu-orange",)
 
 for pet_id in pet_ids:
     pet_dir = root / "shared" / "pet" / pet_id
@@ -19,4 +19,4 @@ for pet_id in pet_ids:
         assert atlas.mode == "RGBA"
         assert atlas.getextrema()[3][0] == 0, "atlas must contain transparent pixels"
 
-print("Blue Bubu manifest and 8x11 atlas geometry: OK")
+print("Orange Bubu manifest and 8x11 atlas geometry: OK")

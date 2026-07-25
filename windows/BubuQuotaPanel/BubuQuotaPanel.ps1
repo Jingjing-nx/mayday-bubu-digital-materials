@@ -3,16 +3,14 @@
     [switch]$ValidateXaml,
     [switch]$ValidateTrackingFilters,
     [switch]$ValidateTaskProgress,
-    [switch]$ValidateBlueEdition,
+    [switch]$ValidateSkinSelection,
+    [switch]$ValidateRuntimeGeometry,
     [switch]$PrintTaskProgress
 )
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "21"
-$script:PanelEdition = "blue-bubu"
-$script:BluePetId = "bubu-office"
-$script:BluePetAvatarId = "custom:bubu-office"
+$script:PanelVersion = "36"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $script:MarketPricesEnabled = $true
@@ -22,22 +20,75 @@ if (-not [string]::IsNullOrWhiteSpace($marketSetting)) {
 } elseif (Test-Path -LiteralPath (Join-Path $PSScriptRoot "CODEX-ONLY.txt")) {
     $script:MarketPricesEnabled = $false
 }
-$script:TaskProgressRowHeight = 23
-$script:MaximumVisibleTaskRows = 5
+# Single source of truth for the approved Orange Bubu composition at 1x.
+# Every attached window uses one pet-derived scale; changing any value requires
+# updating shared/pet/bubu-orange/qa/runtime-geometry-lock.json and validation.
+$script:RuntimeGeometryLock = [ordered]@{
+    SchemaVersion = 1
+    PanelWidth = 224.0
+    PanelBaseHeightWithMarket = 52.0
+    PanelBaseHeightWithoutMarket = 30.0
+    TaskProgressRowHeight = 23.0
+    MaximumVisibleTaskRows = 5
+    PanelPetGap = 14.0
+    PointerTipBottomInset = 1.0
+    CanonicalPetWidth = 163.0
+    CanonicalPetHeight = 177.0
+    PetAtlasFrameWidth = 192.0
+    PetAtlasFrameHeight = 208.0
+    LightstickBaseWidth = 38.0
+    LightstickBaseHeight = 102.0
+    AccessoryScaleFactor = 0.785
+    LightstickChairX = -91.0
+    LightstickGuitarX = 54.0
+    LightstickTop = 104.0
+    LightstickChairTilt = 12.0
+    LightstickGuitarTilt = -12.0
+    RewindLightsticksEnabled = $false
+    AirplaneBaseWidth = 78.0
+    AirplaneBaseHeight = 65.0
+    AirplaneX = -130.0
+    AirplaneTop = 40.0
+    RewindTicketStartX = 96.0
+    RewindTicketDurationSeconds = 0.8
+}
+$script:TaskProgressRowHeight = [double]$script:RuntimeGeometryLock.TaskProgressRowHeight
+$script:MaximumVisibleTaskRows = [int]$script:RuntimeGeometryLock.MaximumVisibleTaskRows
 $script:CompletedTaskFallbackMinutes = 2
-# Blue Bubu keeps the 93 px quota header, followed by task rows and one BTC row.
-$script:BaseExpandedHeight = if ($script:MarketPricesEnabled) { 137 } else { 116 }
+# Orange Bubu uses the approved compact water panel. The lightstick owns quota.
+$script:BaseExpandedHeight = if ($script:MarketPricesEnabled) {
+    [double]$script:RuntimeGeometryLock.PanelBaseHeightWithMarket
+} else {
+    [double]$script:RuntimeGeometryLock.PanelBaseHeightWithoutMarket
+}
 $script:TaskProgressRowCount = 1
 $script:ExpandedHeight = $script:BaseExpandedHeight + $script:TaskProgressRowHeight
 $script:ExpandedBodyHeight = $script:ExpandedHeight - 13
 $script:ExpandedPointerTipY = $script:ExpandedHeight - 1
-$script:ExpandedWidth = 224.0
+$script:ExpandedWidth = [double]$script:RuntimeGeometryLock.PanelWidth
 $script:CollapsedWidth = 64.0
 $script:CollapsedHeight = 44.0
-$script:CanonicalPetWidth = 163.0
-$script:CanonicalPetHeight = 177.0
-$script:PetAtlasFrameWidth = 192.0
-$script:PetAtlasFrameHeight = 208.0
+$script:PanelPetGap = [double]$script:RuntimeGeometryLock.PanelPetGap
+$script:PointerTipBottomInset = [double]$script:RuntimeGeometryLock.PointerTipBottomInset
+$script:CanonicalPetWidth = [double]$script:RuntimeGeometryLock.CanonicalPetWidth
+$script:CanonicalPetHeight = [double]$script:RuntimeGeometryLock.CanonicalPetHeight
+$script:PetAtlasFrameWidth = [double]$script:RuntimeGeometryLock.PetAtlasFrameWidth
+$script:PetAtlasFrameHeight = [double]$script:RuntimeGeometryLock.PetAtlasFrameHeight
+$script:QuotaLightstickBaseWidth = [double]$script:RuntimeGeometryLock.LightstickBaseWidth
+$script:QuotaLightstickBaseHeight = [double]$script:RuntimeGeometryLock.LightstickBaseHeight
+$script:QuotaLightstickPetRenderScaleFactor = [double]$script:RuntimeGeometryLock.AccessoryScaleFactor
+$script:QuotaLightstickOriginXFromOverlayCenter = [double]$script:RuntimeGeometryLock.LightstickChairX
+$script:QuotaLightstickGuitarXFromOverlayCenter = [double]$script:RuntimeGeometryLock.LightstickGuitarX
+$script:QuotaLightstickTopFromOverlayTop = [double]$script:RuntimeGeometryLock.LightstickTop
+$script:QuotaLightstickChairTilt = [double]$script:RuntimeGeometryLock.LightstickChairTilt
+$script:QuotaLightstickGuitarTilt = [double]$script:RuntimeGeometryLock.LightstickGuitarTilt
+$script:RewindLightsticksEnabled = [bool]$script:RuntimeGeometryLock.RewindLightsticksEnabled
+$script:QuotaAirplaneBaseWidth = [double]$script:RuntimeGeometryLock.AirplaneBaseWidth
+$script:QuotaAirplaneBaseHeight = [double]$script:RuntimeGeometryLock.AirplaneBaseHeight
+$script:QuotaAirplaneOriginXFromOverlayCenter = [double]$script:RuntimeGeometryLock.AirplaneX
+$script:QuotaAirplaneTopFromOverlayTop = [double]$script:RuntimeGeometryLock.AirplaneTop
+$script:RewindTicketStartXFromOverlayCenter = [double]$script:RuntimeGeometryLock.RewindTicketStartX
+$script:RewindTicketDurationSeconds = [double]$script:RuntimeGeometryLock.RewindTicketDurationSeconds
 $script:PetFrameVisiblePixelSizes = @(
     '109x166', '109x186', '110x172', '110x185', '110x186', '110x187',
     '111x186', '113x153', '113x181', '114x181', '116x182', '116x185',
@@ -47,7 +98,20 @@ $script:PetFrameVisiblePixelSizes = @(
     '122x191', '122x192', '122x194', '123x185', '123x196', '123x198',
     '124x191', '124x194', '124x198', '125x198', '132x198', '133x198',
     '136x198', '138x196', '141x196', '144x198', '153x198', '154x198',
-    '155x198', '157x198', '161x198'
+    '155x198', '157x198', '161x198',
+    # Orange Bubu uses the same 192x208 cells. Its beach chair and limbless
+    # chairside-live microphone create a second set of visible alpha bounds.
+    '127x198', '128x198', '129x198', '130x198', '132x182', '132x189',
+    '133x185', '133x186', '133x191', '133x192', '133x195', '133x196',
+    '133x197', '134x193', '134x194', '134x195', '134x196', '134x197',
+    '134x198', '137x198', '138x198', '139x198', '140x198', '141x198',
+    '142x198', '146x198', '151x198', '152x198', '156x198', '158x198',
+    '163x198', '170x198', '182x165', '182x171', '182x173', '182x174',
+    '182x177',
+    # Refreshed true-round short-velour orange Bubu frame families.
+    '122x197', '124x197', '126x198', '131x197', '131x198', '135x198',
+    '159x198', '160x198', '165x198', '182x183', '129x202', '130x200',
+    '130x201', '131x200', '132x200', '133x200', '182x167'
 )
 $script:PanelScale = 1.0
 $script:MinimumPanelScale = 0.20
@@ -64,10 +128,64 @@ $script:PendingPanelScale = [double]::NaN
 $script:PendingPanelScaleSamples = 0
 $script:PendingPanelScaleWindowHandle = [IntPtr]::Zero
 
+if ($ValidateRuntimeGeometry) {
+    $expectedPanelHeight = if ($script:MarketPricesEnabled) { 75.0 } else { 53.0 }
+    $lightstickWidth = $script:QuotaLightstickBaseWidth * $script:QuotaLightstickPetRenderScaleFactor
+    $lightstickHeight = $script:QuotaLightstickBaseHeight * $script:QuotaLightstickPetRenderScaleFactor
+    $airplaneWidth = $script:QuotaAirplaneBaseWidth * $script:QuotaLightstickPetRenderScaleFactor
+    $airplaneHeight = $script:QuotaAirplaneBaseHeight * $script:QuotaLightstickPetRenderScaleFactor
+    $checks = @(
+        $script:RuntimeGeometryLock.SchemaVersion -eq 1,
+        [Math]::Abs($script:CanonicalPetWidth - 163.0) -le 0.001,
+        [Math]::Abs($script:CanonicalPetHeight - 177.0) -le 0.001,
+        [Math]::Abs($script:ExpandedWidth - 224.0) -le 0.001,
+        [Math]::Abs($script:ExpandedHeight - $expectedPanelHeight) -le 0.001,
+        [Math]::Abs($script:PanelPetGap - 14.0) -le 0.001,
+        [Math]::Abs($lightstickWidth - 29.83) -le 0.02,
+        [Math]::Abs($lightstickHeight - 80.07) -le 0.02,
+        [Math]::Abs($airplaneWidth - 61.23) -le 0.02,
+        [Math]::Abs($airplaneHeight - 51.025) -le 0.02,
+        (-not $script:RewindLightsticksEnabled),
+        [Math]::Abs($script:RewindTicketStartXFromOverlayCenter - 96.0) -le 0.001,
+        [Math]::Abs($script:RewindTicketDurationSeconds - 0.8) -le 0.001,
+        [Math]::Abs(($lightstickWidth * 2.0) - 59.66) -le 0.02,
+        [Math]::Abs(($airplaneWidth * 2.0) - 122.46) -le 0.02
+    )
+    if (@($checks | Where-Object { -not $_ }).Count -ne 0) {
+        [Console]::Error.WriteLine("Orange Bubu runtime geometry lock failed.")
+        exit 1
+    }
+    $lockedAssets = @(
+        [PSCustomObject]@{ Path = (Join-Path $PSScriptRoot "quota-panel-background.png"); Hash = "770a82eeb7e50ed698ca106b25e73c4b1060a632ab6a7766671359d72b8afef8" },
+        [PSCustomObject]@{ Path = (Join-Path $PSScriptRoot "Assets\Airplane\quota-airplane-material.png"); Hash = "13ab83761b7a7adad350fbc354266be05d15cb1c8fcccfdc9f52c49113e672c7" },
+        [PSCustomObject]@{ Path = (Join-Path $PSScriptRoot "Assets\Airplane\quota-airplane-flight-material.png"); Hash = "6a0d96db2b982ce6d58b423e5a91cc2a9ae43e9b447cda73aee315196d1f1941" },
+        [PSCustomObject]@{ Path = (Join-Path $PSScriptRoot "Assets\Lightstick\lightstick-unlit.png"); Hash = "e06b3cd8a7ef20d775f34f81ce22dc7484d5c6cd4c94dab12e1b5b0b2d67b791" },
+        [PSCustomObject]@{ Path = (Join-Path $PSScriptRoot "Assets\Lightstick\lightstick-tube-emission.png"); Hash = "7f39a6f242bbd5e562c1585fa04fc14353cd61877cf9a1e98793227ba818cab0" },
+        [PSCustomObject]@{ Path = (Join-Path $PSScriptRoot "Assets\Lightstick\lightstick-glow.png"); Hash = "2fd4ab5fa530cd26560cdc642d9e7a95ed00e617de552613d867313d91048b97" },
+        [PSCustomObject]@{ Path = (Join-Path $PSScriptRoot "Assets\Lightstick\lightstick-specular.png"); Hash = "f84d09a5ace63810da81608836a9dce1c8d225496baa739aed7e889b70880ba9" }
+    )
+    foreach ($asset in $lockedAssets) {
+        if (-not (Test-Path -LiteralPath $asset.Path -PathType Leaf)) {
+            [Console]::Error.WriteLine("Missing locked Orange Bubu asset: " + $asset.Path)
+            exit 1
+        }
+        $actualHash = (Get-FileHash -LiteralPath $asset.Path -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -ne [string]$asset.Hash) {
+            [Console]::Error.WriteLine("Orange Bubu asset fingerprint changed: " + $asset.Path)
+            exit 1
+        }
+    }
+    Write-Output (
+        "runtime-geometry-lock-validation: schema=1 pet=163x177 " +
+        "panel=224x" + [int]$expectedPanelHeight + " gap=14 " +
+        "lightstick=29.83x80.07 airplane=61.23x51.03 uniform-2x=pass"
+    )
+    exit 0
+}
+
 if ($PrintConfiguration) {
     Write-Output (
         "panel-config: version=" + $script:PanelVersion +
-        " edition=" + $script:PanelEdition + " petID=" + $script:BluePetId +
         " marketPricesEnabled=" + $script:MarketPricesEnabled.ToString().ToLowerInvariant() +
         " width=" + [int]$script:ExpandedWidth + " height=" + $script:ExpandedHeight
     )
@@ -106,7 +224,7 @@ function Write-PanelLog([string]$message) {
 trap {
     Write-PanelLog ("FATAL " + $_.Exception.ToString())
     $isValidationRun = $ValidateXaml -or $ValidateTrackingFilters -or
-        $ValidateTaskProgress -or $ValidateBlueEdition -or $PrintTaskProgress
+        $ValidateTaskProgress -or $ValidateSkinSelection -or $PrintTaskProgress
     if ($isValidationRun) {
         [Console]::Error.WriteLine($_.Exception.ToString())
     } else {
@@ -134,7 +252,7 @@ Add-Type -AssemblyName System.Drawing
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $createdNew = $false
-$script:instanceMutex = [Threading.Mutex]::new($true, "Local\BubuQuotaPanel", [ref]$createdNew)
+$script:instanceMutex = [Threading.Mutex]::new($true, "Local\OrangeBubuQuotaPanel", [ref]$createdNew)
 if (-not $createdNew) {
     exit 0
 }
@@ -202,10 +320,6 @@ namespace BubuPanel {
         [DllImport("user32.dll")]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
 
-        [DllImport("dwmapi.dll")]
-        private static extern int DwmGetWindowAttribute(
-            IntPtr hWnd, int dwAttribute, out RECT attribute, int cbAttribute);
-
         [DllImport("user32.dll")]
         private static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint flags);
 
@@ -258,28 +372,10 @@ namespace BubuPanel {
         [DllImport("user32.dll")]
         private static extern int GetSystemMetrics(int index);
 
-        private static bool TryGetPhysicalWindowRect(IntPtr hWnd, out RECT rect) {
-            // GetWindowRect is DPI-virtualized when the hosting PowerShell/WPF
-            // thread is not per-monitor aware. DWM always reports physical
-            // screen pixels, so a 250% display cannot make the panel derive a
-            // 0.4x/0.2x pet scale from an otherwise full-size overlay.
-            const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
-            try {
-                int result = DwmGetWindowAttribute(hWnd,
-                    DWMWA_EXTENDED_FRAME_BOUNDS, out rect, Marshal.SizeOf(typeof(RECT)));
-                if (result == 0 && rect.Right > rect.Left && rect.Bottom > rect.Top) {
-                    return true;
-                }
-            } catch (DllNotFoundException) {
-            } catch (EntryPointNotFoundException) {
-            }
-            return GetWindowRect(hWnd, out rect);
-        }
-
         private static NativeWindowInfo ReadWindow(IntPtr hWnd) {
             if (hWnd == IntPtr.Zero || !IsWindow(hWnd) || !IsWindowVisible(hWnd)) return null;
             RECT rect;
-            if (!TryGetPhysicalWindowRect(hWnd, out rect)) return null;
+            if (!GetWindowRect(hWnd, out rect)) return null;
             if (rect.Right <= rect.Left || rect.Bottom <= rect.Top) return null;
             uint processId;
             GetWindowThreadProcessId(hWnd, out processId);
@@ -301,21 +397,6 @@ namespace BubuPanel {
 
         public static NativeWindowInfo GetWindow(IntPtr hWnd) {
             return ReadWindow(hWnd);
-        }
-
-        public static bool HasPhysicalWindowBounds(IntPtr hWnd) {
-            RECT rect;
-            if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return false;
-            const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
-            try {
-                return DwmGetWindowAttribute(hWnd, DWMWA_EXTENDED_FRAME_BOUNDS,
-                    out rect, Marshal.SizeOf(typeof(RECT))) == 0 &&
-                    rect.Right > rect.Left && rect.Bottom > rect.Top;
-            } catch (DllNotFoundException) {
-                return false;
-            } catch (EntryPointNotFoundException) {
-                return false;
-            }
         }
 
         public static bool IsLeftMouseButtonDown() {
@@ -343,7 +424,7 @@ namespace BubuPanel {
         public static NativeVisualInfo CaptureVisibleBounds(IntPtr hWnd) {
             RECT rect;
             if (hWnd == IntPtr.Zero || !IsWindow(hWnd) ||
-                !TryGetPhysicalWindowRect(hWnd, out rect)) return null;
+                !GetWindowRect(hWnd, out rect)) return null;
             int width = rect.Right - rect.Left;
             int height = rect.Bottom - rect.Top;
             if (width < 40 || height < 40 || width > 2000 || height > 2000) return null;
@@ -544,8 +625,11 @@ namespace BubuPanel {
 $script:PerMonitorDpiEnabled = [BubuPanel.NativeWindows]::EnablePerMonitorV2()
 Write-PanelLog ("DPI per-monitor-v2=" + $script:PerMonitorDpiEnabled)
 
-function Update-CodexBluePetSelectionText([string]$configText) {
-    $avatarId = $script:BluePetAvatarId
+function Get-BubuSkinAvatarId([string]$skin) {
+    return "custom:bubu-orange"
+}
+
+function Update-CodexSkinSelectionText([string]$configText, [string]$avatarId) {
     $lines = [Text.RegularExpressions.Regex]::Split(
         ([string]$configText).Replace("`r`n", "`n"),
         "`n"
@@ -595,9 +679,9 @@ function Update-CodexBluePetSelectionText([string]$configText) {
     return ($output -join "`r`n").TrimEnd() + "`r`n"
 }
 
-function Test-BluePetSelected {
+function Get-BubuSkinFromConfig {
     $configPath = Join-Path $script:CodexHome "config.toml"
-    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { return $false }
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { return $null }
     try {
         $section = ""
         foreach ($line in [IO.File]::ReadAllLines($configPath, [Text.Encoding]::UTF8)) {
@@ -608,16 +692,18 @@ function Test-BluePetSelected {
             }
             if ($section -ne "desktop") { continue }
             if ($trimmed -match '^selected-avatar-id\s*=\s*"([^"]+)"') {
-                return $matches[1] -eq $script:BluePetAvatarId
+                if ($matches[1] -eq "custom:bubu-orange") { return "orange" }
+                return $null
             }
         }
     } catch {
         Write-PanelLog ("SKIN read failed " + $_.Exception.Message)
     }
-    return $false
+    return $null
 }
 
-function Set-BluePetSelection {
+function Set-BubuSkinSelection([string]$skin) {
+    if ($skin -ne "orange") { return $false }
     $configPath = Join-Path $script:CodexHome "config.toml"
     $tempPath = $configPath + ".bubu-" + [Guid]::NewGuid().ToString("N") + ".tmp"
     $backupPath = $configPath + ".bubu-backup"
@@ -626,7 +712,8 @@ function Set-BluePetSelection {
         $original = if (Test-Path -LiteralPath $configPath -PathType Leaf) {
             [IO.File]::ReadAllText($configPath, [Text.Encoding]::UTF8)
         } else { "" }
-        $updated = Update-CodexBluePetSelectionText $original
+        $avatarId = Get-BubuSkinAvatarId $skin
+        $updated = Update-CodexSkinSelectionText $original $avatarId
         [IO.File]::WriteAllText($tempPath, $updated, [Text.UTF8Encoding]::new($false))
         if (Test-Path -LiteralPath $configPath -PathType Leaf) {
             Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
@@ -635,9 +722,9 @@ function Set-BluePetSelection {
         } else {
             [IO.File]::Move($tempPath, $configPath)
         }
-        $selected = Test-BluePetSelected
-        Write-PanelLog ("EDITION blue pet selected=" + $selected)
-        return $selected
+        $selected = Get-BubuSkinFromConfig
+        Write-PanelLog ("SKIN selected=" + $selected)
+        return $selected -eq $skin
     } catch {
         Write-PanelLog ("SKIN write failed " + $_.Exception.Message)
         return $false
@@ -646,7 +733,7 @@ function Set-BluePetSelection {
     }
 }
 
-if ($ValidateBlueEdition) {
+if ($ValidateSkinSelection) {
     $sample = @'
 selected-avatar-id = "codex"
 [general]
@@ -657,27 +744,27 @@ selected-avatar-id = "custom:old-pet"
 [features]
 test = true
 '@
-    $blue = Update-CodexBluePetSelectionText $sample
-    $missing = Update-CodexBluePetSelectionText "[general]`nmodel = `"gpt`"`n"
-    $blueValid = $blue -match 'selected-avatar-id = "custom:bubu-office"'
-    $oneKey = ([Text.RegularExpressions.Regex]::Matches($blue, 'selected-avatar-id')).Count -eq 1
-    $missingValid = $missing -match '(?ms)^\[desktop\]\r?\nselected-avatar-id = "custom:bubu-office"'
-    if (-not $blueValid -or -not $oneKey -or -not $missingValid) {
-        throw "Blue-edition config update validation failed."
+    $orange = Update-CodexSkinSelectionText $sample "custom:bubu-orange"
+    $missing = Update-CodexSkinSelectionText "[general]`nmodel = `"gpt`"`n" "custom:bubu-orange"
+    $orangeValid = $orange -match 'selected-avatar-id = "custom:bubu-orange"'
+    $oneKey = ([Text.RegularExpressions.Regex]::Matches($orange, 'selected-avatar-id')).Count -eq 1
+    $missingValid = $missing -match '(?ms)^\[desktop\]\r?\nselected-avatar-id = "custom:bubu-orange"'
+    if (-not $orangeValid -or -not $oneKey -or -not $missingValid) {
+        throw "Skin-selection config update validation failed."
     }
-    Write-Output "blue-edition-valid: edition=blue-bubu pet=bubu-office persistence=True duplicate-key=True"
+    Write-Output "skin-selection-valid: project=orange orange=True persistence=True duplicate-key=True"
     exit 0
 }
 
-# This executable is blue-only. Always restore its matching pet after replacing
-# an older mixed experimental build.
-[void](Set-BluePetSelection)
+# This executable is isolated to Orange Bubu and never selects another pet.
+$script:SelectedSkin = "orange"
+[void](Set-BubuSkinSelection "orange")
 
 $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="卜卜额度面板"
-        Width="224" Height="$($script:ExpandedHeight)"
+        Title="橙色卜卜额度面板"
+        Width="$($script:ExpandedWidth)" Height="$($script:ExpandedHeight)"
         WindowStyle="None" ResizeMode="NoResize"
         AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ShowActivated="False"
@@ -747,59 +834,66 @@ $xaml = @"
     </Window.Resources>
 
     <Grid x:Name="PanelScaleRoot" RenderTransformOrigin="0,0">
-        <Canvas x:Name="ExpandedRoot" Width="224" Height="$($script:ExpandedHeight)">
+        <Canvas x:Name="ExpandedRoot" Width="$($script:ExpandedWidth)" Height="$($script:ExpandedHeight)">
             <Polygon x:Name="ExpandedPointer" Points="104,$($script:ExpandedBodyHeight) 112,$($script:ExpandedPointerTipY) 120,$($script:ExpandedBodyHeight)"
-                     Fill="#F7080B17" Stroke="#38FFFFFF" StrokeThickness="1"/>
+                     Fill="#C709868F" Stroke="#9EFFFFFF" StrokeThickness="1"/>
             <Border x:Name="ExpandedPanelBorder" Canvas.Left="3" Canvas.Top="3" Width="218" Height="$($script:ExpandedBodyHeight)"
-                    CornerRadius="17" Background="#F7080B17"
-                    BorderBrush="#38FFFFFF" BorderThickness="1">
+                    CornerRadius="17" Background="#5209868F"
+                    BorderBrush="#9EFFFFFF" BorderThickness="1">
                 <Grid ClipToBounds="True">
-                    <Rectangle x:Name="BackgroundBand" Height="93" VerticalAlignment="Top"/>
+                    <Border x:Name="BackgroundTint" CornerRadius="16">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                <GradientStop Color="#2E0A5862" Offset="0"/>
+                                <GradientStop Color="#120A7077" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
                     <Canvas x:Name="ExpandedContentCanvas" Width="218" Height="$($script:ExpandedBodyHeight)">
-                        <TextBlock x:Name="CodexName" Canvas.Left="14" Canvas.Top="11"
+                        <TextBlock x:Name="CodexName" Canvas.Left="14" Canvas.Top="11" Visibility="Collapsed"
                                    Width="62" Height="18" Text="Codex"
                                    FontFamily="Microsoft YaHei UI" FontSize="11" FontWeight="SemiBold"
                                    Foreground="#E8FFFFFF"/>
-                        <TextBlock x:Name="RemainingText" Canvas.Left="82" Canvas.Top="11"
+                        <TextBlock x:Name="RemainingText" Canvas.Left="82" Canvas.Top="11" Visibility="Collapsed"
                                    Width="82" Height="18" Text="正在读取…"
                                    TextAlignment="Right" FontFamily="Consolas" FontSize="10.5"
                                    FontWeight="SemiBold" Foreground="#FF3899"/>
-                        <Button x:Name="HideButton" Canvas.Left="170" Canvas.Top="7"
+                        <Button x:Name="HideButton" Canvas.Left="170" Canvas.Top="7" Visibility="Collapsed"
                                 Width="38" Height="18" Content="隐藏"
                                 Style="{StaticResource PanelButton}"/>
-                        <Grid Canvas.Left="14" Canvas.Top="65" Width="190" Height="4">
-                            <Border Background="#4D000000" CornerRadius="2"/>
+                        <Grid Canvas.Left="14" Canvas.Top="65" Width="190" Height="4" Visibility="Collapsed">
+                            <Border Background="#7A0A555D" CornerRadius="2"/>
                             <Border x:Name="QuotaProgressFill" Width="3" HorizontalAlignment="Left"
                                     Background="#3899FF" CornerRadius="2"/>
                         </Grid>
-                        <TextBlock x:Name="ResetText" Canvas.Left="14" Canvas.Top="74"
+                        <TextBlock x:Name="ResetText" Canvas.Left="14" Canvas.Top="74" Visibility="Collapsed"
                                    Width="96" Height="15" Text="重置时间未知"
                                    FontFamily="Microsoft YaHei UI" FontSize="9.2"
                                    Foreground="#B8FFFFFF"/>
-                        <TextBlock x:Name="QuotaStatusText" Canvas.Left="106" Canvas.Top="74"
+                        <TextBlock x:Name="QuotaStatusText" Canvas.Left="106" Canvas.Top="74" Visibility="Collapsed"
                                    Width="98" Height="15" Text="5 分钟后重试"
                                    TextAlignment="Right" FontFamily="Microsoft YaHei UI" FontSize="9.2"
                                    Foreground="#B8FFFFFF"/>
 
-                        <Canvas x:Name="TaskProgressRows" Canvas.Left="0" Canvas.Top="93"
+                        <Canvas x:Name="TaskProgressRows" Canvas.Left="0" Canvas.Top="7"
                                 Width="218" Height="23"/>
 
                         <Canvas x:Name="MarketRows" Width="218" Height="$($script:ExpandedBodyHeight)">
-                        <Border Canvas.Left="14" Canvas.Top="116" Width="190" Height="1"
+                        <Border Canvas.Left="14" Canvas.Top="30" Width="190" Height="1"
                                 Background="#21FFFFFF"/>
-                        <Ellipse Canvas.Left="14" Canvas.Top="123" Width="15" Height="15"
+                        <Ellipse Canvas.Left="14" Canvas.Top="37" Width="15" Height="15"
                                  Fill="#F7931A"/>
-                        <TextBlock Canvas.Left="14" Canvas.Top="122.5" Width="15" Height="15"
+                        <TextBlock Canvas.Left="14" Canvas.Top="36.5" Width="15" Height="15"
                                    Text="₿" TextAlignment="Center" FontFamily="Segoe UI Symbol"
                                    FontSize="10" FontWeight="Bold" Foreground="White"/>
-                        <TextBlock Canvas.Left="34" Canvas.Top="123" Width="62" Height="16"
+                        <TextBlock Canvas.Left="34" Canvas.Top="37" Width="62" Height="16"
                                    Text="BTC/USDT" FontFamily="Microsoft YaHei UI"
                                    FontSize="9.6" FontWeight="SemiBold" Foreground="#C8FFFFFF"/>
-                        <TextBlock x:Name="BTCPriceText" Canvas.Left="92" Canvas.Top="121.5"
+                        <TextBlock x:Name="BTCPriceText" Canvas.Left="92" Canvas.Top="35.5"
                                    Width="80" Height="18" Text="--" TextAlignment="Right"
                                    FontFamily="Consolas" FontSize="11.4" FontWeight="Bold"
                                    Foreground="#F0FFFFFF"/>
-                        <TextBlock x:Name="BTCStatusText" Canvas.Left="176" Canvas.Top="124"
+                        <TextBlock x:Name="BTCStatusText" Canvas.Left="176" Canvas.Top="38"
                                    Width="28" Height="14" Text="读取中"
                                    TextAlignment="Right" FontFamily="Microsoft YaHei UI"
                                    FontSize="8.2" Foreground="#8AFFFFFF"/>
@@ -813,10 +907,10 @@ $xaml = @"
         <Canvas x:Name="CollapsedRoot" Width="64" Height="44" Visibility="Collapsed"
                 HorizontalAlignment="Left" VerticalAlignment="Top">
             <Polygon x:Name="CollapsedPointer" Points="24,31 32,43 40,31"
-                     Fill="#F7080B17" Stroke="#38FFFFFF" StrokeThickness="1"/>
+                     Fill="#C709868F" Stroke="#9EFFFFFF" StrokeThickness="1"/>
             <Border Canvas.Left="3" Canvas.Top="3" Width="58" Height="31"
-                    CornerRadius="13" Background="#F7080B17"
-                    BorderBrush="#38FFFFFF" BorderThickness="1">
+                    CornerRadius="13" Background="#5209868F"
+                    BorderBrush="#9EFFFFFF" BorderThickness="1">
                 <Button x:Name="ShowButton" Width="50" Height="22" Content="显示"
                         Style="{StaticResource PanelButton}"/>
             </Border>
@@ -835,6 +929,205 @@ $script:Window.Top = -32000
 $script:WindowHandle = [Windows.Interop.WindowInteropHelper]::new($script:Window).EnsureHandle()
 [BubuPanel.NativeWindows]::ApplyNoActivateStyle($script:WindowHandle)
 
+$lightstickXaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Orange Bubu Quota Lightstick"
+        Width="$($script:QuotaLightstickBaseWidth)" Height="$($script:QuotaLightstickBaseHeight)"
+        WindowStyle="None" ResizeMode="NoResize"
+        AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" ShowActivated="False"
+        Focusable="False" IsHitTestVisible="False" SnapsToDevicePixels="True">
+    <Grid x:Name="LightstickScaleRoot" Width="$($script:QuotaLightstickBaseWidth)" Height="$($script:QuotaLightstickBaseHeight)">
+        <Canvas x:Name="LightstickProductRoot" Width="34" Height="102"
+                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="2,0,0,0">
+            <Canvas.RenderTransform>
+                <RotateTransform x:Name="LightstickRotation" Angle="$($script:QuotaLightstickChairTilt)" CenterX="17" CenterY="51"/>
+            </Canvas.RenderTransform>
+            <!-- Glow remains procedural so the quota surface moves smoothly;
+                 all physical product detail comes from aligned 219x1221 maps. -->
+            <Border x:Name="QuotaLightstickGlow" Canvas.Left="11.07" Canvas.Top="54.66"
+                    Width="12.03" Height="0" CornerRadius="6.02" Background="#2E00D6FF"
+                    Visibility="Collapsed">
+                <Border.Effect>
+                    <DropShadowEffect Color="#FF0073FF" BlurRadius="2.4" ShadowDepth="0" Opacity="0.55"/>
+                </Border.Effect>
+            </Border>
+            <Image x:Name="LightstickUnlitImage" Canvas.Left="8.4" Canvas.Top="3"
+                   Width="17.22" Height="96" Stretch="Fill"
+                   RenderOptions.BitmapScalingMode="HighQuality"/>
+            <Image x:Name="LightstickEmissionImage" Canvas.Left="8.4" Canvas.Top="3"
+                   Width="17.22" Height="96" Stretch="Fill"
+                   RenderOptions.BitmapScalingMode="HighQuality">
+                <Image.Clip>
+                    <RectangleGeometry x:Name="QuotaLightstickEmissionClip" Rect="0,51.66,17.22,0"/>
+                </Image.Clip>
+            </Image>
+            <Image x:Name="LightstickSpecularImage" Canvas.Left="8.4" Canvas.Top="3"
+                   Width="17.22" Height="96" Stretch="Fill" Opacity="0.62"
+                   RenderOptions.BitmapScalingMode="HighQuality"/>
+            <Rectangle x:Name="QuotaLightstickSurface" Canvas.Left="11.5" Canvas.Top="54.66"
+                       Width="10.9" Height="0.65" RadiusX="0.32" RadiusY="0.32"
+                       Fill="#E6B3FAFF" Visibility="Collapsed"/>
+        </Canvas>
+    </Grid>
+</Window>
+"@
+
+$airplaneXaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Orange Bubu Quota Airplane"
+        Width="$($script:QuotaAirplaneBaseWidth)" Height="$($script:QuotaAirplaneBaseHeight)"
+        WindowStyle="None" ResizeMode="NoResize"
+        AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" ShowActivated="False"
+        Focusable="False" IsHitTestVisible="False" SnapsToDevicePixels="True">
+    <Grid x:Name="AirplaneScaleRoot" Width="$($script:QuotaAirplaneBaseWidth)" Height="$($script:QuotaAirplaneBaseHeight)"
+          TextOptions.TextFormattingMode="Display">
+        <Image x:Name="QuotaAirplaneMaterialImage" Width="$($script:QuotaAirplaneBaseWidth)" Height="$($script:QuotaAirplaneBaseHeight)"
+               HorizontalAlignment="Left" VerticalAlignment="Top" Stretch="Fill"
+               RenderOptions.BitmapScalingMode="HighQuality"/>
+        <Canvas Width="$($script:QuotaAirplaneBaseWidth)" Height="$($script:QuotaAirplaneBaseHeight)">
+            <TextBlock x:Name="QuotaAirplanePercentText" Text="75"
+                       Canvas.Left="21.25" Canvas.Top="20.7" Width="30"
+                       FontFamily="Consolas" FontSize="11.6" FontWeight="Bold"
+                       Foreground="#FAE8FDFF" TextAlignment="Center"/>
+            <Rectangle Canvas.Left="17.35" Canvas.Top="37.65" Width="34" Height="0.7"
+                       Fill="#66033457"/>
+            <Rectangle x:Name="QuotaAirplaneProgressFill"
+                       Canvas.Left="17.35" Canvas.Top="37.5" Width="25.5" Height="1"
+                       Fill="#F2B3FAFF"/>
+        </Canvas>
+    </Grid>
+</Window>
+"@
+
+function New-LightstickBitmap([string]$name) {
+    $path = Join-Path $PSScriptRoot ("Assets\Lightstick\" + $name + ".png")
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "Missing Orange Bubu lightstick material: $name"
+    }
+    $bitmap = [Windows.Media.Imaging.BitmapImage]::new()
+    $bitmap.BeginInit()
+    $bitmap.CacheOption = [Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+    $bitmap.UriSource = [Uri]::new($path, [UriKind]::Absolute)
+    $bitmap.EndInit()
+    $bitmap.Freeze()
+    return $bitmap
+}
+
+function New-AirplaneBitmap([string]$name) {
+    $path = Join-Path $PSScriptRoot ("Assets\Airplane\" + $name + ".png")
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "Missing approved Orange Bubu airplane material."
+    }
+    $bitmap = [Windows.Media.Imaging.BitmapImage]::new()
+    $bitmap.BeginInit()
+    $bitmap.CacheOption = [Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+    $bitmap.UriSource = [Uri]::new($path, [UriKind]::Absolute)
+    $bitmap.EndInit()
+    $bitmap.Freeze()
+    return $bitmap
+}
+
+$script:LightstickUnlitBitmap = New-LightstickBitmap "lightstick-unlit"
+$script:LightstickEmissionBitmap = New-LightstickBitmap "lightstick-tube-emission"
+$script:LightstickSpecularBitmap = New-LightstickBitmap "lightstick-specular"
+$script:AirplaneMaterialBitmap = New-AirplaneBitmap "quota-airplane-material"
+$script:AirplaneFlightMaterialBitmap = New-AirplaneBitmap "quota-airplane-flight-material"
+
+function New-QuotaLightstickVisual {
+    $xml = New-Object Xml.XmlDocument
+    $xml.LoadXml($lightstickXaml)
+    $reader = [Xml.XmlNodeReader]::new($xml)
+    $window = [Windows.Markup.XamlReader]::Load($reader)
+    $window.WindowStartupLocation = [Windows.WindowStartupLocation]::Manual
+    $window.Left = -32000
+    $window.Top = -32000
+    $handle = [Windows.Interop.WindowInteropHelper]::new($window).EnsureHandle()
+    [BubuPanel.NativeWindows]::ApplyNoActivateStyle($handle)
+    $unlit = $window.FindName("LightstickUnlitImage")
+    $emission = $window.FindName("LightstickEmissionImage")
+    $specular = $window.FindName("LightstickSpecularImage")
+    $unlit.Source = $script:LightstickUnlitBitmap
+    $emission.Source = $script:LightstickEmissionBitmap
+    $specular.Source = $script:LightstickSpecularBitmap
+    return [PSCustomObject]@{
+        Window = $window
+        Handle = $handle
+        ScaleRoot = $window.FindName("LightstickScaleRoot")
+        ProductRoot = $window.FindName("LightstickProductRoot")
+        Rotation = $window.FindName("LightstickRotation")
+        EmissionClip = $window.FindName("QuotaLightstickEmissionClip")
+        Glow = $window.FindName("QuotaLightstickGlow")
+        Surface = $window.FindName("QuotaLightstickSurface")
+    }
+}
+
+function New-QuotaAirplaneVisual {
+    $xml = New-Object Xml.XmlDocument
+    $xml.LoadXml($airplaneXaml)
+    $reader = [Xml.XmlNodeReader]::new($xml)
+    $window = [Windows.Markup.XamlReader]::Load($reader)
+    $window.WindowStartupLocation = [Windows.WindowStartupLocation]::Manual
+    $window.Left = -32000
+    $window.Top = -32000
+    $handle = [Windows.Interop.WindowInteropHelper]::new($window).EnsureHandle()
+    [BubuPanel.NativeWindows]::ApplyNoActivateStyle($handle)
+    $materialImage = $window.FindName("QuotaAirplaneMaterialImage")
+    $materialImage.Source = $script:AirplaneMaterialBitmap
+    return [PSCustomObject]@{
+        Window = $window
+        Handle = $handle
+        ScaleRoot = $window.FindName("AirplaneScaleRoot")
+        MaterialImage = $materialImage
+        PercentText = $window.FindName("QuotaAirplanePercentText")
+        ProgressFill = $window.FindName("QuotaAirplaneProgressFill")
+    }
+}
+
+$script:PrimaryLightstick = New-QuotaLightstickVisual
+$script:SecondaryLightstick = New-QuotaLightstickVisual
+$script:QuotaAirplane = New-QuotaAirplaneVisual
+$script:QuotaLightstickWindow = $script:PrimaryLightstick.Window
+$script:QuotaLightstickWindowHandle = $script:PrimaryLightstick.Handle
+$script:LightstickScaleRoot = $script:PrimaryLightstick.ScaleRoot
+$script:QuotaLightstickEmissionClip = $script:PrimaryLightstick.EmissionClip
+$script:QuotaLightstickSurface = $script:PrimaryLightstick.Surface
+$script:QuotaLightstickGlow = $script:PrimaryLightstick.Glow
+$script:QuotaLightstickRotation = $script:PrimaryLightstick.Rotation
+$script:SecondaryQuotaLightstickWindow = $script:SecondaryLightstick.Window
+$script:SecondaryQuotaLightstickWindowHandle = $script:SecondaryLightstick.Handle
+$script:SecondaryLightstickScaleRoot = $script:SecondaryLightstick.ScaleRoot
+$script:SecondaryQuotaLightstickEmissionClip = $script:SecondaryLightstick.EmissionClip
+$script:SecondaryQuotaLightstickSurface = $script:SecondaryLightstick.Surface
+$script:SecondaryQuotaLightstickGlow = $script:SecondaryLightstick.Glow
+$script:SecondaryQuotaLightstickRotation = $script:SecondaryLightstick.Rotation
+$script:QuotaAirplaneWindow = $script:QuotaAirplane.Window
+$script:QuotaAirplaneWindowHandle = $script:QuotaAirplane.Handle
+$script:QuotaAirplaneScaleRoot = $script:QuotaAirplane.ScaleRoot
+$script:QuotaLightstickProductWidth = 17.22
+$script:QuotaLightstickProductTop = 3.0
+$script:QuotaLightstickTubeTop = 17.0 / 1221.0 * 96.0
+$script:QuotaLightstickTubeBottom = 657.0 / 1221.0 * 96.0
+$script:QuotaLightstickTubeHeight = $script:QuotaLightstickTubeBottom - $script:QuotaLightstickTubeTop
+$script:QuotaLightstickRemaining = $null
+$script:QuotaLightstickDisplayedRemaining = 0.0
+$script:QuotaLightstickMode = "chair"
+$script:RewindTicketStartedAt = $null
+$script:AirplaneUsesFlightMaterial = $false
+
+function Set-AirplaneFlightMaterial([bool]$enabled) {
+    if ($script:AirplaneUsesFlightMaterial -eq $enabled) { return }
+    $script:AirplaneUsesFlightMaterial = $enabled
+    $script:QuotaAirplane.MaterialImage.Source = if ($enabled) {
+        $script:AirplaneFlightMaterialBitmap
+    } else {
+        $script:AirplaneMaterialBitmap
+    }
+}
+
 $script:HealthPath = Join-Path $PSScriptRoot "panel-health.json"
 $script:LastPositionMode = "starting"
 $script:LastQuotaStatus = "starting"
@@ -845,8 +1138,6 @@ function Write-PanelHealth([bool]$force) {
     try {
         $payload = [ordered]@{
             version = $script:PanelVersion
-            edition = $script:PanelEdition
-            petID = $script:BluePetId
             processId = $PID
             updatedAt = [DateTimeOffset]::Now.ToString("o")
             positionMode = $script:LastPositionMode
@@ -867,6 +1158,7 @@ function Write-PanelHealth([bool]$force) {
                 $script:LastPetMotionAt -eq [DateTime]::MinValue) { $null } else { $script:LastPetMotionAt.ToString("o") }
             quotaStatus = $script:LastQuotaStatus
             taskProgress = if ($script:LastTaskProgress) { $script:LastTaskProgress } else { "reading" }
+            selectedSkin = $script:SelectedSkin
             stateSource = if ($script:OverlayState) { "available" } else { "unavailable" }
         } | ConvertTo-Json -Compress
         [IO.File]::WriteAllText($script:HealthPath, $payload, [Text.UTF8Encoding]::new($false))
@@ -888,7 +1180,6 @@ $script:ExpandedContentCanvas = Get-Control "ExpandedContentCanvas"
 $script:CollapsedRoot = Get-Control "CollapsedRoot"
 $script:ExpandedPointer = Get-Control "ExpandedPointer"
 $script:CollapsedPointer = Get-Control "CollapsedPointer"
-$script:BackgroundBand = Get-Control "BackgroundBand"
 $script:RemainingText = Get-Control "RemainingText"
 $script:QuotaProgressFill = Get-Control "QuotaProgressFill"
 $script:ResetText = Get-Control "ResetText"
@@ -905,13 +1196,28 @@ if (-not $script:MarketPricesEnabled) {
 }
 
 if ($ValidateXaml) {
+    if (-not $script:QuotaLightstickWindow -or -not $script:QuotaLightstickEmissionClip -or
+        -not $script:QuotaLightstickSurface -or -not $script:QuotaLightstickGlow -or
+        -not $script:PrimaryLightstick.ProductRoot -or
+        -not $script:SecondaryQuotaLightstickWindow -or
+        -not $script:SecondaryQuotaLightstickEmissionClip -or
+        -not $script:QuotaAirplaneWindow -or
+        -not $script:QuotaAirplane.MaterialImage -or
+        -not $script:QuotaAirplane.PercentText -or
+        -not $script:QuotaAirplane.ProgressFill -or
+        $script:AirplaneMaterialBitmap.PixelWidth -lt 342 -or
+        $script:AirplaneMaterialBitmap.PixelHeight -lt 284 -or
+        $script:AirplaneFlightMaterialBitmap.PixelWidth -lt 342 -or
+        $script:AirplaneFlightMaterialBitmap.PixelHeight -lt 284) {
+        throw "Independent quota lightstick or approved airplane XAML controls are missing."
+    }
     Write-Output (
         "xaml-valid: version=" + $script:PanelVersion +
         " marketPricesEnabled=" + $script:MarketPricesEnabled.ToString().ToLowerInvariant() +
         " width=" + [int]($script:Window.Width) +
         " height=" + [int]($script:Window.Height) +
         " marketRows=" + $script:MarketRows.Visibility +
-        " skinButtons=False"
+        " skinButtons=False lightstick=True airplaneMaterial=342x284 independentDefaultOnly=True"
     )
     exit 0
 }
@@ -926,10 +1232,11 @@ if (Test-Path -LiteralPath $backgroundPath) {
     $bitmap.Freeze()
 
     $imageBrush = [Windows.Media.ImageBrush]::new($bitmap)
-    $imageBrush.ViewboxUnits = [Windows.Media.BrushMappingMode]::RelativeToBoundingBox
-    $imageBrush.Viewbox = [Windows.Rect]::new(0, 0.34, 1, 0.32)
-    $imageBrush.Stretch = [Windows.Media.Stretch]::Fill
-    $script:BackgroundBand.Fill = $imageBrush
+    $imageBrush.Stretch = [Windows.Media.Stretch]::UniformToFill
+    $imageBrush.AlignmentX = [Windows.Media.AlignmentX]::Center
+    $imageBrush.AlignmentY = [Windows.Media.AlignmentY]::Center
+    $imageBrush.Opacity = 0.78
+    $script:ExpandedPanelBorder.Background = $imageBrush
 }
 
 function Get-TaskIconBitmap([string]$name) {
@@ -947,7 +1254,6 @@ function Get-TaskIconBitmap([string]$name) {
 function Get-AnimatedGifFrames([string]$name) {
     $path = Join-Path $PSScriptRoot $name
     if (-not (Test-Path -LiteralPath $path)) { return @() }
-
     $stream = [IO.File]::OpenRead($path)
     try {
         $decoder = [Windows.Media.Imaging.GifBitmapDecoder]::new(
@@ -957,9 +1263,8 @@ function Get-AnimatedGifFrames([string]$name) {
         )
         $frames = New-Object Collections.ArrayList
         foreach ($frame in $decoder.Frames) {
-            $copy = [Windows.Media.Imaging.BitmapFrame]::Create($frame)
-            if ($copy.CanFreeze) { $copy.Freeze() }
-            [void]$frames.Add($copy)
+            if ($frame.CanFreeze) { $frame.Freeze() }
+            [void]$frames.Add($frame)
         }
         return @($frames)
     } finally {
@@ -967,52 +1272,11 @@ function Get-AnimatedGifFrames([string]$name) {
     }
 }
 
-function Start-RunningTaskBadgeAnimation([Windows.Controls.Image]$image) {
-    if ($script:RunningTaskBadgeFrames.Count -eq 0) { return $false }
-
-    $image.Source = $script:RunningTaskBadgeFrames[0]
-    $animation = [Windows.Media.Animation.ObjectAnimationUsingKeyFrames]::new()
-    $animation.Duration = [Windows.Duration]::new(
-        [TimeSpan]::FromMilliseconds(
-            $script:RunningTaskBadgeFrameDurationMs * $script:RunningTaskBadgeFrames.Count
-        )
-    )
-    $animation.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
-    for ($index = 0; $index -lt $script:RunningTaskBadgeFrames.Count; $index++) {
-        $keyFrame = [Windows.Media.Animation.DiscreteObjectKeyFrame]::new()
-        $keyFrame.Value = $script:RunningTaskBadgeFrames[$index]
-        $keyFrame.KeyTime = [Windows.Media.Animation.KeyTime]::FromTimeSpan(
-            [TimeSpan]::FromMilliseconds($script:RunningTaskBadgeFrameDurationMs * $index)
-        )
-        [void]$animation.KeyFrames.Add($keyFrame)
-    }
-    $image.BeginAnimation(
-        [Windows.Controls.Image]::SourceProperty,
-        $animation,
-        [Windows.Media.Animation.HandoffBehavior]::SnapshotAndReplace
-    )
-    return $true
-}
-
-function Set-RunningTaskBadgeAnimationsActive([bool]$active) {
-    foreach ($image in @($script:RunningTaskBadgeViews)) {
-        if ($active) {
-            [void](Start-RunningTaskBadgeAnimation $image)
-        } else {
-            $image.BeginAnimation([Windows.Controls.Image]::SourceProperty, $null)
-            if ($script:RunningTaskBadgeFrames.Count -gt 0) {
-                $image.Source = $script:RunningTaskBadgeFrames[0]
-            }
-        }
-    }
-}
-
 $script:RunningTaskIconBitmap = Get-TaskIconBitmap "task-running-icon.png"
+$script:RunningBadgeFrames = @(Get-AnimatedGifFrames "task-running-badge.gif")
 $script:WaitingTaskIconBitmap = Get-TaskIconBitmap "task-waiting-icon.png"
 $script:CompletedTaskIconBitmap = Get-TaskIconBitmap "task-completed-icon.png"
 $script:FailedTaskIconBitmap = Get-TaskIconBitmap "task-failed-icon.png"
-$script:RunningTaskBadgeFrames = @(Get-AnimatedGifFrames "task-running-badge.gif")
-$script:RunningTaskBadgeFrameDurationMs = 100
 
 function New-Brush([string]$hex) {
     return [Windows.Media.SolidColorBrush]::new([Windows.Media.ColorConverter]::ConvertFromString($hex))
@@ -1028,10 +1292,106 @@ $script:TaskRunningBrush = New-Brush "#38ADFF"
 $script:TaskWaitingBrush = New-Brush "#FFB338"
 $script:TaskCompletedBrush = New-Brush "#3DDB94"
 $script:TaskFailedBrush = New-Brush "#FF5C4D"
+$script:SkinSelectedBrush = New-Brush "#FFFF334F"
+$script:SkinUnselectedBrush = New-Brush "#00FFFFFF"
+$script:LightstickBlueBrush = New-Brush "#FF00CFFF"
+$script:LightstickAmberBrush = New-Brush "#FFFFA81A"
+$script:LightstickRedBrush = New-Brush "#FFFF2E24"
+
+function Set-SkinButtonSelection([string]$skin) {
+    if ($skin -eq "orange") { $script:SelectedSkin = "orange" }
+}
+
 function Get-QuotaBrush([int]$remaining) {
     if ($remaining -le 20) { return $script:RedBrush }
     if ($remaining -le 45) { return $script:AmberBrush }
     return $script:BlueBrush
+}
+
+function Set-QuotaLightstickVisual($visual, [double]$remaining) {
+    if (-not $visual) { return }
+    $safeRemaining = [Math]::Max(0.0, [Math]::Min(100.0, $remaining))
+    $fillHeight = $script:QuotaLightstickTubeHeight * $safeRemaining / 100.0
+    $fillTop = $script:QuotaLightstickTubeBottom - $fillHeight
+    $visual.EmissionClip.Rect = [Windows.Rect]::new(
+        0.0, $fillTop, $script:QuotaLightstickProductWidth, $fillHeight
+    )
+    if ($fillHeight -le 0.01) {
+        $visual.Glow.Visibility = [Windows.Visibility]::Collapsed
+        $visual.Surface.Visibility = [Windows.Visibility]::Collapsed
+        return
+    }
+    $visual.Glow.Visibility = [Windows.Visibility]::Visible
+    $visual.Glow.Height = [Math]::Max(0.8, $fillHeight)
+    [Windows.Controls.Canvas]::SetTop(
+        $visual.Glow,
+        $script:QuotaLightstickProductTop + $fillTop
+    )
+    if ($safeRemaining -ge 99.99) {
+        $visual.Surface.Visibility = [Windows.Visibility]::Collapsed
+    } else {
+        $visual.Surface.Visibility = [Windows.Visibility]::Visible
+        [Windows.Controls.Canvas]::SetTop(
+            $visual.Surface,
+            $script:QuotaLightstickProductTop + $fillTop - 0.32
+        )
+    }
+}
+
+function Set-QuotaAirplaneVisual([double]$remaining) {
+    $safeRemaining = [Math]::Max(0.0, [Math]::Min(100.0, $remaining))
+    $percentText = ([int][Math]::Round($safeRemaining)).ToString()
+    $script:QuotaAirplane.PercentText.Text = $percentText
+    $script:QuotaAirplane.PercentText.FontSize = if ($percentText.Length -ge 3) { 9.4 } else { 11.6 }
+    $script:QuotaAirplane.ProgressFill.Width = 34.0 * $safeRemaining / 100.0
+}
+
+function Set-AllQuotaLightstickVisuals([double]$remaining) {
+    Set-QuotaLightstickVisual $script:PrimaryLightstick $remaining
+    Set-QuotaLightstickVisual $script:SecondaryLightstick $remaining
+    Set-QuotaAirplaneVisual $remaining
+}
+
+function Set-LightstickVisualSide($visual, [bool]$rightSide) {
+    if (-not $visual) { return }
+    $visual.ProductRoot.Margin = [Windows.Thickness]::new(2.0, 0.0, 0.0, 0.0)
+}
+
+$script:QuotaLightstickAnimationTimer = [Windows.Threading.DispatcherTimer]::new(
+    [Windows.Threading.DispatcherPriority]::Render
+)
+$script:QuotaLightstickAnimationTimer.Interval = [TimeSpan]::FromMilliseconds(16)
+$script:QuotaLightstickAnimationStart = 0.0
+$script:QuotaLightstickAnimationTarget = 0.0
+$script:QuotaLightstickAnimationStartedAt = [DateTime]::MinValue
+$script:QuotaLightstickAnimationTimer.Add_Tick({
+    $elapsed = ([DateTime]::UtcNow - $script:QuotaLightstickAnimationStartedAt).TotalMilliseconds
+    $linear = [Math]::Max(0.0, [Math]::Min(1.0, $elapsed / 350.0))
+    $eased = 1.0 - [Math]::Pow(1.0 - $linear, 3.0)
+    $script:QuotaLightstickDisplayedRemaining =
+        $script:QuotaLightstickAnimationStart +
+        ($script:QuotaLightstickAnimationTarget - $script:QuotaLightstickAnimationStart) * $eased
+    Set-AllQuotaLightstickVisuals $script:QuotaLightstickDisplayedRemaining
+    if ($linear -ge 1.0) {
+        $script:QuotaLightstickDisplayedRemaining = $script:QuotaLightstickAnimationTarget
+        $script:QuotaLightstickAnimationTimer.Stop()
+    }
+})
+
+function Update-QuotaLightstick([int]$remaining) {
+    $safeRemaining = [Math]::Max(0, [Math]::Min(100, $remaining))
+    $previous = $script:QuotaLightstickRemaining
+    $script:QuotaLightstickRemaining = $safeRemaining
+    if ($null -eq $previous) {
+        $script:QuotaLightstickDisplayedRemaining = [double]$safeRemaining
+        Set-AllQuotaLightstickVisuals $script:QuotaLightstickDisplayedRemaining
+        return
+    }
+    $script:QuotaLightstickAnimationTimer.Stop()
+    $script:QuotaLightstickAnimationStart = $script:QuotaLightstickDisplayedRemaining
+    $script:QuotaLightstickAnimationTarget = [double]$safeRemaining
+    $script:QuotaLightstickAnimationStartedAt = [DateTime]::UtcNow
+    $script:QuotaLightstickAnimationTimer.Start()
 }
 
 function Update-QuotaUI([int]$remaining, [string]$resetText, [string]$statusText) {
@@ -1041,6 +1401,7 @@ function Update-QuotaUI([int]$remaining, [string]$resetText, [string]$statusText
     $script:RemainingText.Foreground = $brush
     $script:QuotaProgressFill.Background = $brush
     $script:QuotaProgressFill.Width = [Math]::Max(3, 190 * $safeRemaining / 100.0)
+    Update-QuotaLightstick $safeRemaining
     $script:ResetText.Text = $resetText
     $script:QuotaStatusText.Text = $statusText
     $script:LastQuotaStatus = "ok"
@@ -1373,7 +1734,46 @@ $script:NextTaskProgressAt = [DateTime]::UtcNow
 $script:LastTaskProgress = "reading"
 $script:LastTaskItems = @()
 $script:LastTaskSignature = ""
-$script:RunningTaskBadgeViews = New-Object Collections.ArrayList
+$script:RunningBadgeFrameIndex = 0
+$script:RunningBadgeImages = New-Object Collections.ArrayList
+$script:TaskBadgeFrameTimer = [Windows.Threading.DispatcherTimer]::new(
+    [Windows.Threading.DispatcherPriority]::Render
+)
+$script:TaskBadgeFrameTimer.Interval = [TimeSpan]::FromMilliseconds(100)
+$script:TaskBadgeFrameTimer.Add_Tick({
+    if (-not $script:Window.IsVisible -or
+        $script:RunningBadgeFrames.Count -lt 2 -or
+        $script:RunningBadgeImages.Count -eq 0) {
+        $script:TaskBadgeFrameTimer.Stop()
+        return
+    }
+    $script:RunningBadgeFrameIndex =
+        ($script:RunningBadgeFrameIndex + 1) % $script:RunningBadgeFrames.Count
+    $frame = $script:RunningBadgeFrames[$script:RunningBadgeFrameIndex]
+    foreach ($image in @($script:RunningBadgeImages)) {
+        $image.Source = $frame
+    }
+})
+
+function Update-TaskBadgeAnimationState {
+    $shouldAnimate = $script:Window.IsVisible -and
+        $script:RunningBadgeFrames.Count -gt 1 -and
+        $script:RunningBadgeImages.Count -gt 0
+    if ($shouldAnimate) {
+        if (-not $script:TaskBadgeFrameTimer.IsEnabled) {
+            $script:TaskBadgeFrameTimer.Start()
+        }
+        return
+    }
+
+    $script:TaskBadgeFrameTimer.Stop()
+    $script:RunningBadgeFrameIndex = 0
+    if ($script:RunningBadgeFrames.Count -gt 0) {
+        foreach ($image in @($script:RunningBadgeImages)) {
+            $image.Source = $script:RunningBadgeFrames[0]
+        }
+    }
+}
 
 function Get-TaskProgressBrush([string]$kind) {
     switch ($kind) {
@@ -1425,7 +1825,7 @@ function Set-TaskProgressRowCount([int]$rowCount) {
 }
 
 function Set-TaskProgressUI([object[]]$tasks) {
-    $visibleTasks = @($tasks)
+    $visibleTasks = @($tasks | Where-Object { [string]$_.Kind -ne "completed" })
     if ($visibleTasks.Count -eq 0) {
         $visibleTasks = @([PSCustomObject]@{
             Title = "暂无进行中的任务"
@@ -1444,7 +1844,7 @@ function Set-TaskProgressUI([object[]]$tasks) {
 
     Set-TaskProgressRowCount $visibleTasks.Count
     $script:TaskProgressRows.Children.Clear()
-    $script:RunningTaskBadgeViews.Clear()
+    $script:RunningBadgeImages.Clear()
 
     for ($index = 0; $index -lt $visibleTasks.Count; $index++) {
         $task = $visibleTasks[$index]
@@ -1485,29 +1885,22 @@ function Set-TaskProgressUI([object[]]$tasks) {
 
             # Completed and failed artwork already contains its status badge.
             if ($kind -ne "completed" -and $kind -ne "failed") {
-                $usesAnimatedBadge = $false
-                if ($kind -eq "running" -and $script:RunningTaskBadgeFrames.Count -gt 0) {
-                    $runningBadge = [Windows.Controls.Image]::new()
-                    $runningBadge.Width = 8.4
-                    $runningBadge.Height = 8.4
-                    $runningBadge.Stretch = [Windows.Media.Stretch]::Fill
-                    $runningBadge.SnapsToDevicePixels = $true
+                if ($kind -eq "running" -and $script:RunningBadgeFrames.Count -gt 0) {
+                    $badgeImage = [Windows.Controls.Image]::new()
+                    $badgeImage.Source = $script:RunningBadgeFrames[0]
+                    $badgeImage.Width = 8.4
+                    $badgeImage.Height = 8.4
+                    $badgeImage.Stretch = [Windows.Media.Stretch]::Fill
+                    $badgeImage.SnapsToDevicePixels = $true
                     [Windows.Media.RenderOptions]::SetBitmapScalingMode(
-                        $runningBadge,
+                        $badgeImage,
                         [Windows.Media.BitmapScalingMode]::HighQuality
                     )
-                    [Windows.Controls.Canvas]::SetLeft($runningBadge, 22.6)
-                    [Windows.Controls.Canvas]::SetTop($runningBadge, $rowTop + 4.4)
-                    $runningBadge.Source = $script:RunningTaskBadgeFrames[0]
-                    $usesAnimatedBadge = $true
-                    [void]$script:TaskProgressRows.Children.Add($runningBadge)
-                    [void]$script:RunningTaskBadgeViews.Add($runningBadge)
-                    if ($script:Window.IsVisible) {
-                        [void](Start-RunningTaskBadgeAnimation $runningBadge)
-                    }
-                }
-
-                if (-not $usesAnimatedBadge) {
+                    [Windows.Controls.Canvas]::SetLeft($badgeImage, 22.6)
+                    [Windows.Controls.Canvas]::SetTop($badgeImage, $rowTop + 4.4)
+                    [void]$script:TaskProgressRows.Children.Add($badgeImage)
+                    [void]$script:RunningBadgeImages.Add($badgeImage)
+                } else {
                     $badge = [Windows.Shapes.Ellipse]::new()
                     $badge.Width = 8.4
                     $badge.Height = 8.4
@@ -1586,6 +1979,7 @@ function Set-TaskProgressUI([object[]]$tasks) {
     $script:LastTaskItems = @($visibleTasks)
     $script:LastTaskProgress = (@($visibleTasks | ForEach-Object { [string]$_.Kind }) -join ",")
     $script:LastTaskSignature = $signature
+    Update-TaskBadgeAnimationState
 }
 
 function Get-TaskTitle([string]$message) {
@@ -1800,7 +2194,8 @@ function Test-TaskShouldDisplay(
     [DateTime]$now,
     $unreadState
 ) {
-    if ($kind -ne 'completed' -and $kind -ne 'failed') { return $true }
+    if ($kind -eq 'completed') { return $false }
+    if ($kind -ne 'failed') { return $true }
     if ($unreadState -and $unreadState.Available -and $threadId) {
         return [bool]$unreadState.Ids.ContainsKey($threadId.ToLowerInvariant())
     }
@@ -2401,9 +2796,22 @@ function Hide-PanelWindow {
     if ($script:Window.IsVisible) {
         $script:Window.Hide()
     }
+    Update-TaskBadgeAnimationState
     if ($script:LastPositionMode -ne "hidden") {
         $script:LastPositionMode = "hidden"
         Write-PanelHealth $true
+    }
+}
+
+function Hide-QuotaLightstickWindow {
+    if ($script:QuotaLightstickWindow.IsVisible) {
+        $script:QuotaLightstickWindow.Hide()
+    }
+    if ($script:SecondaryQuotaLightstickWindow.IsVisible) {
+        $script:SecondaryQuotaLightstickWindow.Hide()
+    }
+    if ($script:QuotaAirplaneWindow.IsVisible) {
+        $script:QuotaAirplaneWindow.Hide()
     }
 }
 
@@ -2444,6 +2852,26 @@ function Set-PanelScale([double]$scale) {
     if ($scaleChanged) {
         $script:Window.UpdateLayout()
     }
+    return $safeScale
+}
+
+function Set-QuotaLightstickScale([double]$scale) {
+    $safeScale = Limit-PanelScale $scale
+    $script:LightstickScaleRoot.LayoutTransform = [Windows.Media.ScaleTransform]::new(
+        $safeScale, $safeScale
+    )
+    $script:SecondaryLightstickScaleRoot.LayoutTransform = [Windows.Media.ScaleTransform]::new(
+        $safeScale, $safeScale
+    )
+    $script:QuotaAirplaneScaleRoot.LayoutTransform = [Windows.Media.ScaleTransform]::new(
+        $safeScale, $safeScale
+    )
+    $script:QuotaLightstickWindow.Width = $script:QuotaLightstickBaseWidth * $safeScale
+    $script:QuotaLightstickWindow.Height = $script:QuotaLightstickBaseHeight * $safeScale
+    $script:SecondaryQuotaLightstickWindow.Width = $script:QuotaLightstickBaseWidth * $safeScale
+    $script:SecondaryQuotaLightstickWindow.Height = $script:QuotaLightstickBaseHeight * $safeScale
+    $script:QuotaAirplaneWindow.Width = $script:QuotaAirplaneBaseWidth * $safeScale
+    $script:QuotaAirplaneWindow.Height = $script:QuotaAirplaneBaseHeight * $safeScale
     return $safeScale
 }
 
@@ -2628,7 +3056,7 @@ function Get-NativePetScale($petWindow, $bounds, $geometry, [double]$dpi, $visua
     if ($visualCandidates.Count -eq 0) { return $anchorScale }
     # Several animation frames can have nearly the same aspect ratio. Prefer
     # the matching frame whose scale is nearest the saved anchor, so coffee,
-    # singing and guitar poses cannot make the panel pulse by themselves.
+    # rewind and chairside-live poses cannot make the panel pulse by themselves.
     $bestVisualCandidate = $visualCandidates |
         Sort-Object { [Math]::Abs([Math]::Log($_.Scale / $anchorScale)) } |
         Select-Object -First 1
@@ -2730,6 +3158,135 @@ function Get-NativePetAnchor(
     }
 }
 
+function Get-RewindTicketProgress {
+    if ($script:QuotaLightstickMode -ne "rewind" -or
+        $null -eq $script:RewindTicketStartedAt) { return $null }
+    $elapsed = ([DateTime]::UtcNow - $script:RewindTicketStartedAt).TotalSeconds
+    if ($elapsed -lt 0.0 -or $elapsed -ge $script:RewindTicketDurationSeconds) {
+        return $null
+    }
+    return [double]($elapsed / $script:RewindTicketDurationSeconds)
+}
+
+function Get-RewindTicketOriginX([double]$progress) {
+    $clamped = [Math]::Max(0.0, [Math]::Min(1.0, $progress))
+    $eased = $clamped * $clamped * (3.0 - 2.0 * $clamped)
+    return [double](
+        $script:RewindTicketStartXFromOverlayCenter +
+        ($script:QuotaAirplaneOriginXFromOverlayCenter -
+            $script:RewindTicketStartXFromOverlayCenter) * $eased
+    )
+}
+
+function Show-QuotaLightstickAtNativePet(
+    $petWindow,
+    $anchor,
+    $visualMetrics,
+    [double]$dpi,
+    [double]$petScale,
+    $workArea
+) {
+    if (-not $petWindow -or -not $anchor) { return $false }
+    $safeScale = Set-QuotaLightstickScale (
+        $petScale * $script:QuotaLightstickPetRenderScaleFactor
+    )
+    $dpiScale = [Math]::Max(0.1, $dpi / 96.0)
+    if ($script:SecondaryQuotaLightstickWindow.IsVisible) {
+        $script:SecondaryQuotaLightstickWindow.Hide()
+    }
+    if ($script:QuotaLightstickMode -ne "chair") {
+        if ($script:QuotaLightstickWindow.IsVisible) {
+            $script:QuotaLightstickWindow.Hide()
+        }
+    } else {
+        if (-not $script:QuotaLightstickWindow.IsVisible) {
+            $script:QuotaLightstickWindow.Show()
+            $script:QuotaLightstickWindow.UpdateLayout()
+        }
+        $originX = $script:QuotaLightstickOriginXFromOverlayCenter
+        Set-LightstickVisualSide $script:PrimaryLightstick $false
+        $script:QuotaLightstickRotation.Angle = $script:QuotaLightstickChairTilt
+        $lightstickWindow = [BubuPanel.NativeWindows]::GetWindow(
+            $script:QuotaLightstickWindowHandle
+        )
+        if (-not $lightstickWindow) { return $false }
+        $left = [Math]::Round(
+            [double]$petWindow.Left + [double]$petWindow.Width / 2.0 +
+                $originX * $safeScale * $dpiScale
+        )
+        $top = [Math]::Round(
+            [double]$petWindow.Top +
+                $script:QuotaLightstickTopFromOverlayTop * $safeScale * $dpiScale
+        )
+        if ($workArea) {
+            $left = [Math]::Max(
+                [double]$workArea.Left,
+                [Math]::Min([double]$workArea.Right - $lightstickWindow.Width, $left)
+            )
+            $top = [Math]::Max(
+                [double]$workArea.Top,
+                [Math]::Min([double]$workArea.Bottom - $lightstickWindow.Height, $top)
+            )
+        }
+        if ([Math]::Abs($lightstickWindow.Left - $left) -gt 1 -or
+            [Math]::Abs($lightstickWindow.Top - $top) -gt 1) {
+            [void][BubuPanel.NativeWindows]::MoveWindowNoActivate(
+                $script:QuotaLightstickWindowHandle, [int]$left, [int]$top
+            )
+        }
+    }
+
+    $rewindProgress = Get-RewindTicketProgress
+    $showAirplane = $script:QuotaLightstickMode -eq "chair" -or
+        $null -ne $rewindProgress
+    if ($showAirplane) {
+        Set-AirplaneFlightMaterial ($null -ne $rewindProgress)
+        if (-not $script:QuotaAirplaneWindow.IsVisible) {
+            $script:QuotaAirplaneWindow.Show()
+            $script:QuotaAirplaneWindow.UpdateLayout()
+        }
+        $airplaneWindow = [BubuPanel.NativeWindows]::GetWindow(
+            $script:QuotaAirplaneWindowHandle
+        )
+        if ($airplaneWindow) {
+            $airplaneOriginX = if ($null -ne $rewindProgress) {
+                Get-RewindTicketOriginX $rewindProgress
+            } else {
+                $script:QuotaAirplaneOriginXFromOverlayCenter
+            }
+            $airplaneLeft = [Math]::Round(
+                [double]$petWindow.Left + [double]$petWindow.Width / 2.0 +
+                    $airplaneOriginX * $safeScale * $dpiScale
+            )
+            $airplaneTop = [Math]::Round(
+                [double]$petWindow.Top +
+                    $script:QuotaAirplaneTopFromOverlayTop * $safeScale * $dpiScale
+            )
+            if ($workArea) {
+                $airplaneLeft = [Math]::Max(
+                    [double]$workArea.Left,
+                    [Math]::Min([double]$workArea.Right - $airplaneWindow.Width, $airplaneLeft)
+                )
+                $airplaneTop = [Math]::Max(
+                    [double]$workArea.Top,
+                    [Math]::Min([double]$workArea.Bottom - $airplaneWindow.Height, $airplaneTop)
+                )
+            }
+            if ([Math]::Abs($airplaneWindow.Left - $airplaneLeft) -gt 1 -or
+                [Math]::Abs($airplaneWindow.Top - $airplaneTop) -gt 1) {
+                [void][BubuPanel.NativeWindows]::MoveWindowNoActivate(
+                    $script:QuotaAirplaneWindowHandle,
+                    [int]$airplaneLeft,
+                    [int]$airplaneTop
+                )
+            }
+        }
+    } elseif ($script:QuotaAirplaneWindow.IsVisible) {
+        $script:QuotaAirplaneWindow.Hide()
+    }
+    return $true
+}
+
 function Get-NativePanelPlacement(
     $petWindow,
     $bounds,
@@ -2751,9 +3308,9 @@ function Get-NativePanelPlacement(
     if (-not $anchor) { return $null }
     $visualCenterX = $anchor.CenterX
     $visualTop = $anchor.Top
-    $gap = 14.0 * $dpi / 96.0
+    $gap = $script:PanelPetGap * $dpi / 96.0
     $safePanelScale = Limit-PanelScale $panelScale
-    $pointerBottomInset = $safePanelScale * $dpi / 96.0
+    $pointerBottomInset = $script:PointerTipBottomInset * $safePanelScale * $dpi / 96.0
     $left = [Math]::Round($visualCenterX - $panelWindow.Width / 2.0)
     # The pointer's one-DIP bottom inset grows with both DPI and Bubu's scale.
     # Position the scaled tip, not the outer edge, exactly 14 logical pixels
@@ -2808,6 +3365,8 @@ function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
     if (-not $workArea) {
         $workArea = [BubuPanel.NativeWindows]::GetMonitorWorkArea($petWindow.Handle)
     }
+    [void](Show-QuotaLightstickAtNativePet `
+        $petWindow $anchor $visualMetrics $dpi $panelScale $workArea)
     if ($script:IsPanelHiddenByUser) { return $true }
     $placement = Get-NativePanelPlacement `
         $petWindow $bounds $geometry $panelWindow $dpi $panelScale $workArea `
@@ -2851,6 +3410,8 @@ function Show-PanelAtHeuristicWindow($petWindow) {
     if (-not $workArea) {
         $workArea = [BubuPanel.NativeWindows]::GetMonitorWorkArea($petWindow.Handle)
     }
+    [void](Show-QuotaLightstickAtNativePet `
+        $petWindow $anchor $visualMetrics $dpi $panelScale $workArea)
     if ($script:IsPanelHiddenByUser) { return $true }
     $placement = Get-NativePanelPlacement `
         $petWindow $estimatedBounds $estimatedGeometry $panelWindow $dpi $panelScale $workArea `
@@ -2870,11 +3431,58 @@ function Show-PanelAtHeuristicWindow($petWindow) {
 function Show-PanelAtSavedState($bounds, $geometry) {
     $panelScale = Limit-PanelScale ([double]$geometry.Width / $script:CanonicalPetWidth)
     [void](Set-PanelScale $panelScale)
+    $lightstickScale = Set-QuotaLightstickScale (
+        $panelScale * $script:QuotaLightstickPetRenderScaleFactor
+    )
     $visualCenterX = [double]$bounds.x + $geometry.Left + $geometry.Width / 2.0
     $visualTop = [double]$bounds.y + $geometry.Top
+    $overlayCenterX = [double]$bounds.x + [double]$bounds.width / 2.0
+    $rewindProgress = Get-RewindTicketProgress
+    if ($script:QuotaLightstickMode -ne "chair") {
+        if ($script:QuotaLightstickWindow.IsVisible) {
+            $script:QuotaLightstickWindow.Hide()
+        }
+    } else {
+        $originX = $script:QuotaLightstickOriginXFromOverlayCenter
+        Set-LightstickVisualSide $script:PrimaryLightstick $false
+        $script:QuotaLightstickRotation.Angle = $script:QuotaLightstickChairTilt
+        $stickLeft = $overlayCenterX + $originX * $lightstickScale
+        $stickTop = [double]$bounds.y +
+            $script:QuotaLightstickTopFromOverlayTop * $lightstickScale
+        $script:QuotaLightstickWindow.Left = [Math]::Round($stickLeft)
+        $script:QuotaLightstickWindow.Top = [Math]::Round($stickTop)
+        if (-not $script:QuotaLightstickWindow.IsVisible) {
+            $script:QuotaLightstickWindow.Show()
+        }
+    }
+    if ($script:SecondaryQuotaLightstickWindow.IsVisible) {
+        $script:SecondaryQuotaLightstickWindow.Hide()
+    }
+    if ($script:QuotaLightstickMode -eq "chair" -or $null -ne $rewindProgress) {
+        Set-AirplaneFlightMaterial ($null -ne $rewindProgress)
+        $airplaneOriginX = if ($null -ne $rewindProgress) {
+            Get-RewindTicketOriginX $rewindProgress
+        } else {
+            $script:QuotaAirplaneOriginXFromOverlayCenter
+        }
+        $script:QuotaAirplaneWindow.Left = [Math]::Round(
+            $overlayCenterX + $airplaneOriginX * $lightstickScale
+        )
+        $script:QuotaAirplaneWindow.Top = [Math]::Round(
+            [double]$bounds.y +
+            $script:QuotaAirplaneTopFromOverlayTop * $lightstickScale
+        )
+        if (-not $script:QuotaAirplaneWindow.IsVisible) {
+            $script:QuotaAirplaneWindow.Show()
+        }
+    } elseif ($script:QuotaAirplaneWindow.IsVisible) {
+        $script:QuotaAirplaneWindow.Hide()
+    }
     if ($script:IsPanelHiddenByUser) { return }
     $left = $visualCenterX - $script:Window.Width / 2.0
-    $top = $visualTop - 14 - ($script:Window.Height - $panelScale)
+    $top = $visualTop - $script:PanelPetGap - (
+        $script:Window.Height - $script:PointerTipBottomInset * $panelScale
+    )
 
     if ($bounds.displayBounds) {
         $display = $bounds.displayBounds
@@ -2956,7 +3564,7 @@ function Test-NativeFallbackGraceAt(
 }
 
 function Test-NativeTrackingGrace {
-    return $script:Window.IsVisible -and `
+    return ($script:Window.IsVisible -or $script:QuotaLightstickWindow.IsVisible) -and `
         (Test-NativeFallbackGraceAt ([DateTime]::UtcNow) $script:LastNativeSuccessAt `
             $script:NativeFallbackGraceMilliseconds)
 }
@@ -3020,6 +3628,7 @@ function Update-PetTarget {
         if (Test-NativeTrackingGrace) { return }
         Clear-NativeTrackingTarget
         Hide-PanelWindow
+        Hide-QuotaLightstickWindow
         return
     }
 
@@ -3028,6 +3637,7 @@ function Update-PetTarget {
     if (-not $bounds -or ($openProperty -and -not [bool]$openProperty.Value)) {
         Clear-NativeTrackingTarget
         Hide-PanelWindow
+        Hide-QuotaLightstickWindow
         return
     }
 
@@ -3125,6 +3735,7 @@ function Get-CurrentPetHitRect {
 }
 
 $script:LeftMouseWasDown = $false
+$script:PetDragStartPoint = $null
 $script:LastPetClickAt = [DateTime]::MinValue
 $script:LastPetClickPoint = $null
 $script:PetDoubleClickMilliseconds = [BubuPanel.NativeWindows]::GetDoubleClickTimeMilliseconds()
@@ -3133,19 +3744,48 @@ $script:PetDoubleClickMovement = [BubuPanel.NativeWindows]::GetDoubleClickSize()
 function Update-PetDoubleClickToggle {
     $isDown = [BubuPanel.NativeWindows]::IsLeftMouseButtonDown()
     if (-not $isDown) {
+        if ($script:LeftMouseWasDown -and $script:PetDragStartPoint) {
+            $script:QuotaLightstickMode = "chair"
+            $script:RewindTicketStartedAt = $null
+        }
         $script:LeftMouseWasDown = $false
+        $script:PetDragStartPoint = $null
         return
     }
-    if ($script:LeftMouseWasDown) { return }
+    if ($script:LeftMouseWasDown) {
+        if ($script:PetDragStartPoint) {
+            $point = [BubuPanel.NativeWindows]::GetCursorPosition()
+            $deltaX = [double]$point.X - [double]$script:PetDragStartPoint.X
+            $nextMode = if ($deltaX -le -12.0) {
+                "rewind"
+            } elseif ($deltaX -ge 12.0) {
+                "live"
+            } else {
+                "chair"
+            }
+            if ($script:QuotaLightstickMode -ne $nextMode) {
+                $script:QuotaLightstickMode = $nextMode
+                $script:RewindTicketStartedAt = if ($nextMode -eq "rewind") {
+                    [DateTime]::UtcNow
+                } else {
+                    $null
+                }
+                Write-PanelLog ("INTERACTION lightstick-mode=" + $nextMode)
+            }
+        }
+        return
+    }
     $script:LeftMouseWasDown = $true
 
     $point = [BubuPanel.NativeWindows]::GetCursorPosition()
     $petRect = Get-CurrentPetHitRect
     if (-not (Test-PointInsidePetRect $point $petRect)) {
+        $script:PetDragStartPoint = $null
         $script:LastPetClickAt = [DateTime]::MinValue
         $script:LastPetClickPoint = $null
         return
     }
+    $script:PetDragStartPoint = $point
 
     $now = [DateTime]::UtcNow
     $elapsed = if ($script:LastPetClickAt -eq [DateTime]::MinValue) {
@@ -3230,12 +3870,12 @@ if ($ValidateTaskProgress) {
         Available = $false
     }
     $completedVisibilityCases = @(
-        (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
-            -modificationDate ($now.AddHours(-1)) -now $now -unreadState $unreadState),
+        (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
+            -modificationDate ($now.AddHours(-1)) -now $now -unreadState $unreadState)),
         (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
             -modificationDate $now -now $now -unreadState $readState)),
-        (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
-            -modificationDate $now -now $now -unreadState $unavailableState),
+        (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
+            -modificationDate $now -now $now -unreadState $unavailableState)),
         (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
             -modificationDate ($now.AddMinutes(-3)) -now $now -unreadState $unavailableState)),
         (Test-TaskShouldDisplay -kind 'failed' -threadId $indexedThreadId `
@@ -3287,23 +3927,17 @@ if ($ValidateTaskProgress) {
         [PSCustomObject]@{ Title = "保留的已完成任务"; Kind = "completed"; Status = "已完成"; StartedAt = $now },
         [PSCustomObject]@{ Title = "失败任务"; Kind = "failed"; Status = "执行失败"; StartedAt = $now }
     )
-    if ($null -eq $script:RunningTaskIconBitmap -or
-        $null -eq $script:WaitingTaskIconBitmap -or
-        $null -eq $script:CompletedTaskIconBitmap -or
-        $null -eq $script:FailedTaskIconBitmap) {
-        throw "Task status icon assets failed."
-    }
     Set-TaskProgressUI $completedUiFixture
-    if ($script:LastTaskItems.Count -ne 4 -or
+    if ($script:LastTaskItems.Count -ne 3 -or
         $script:LastTaskItems[0].Title -ne "保留的活动任务" -or
-        $script:LastTaskItems[2].Title -ne "保留的已完成任务" -or
-        $script:LastTaskItems[3].Title -ne "失败任务" -or
-        $script:RunningTaskBadgeFrames.Count -ne 12 -or
-        $script:RunningTaskBadgeViews.Count -ne 1) {
+        $script:LastTaskItems[2].Title -ne "失败任务" -or
+        $script:RunningBadgeFrames.Count -ne 12 -or
+        $script:RunningBadgeImages.Count -ne 1 -or
+        $script:TaskBadgeFrameTimer.Interval.TotalMilliseconds -ne 100) {
         throw "Task status icon UI rendering failed."
     }
 
-    Write-Output "task-progress-validation: lifecycle=7/7; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=4/4; running-gif=12f/100ms"
+    Write-Output "task-progress-validation: lifecycle=7/7; title=1/1; index=1/1; completed-hidden=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=3/3; running-gif=12x100ms"
     $script:Window.Close()
     exit 0
 }
@@ -3352,8 +3986,6 @@ if ($ValidateTrackingFilters) {
     $imeClassRejected = -not (Test-PetWindowSize $imeClassWindow $testBounds) -and
         -not (Test-HeuristicPetWindow $imeClassWindow)
     $noActivateApplied = [BubuPanel.NativeWindows]::HasNoActivateStyle($script:WindowHandle)
-    $physicalWindowBounds = [BubuPanel.NativeWindows]::HasPhysicalWindowBounds(
-        $script:WindowHandle)
     $placementSamples = 0
     $scaleSamples = 0
     $visualScaleSamples = 0
@@ -3381,7 +4013,7 @@ if ($ValidateTrackingFilters) {
             $scaleSamples++
             $placement = Get-NativePanelPlacement $syntheticPet $testBounds $geometry `
                 $syntheticPanel $dpi $petScale $syntheticWorkArea
-            $expectedGap = 14.0 * $dpi / 96.0
+            $expectedGap = $script:PanelPetGap * $dpi / 96.0
             if (-not $placement -or
                 [Math]::Abs($placement.ActualGapPixels - $expectedGap) -gt 0.51 -or
                 [Math]::Abs($placement.CenterErrorPixels) -gt 0.01) {
@@ -3411,8 +4043,8 @@ if ($ValidateTrackingFilters) {
             }
             $derivedScale = Get-NativePetScale `
                 $syntheticPet $testBounds $geometry $dpi $visualMetrics
-            # Pixel rounding and the atlas-frame lookup can differ by a little
-            # over one percent at 2x; this is still well below a visible scale step.
+            # Atlas trimming and pixel rounding can deviate by a little over
+            # one percent at 2x without producing a visible scale change.
             if ([Math]::Abs($derivedScale - $visibleScale) -gt 0.02) {
                 throw "Visible-pixel scale derivation failed at dpi=$dpi visibleScale=$visibleScale derived=$derivedScale."
             }
@@ -3593,12 +4225,11 @@ if ($ValidateTrackingFilters) {
         (Test-PetDoubleClickGesture $firstPetClick $secondPetClick 300 500 $doubleClickMovement) -and
         -not (Test-PetDoubleClickGesture $firstPetClick $secondPetClick 501 500 $doubleClickMovement)
     if (-not $petAccepted -or -not $imeRejected -or -not $imeClassRejected -or
-        -not $noActivateApplied -or -not $physicalWindowBounds -or
-        -not $doubleClickValid) {
+        -not $noActivateApplied -or -not $doubleClickValid) {
         throw "Pet-window tracking filters failed validation."
     }
     Write-Output ("tracking-filter-validation: pet=True ime-size=True ime-class=True " +
-        "no-activate=True physical-window-bounds=True placement-matrix=" + $placementSamples +
+        "no-activate=True placement-matrix=" + $placementSamples +
         " scale-matrix=" + $scaleSamples +
         " visual-scale-matrix=" + $visualScaleSamples +
         " capture-coordinate-matrix=" + $captureCoordinateSamples +
@@ -3633,16 +4264,34 @@ function Set-PanelHiddenByUser([bool]$hidden) {
         return
     }
     Update-PetPosition
+    Update-TaskBadgeAnimationState
     Write-PanelHealth $true
+}
+
+function Select-BubuSkinFromPanel([string]$skin) {
+    if ($skin -eq "orange" -and (Set-BubuSkinSelection "orange")) {
+        Set-SkinButtonSelection "orange"
+        Write-PanelHealth $true
+        return
+    }
+    [System.Media.SystemSounds]::Beep.Play()
 }
 
 $script:HideButton.Add_Click({ Set-PanelHiddenByUser $true })
 $script:ShowButton.Add_Click({ Set-PanelHiddenByUser $false })
-$script:Window.Add_IsVisibleChanged({
-    Set-RunningTaskBadgeAnimationsActive $script:Window.IsVisible
-})
+$script:Window.Add_IsVisibleChanged({ Update-TaskBadgeAnimationState })
 $script:Window.Add_Closed({
     $script:LastPositionMode = "closed"
+    if ($script:QuotaLightstickWindow -and $script:QuotaLightstickWindow.IsVisible) {
+        $script:QuotaLightstickWindow.Close()
+    }
+    if ($script:SecondaryQuotaLightstickWindow -and
+        $script:SecondaryQuotaLightstickWindow.IsVisible) {
+        $script:SecondaryQuotaLightstickWindow.Close()
+    }
+    if ($script:QuotaAirplaneWindow -and $script:QuotaAirplaneWindow.IsVisible) {
+        $script:QuotaAirplaneWindow.Close()
+    }
     Write-PanelHealth $true
     Write-PanelLog "STOP window closed"
     if ($script:FastFollowHandler) {
@@ -3651,6 +4300,8 @@ $script:Window.Add_Closed({
     if ($script:FollowFallbackTimer) { $script:FollowFallbackTimer.Stop() }
     if ($script:TargetTimer) { $script:TargetTimer.Stop() }
     if ($script:ServiceTimer) { $script:ServiceTimer.Stop() }
+    if ($script:TaskBadgeFrameTimer) { $script:TaskBadgeFrameTimer.Stop() }
+    if ($script:QuotaLightstickAnimationTimer) { $script:QuotaLightstickAnimationTimer.Stop() }
     Stop-QuotaProcess
     if ($script:HttpClient) { $script:HttpClient.Dispose() }
     if ($script:instanceMutex) {

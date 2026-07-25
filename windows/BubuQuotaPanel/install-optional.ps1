@@ -11,7 +11,7 @@ function Write-Utf8NoBom([string]$Path, [string]$Content) {
 }
 
 function Set-CodexDesktopSettings([string]$ConfigText) {
-    $selectedAvatarId = "custom:bubu-office"
+    $selectedAvatarId = "custom:bubu-orange"
     $selectionLine = 'selected-avatar-id = "' + $selectedAvatarId + '"'
     $lines = [Text.RegularExpressions.Regex]::Split($ConfigText, "\r?\n")
     $output = New-Object Collections.Generic.List[string]
@@ -70,25 +70,12 @@ try {
 
     $rootPath = [IO.Path]::GetFullPath($Root)
     $panelSource = Join-Path $rootPath "windows"
-    $editionMarker = Join-Path $rootPath "BLUE-EDITION.txt"
-    $installDirectory = Join-Path $env:LOCALAPPDATA "BubuPet"
+    $installDirectory = Join-Path $env:LOCALAPPDATA "OrangeBubuPet"
     $codexOnlySource = Join-Path $rootPath "CODEX-ONLY.txt"
     $marketPricesEnabled = -not (Test-Path -LiteralPath $codexOnlySource)
-    $expectedPanelHeight = if ($marketPricesEnabled) { 160 } else { 139 }
+    $expectedPanelHeight = if ($marketPricesEnabled) { 75 } else { 53 }
     $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
     $configPath = Join-Path $codexHome "config.toml"
-
-    if (-not (Test-Path -LiteralPath $editionMarker -PathType Leaf) -or
-        (Get-Content -LiteralPath $editionMarker -Encoding UTF8) -notcontains "edition=blue-bubu") {
-        throw "This is not a verified blue Bubu package. Download the blue edition again."
-    }
-    if (Test-Path -LiteralPath (Join-Path $rootPath "pet\bubu-orange")) {
-        throw "Orange pet assets were mixed into the blue Bubu package."
-    }
-    $panelSourceText = [IO.File]::ReadAllText((Join-Path $panelSource "BubuQuotaPanel.ps1"), [Text.Encoding]::UTF8)
-    if ($panelSourceText -match '(?i)lightstick|bubu-orange') {
-        throw "Other-project code was mixed into the blue Bubu panel."
-    }
 
     foreach ($required in @("BubuQuotaPanel.ps1", "StartBubuPanel.vbs", "StartBubuPanel.cmd", "quota-panel-background.png", "task-running-icon.png", "task-running-badge.gif", "task-waiting-icon.png", "task-completed-icon.png", "task-failed-icon.png")) {
         if (-not (Test-Path -LiteralPath (Join-Path $panelSource $required))) {
@@ -113,7 +100,7 @@ try {
 
     try {
         Get-CimInstance Win32_Process -ErrorAction Stop |
-            Where-Object { $_.CommandLine -like "*BubuQuotaPanel.ps1*" } |
+            Where-Object { $_.CommandLine -like "*OrangeBubuPet*BubuQuotaPanel.ps1*" } |
             ForEach-Object {
                 Invoke-CimMethod -InputObject $_ -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null
             }
@@ -121,7 +108,6 @@ try {
         Write-Warning "Could not stop an older panel instance. Installation will continue."
     }
 
-    Remove-Item -LiteralPath $installDirectory -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $installDirectory | Out-Null
     Copy-Item -LiteralPath (Join-Path $panelSource "BubuQuotaPanel.ps1") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "StartBubuPanel.vbs") -Destination $installDirectory -Force
@@ -160,16 +146,16 @@ try {
     $startupConfigured = $false
     try {
         New-Item -Path $runKey -Force | Out-Null
-        New-ItemProperty -Path $runKey -Name "BubuQuotaPanel" -Value $runCommand -PropertyType String -Force | Out-Null
+        New-ItemProperty -Path $runKey -Name "OrangeBubuQuotaPanel" -Value $runCommand -PropertyType String -Force | Out-Null
         $startupConfigured = $true
     } catch {
         Write-Warning "Registry startup is blocked; trying the Startup folder fallback."
     }
 
-    $legacyShortcut = Join-Path ([Environment]::GetFolderPath("Startup")) "卜卜额度面板.lnk"
+    $legacyShortcut = Join-Path ([Environment]::GetFolderPath("Startup")) "橙色卜卜额度面板.lnk"
     Remove-Item -LiteralPath $legacyShortcut -Force -ErrorAction SilentlyContinue
     $startupDirectory = [Environment]::GetFolderPath("Startup")
-    $startupCommand = Join-Path $startupDirectory "BubuQuotaPanel.cmd"
+    $startupCommand = Join-Path $startupDirectory "OrangeBubuQuotaPanel.cmd"
     try {
         New-Item -ItemType Directory -Force -Path $startupDirectory | Out-Null
         Copy-Item -LiteralPath (Join-Path $panelSource "StartBubuPanel.cmd") -Destination $startupCommand -Force
@@ -193,9 +179,7 @@ try {
                 $health = [IO.File]::ReadAllText($oldHealthPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
                 $healthProcess = Get-Process -Id ([int]$health.processId) -ErrorAction SilentlyContinue
                 $healthAge = [DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($oldHealthPath)
-                if ($health.version -eq "21" -and
-                    $health.edition -eq "blue-bubu" -and
-                    $health.petID -eq "bubu-office" -and
+                if ($health.version -eq "31" -and
                     [bool]$health.marketPricesEnabled -eq $marketPricesEnabled -and
                     [int]$health.panelHeightPoints -eq $expectedPanelHeight -and
                     $healthProcess -and

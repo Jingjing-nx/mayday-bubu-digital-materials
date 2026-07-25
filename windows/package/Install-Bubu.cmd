@@ -4,15 +4,15 @@ chcp 65001 >nul 2>&1
 
 set "ROOT=%~dp0"
 if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
-set "LOG=%TEMP%\BubuPet-install.log"
-set "PET_SPRITE=spritesheet-win-21.webp"
+set "LOG=%TEMP%\OrangeBubuPet-install.log"
+set "PET_SPRITE=spritesheet-win-28.webp"
 
 if defined CODEX_HOME (
   set "CODEX_DIR=%CODEX_HOME%"
 ) else (
   set "CODEX_DIR=%USERPROFILE%\.codex"
 )
->"%LOG%" echo Bubu Windows installer open-source 21
+>"%LOG%" echo Orange Bubu Windows installer open-source 28
 >>"%LOG%" echo Started: %DATE% %TIME%
 >>"%LOG%" echo OS: %OS%
 >>"%LOG%" echo Architecture: %PROCESSOR_ARCHITECTURE%
@@ -20,7 +20,7 @@ if defined CODEX_HOME (
 >>"%LOG%" echo Codex home: configured for current user
 
 echo.
-echo Bubu Windows installer 21
+echo Orange Bubu Windows installer 28
 echo ----------------------
 if exist "%ROOT%\CODEX-ONLY.txt" (
   echo Panel: Codex quota only ^(no BTC^)
@@ -29,13 +29,8 @@ if exist "%ROOT%\CODEX-ONLY.txt" (
 )
 
 if not defined USERPROFILE goto :no_profile
-if not exist "%ROOT%\BLUE-EDITION.txt" goto :wrong_edition
-set "BLUE_EDITION="
-set /p BLUE_EDITION=<"%ROOT%\BLUE-EDITION.txt"
-if /I not "%BLUE_EDITION%"=="edition=blue-bubu" goto :wrong_edition
-if exist "%ROOT%\pet\bubu-orange" goto :wrong_edition
-if not exist "%ROOT%\pet\bubu-office\pet.json" goto :missing_files
-if not exist "%ROOT%\pet\bubu-office\%PET_SPRITE%" goto :missing_files
+if not exist "%ROOT%\pet\bubu-orange\pet.json" goto :missing_files
+if not exist "%ROOT%\pet\bubu-orange\%PET_SPRITE%" goto :missing_files
 
 echo Closing ChatGPT/Codex so the new pet selection cannot be overwritten...
 >>"%LOG%" echo Closing running desktop clients before pet replacement
@@ -47,17 +42,17 @@ cmd.exe /d /c exit 0
 
 if not exist "%CODEX_DIR%\pets" mkdir "%CODEX_DIR%\pets" >>"%LOG%" 2>&1
 if errorlevel 1 goto :copy_failed
-call :install_pet bubu-office
+call :install_pet bubu-orange
 if errorlevel 1 goto :copy_failed
-echo [OK] Blue Bubu pet files were replaced and verified.
->>"%LOG%" echo Pet install: blue replaced and binary verified
+echo [OK] Orange Bubu pet files were replaced and verified.
+>>"%LOG%" echo Pet install: orange-only replaced and binary verified
 
 where powershell.exe >nul 2>&1
 if errorlevel 1 goto :selection_skipped
 if not exist "%ROOT%\windows\select-pet.ps1" goto :selection_skipped
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\windows\select-pet.ps1" -CodexHome "%CODEX_DIR%" >>"%LOG%" 2>&1
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\windows\select-pet.ps1" -CodexHome "%CODEX_DIR%" -PetId bubu-orange >>"%LOG%" 2>&1
 if errorlevel 1 goto :selection_skipped
-echo [OK] Blue Bubu was selected as the active pet.
+echo [OK] Orange Bubu was selected as the active pet.
 >>"%LOG%" echo Pet selection: OK
 goto :selection_done
 
@@ -122,12 +117,6 @@ goto :finish_error
 echo [ERROR] Package files are incomplete. Extract the whole ZIP first.
 echo Do not run the installer from inside the ZIP preview.
 >>"%LOG%" echo ERROR: package files missing
-goto :finish_error
-
-:wrong_edition
-echo [ERROR] This package is not the isolated blue Bubu edition.
-echo Download the blue edition again. Do not mix files from orange Bubu.
->>"%LOG%" echo ERROR: wrong or mixed edition
 goto :finish_error
 
 :copy_failed

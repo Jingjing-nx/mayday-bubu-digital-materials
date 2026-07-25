@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Build and validate the low-CPU running-task badge GIF."""
+"""Build the low-power 32px running-task badge used by both desktop panels."""
 
 from __future__ import annotations
 
-import argparse
-import hashlib
 import math
 from pathlib import Path
 
@@ -17,50 +15,46 @@ OUTPUTS = (
     ROOT / "windows/BubuQuotaPanel/task-running-badge.gif",
 )
 SIZE = 32
+SCALE = 4
 FRAME_COUNT = 12
 FRAME_DURATION_MS = 100
-SUPERSAMPLE = 4
 BLUE = (31, 118, 245, 255)
 WHITE = (255, 255, 255, 255)
 
 
-def build_frame(rotation_degrees: float) -> Image.Image:
-    canvas_size = SIZE * SUPERSAMPLE
+def render_frame(index: int) -> Image.Image:
+    canvas_size = SIZE * SCALE
     frame = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(frame)
 
-    margin = 2.0 * SUPERSAMPLE
+    margin = 1.5 * SCALE
     draw.ellipse(
         (margin, margin, canvas_size - margin, canvas_size - margin),
         fill=BLUE,
     )
 
-    center = canvas_size / 2.0
-    radius = 8.4 * SUPERSAMPLE
-    sweep = math.radians(278)
-    start = math.radians(rotation_degrees - 72)
-    points: list[tuple[float, float]] = []
-    for index in range(41):
-        angle = start + sweep * index / 40
-        points.append(
-            (
-                center + math.cos(angle) * radius,
-                center + math.sin(angle) * radius,
-            )
-        )
-    draw.line(
-        points,
-        fill=WHITE,
-        width=round(2.8 * SUPERSAMPLE),
-        joint="curve",
+    rotation = index * (360 / FRAME_COUNT)
+    start = rotation - 72
+    end = start + 280
+    radius = 8.7 * SCALE
+    center = canvas_size / 2
+    arc_box = (
+        center - radius,
+        center - radius,
+        center + radius,
+        center + radius,
     )
+    draw.arc(arc_box, start=start, end=end, fill=WHITE, width=3 * SCALE)
 
-    end = start + sweep
-    tip = points[-1]
-    tangent = (-math.sin(end), math.cos(end))
+    end_radians = math.radians(end)
+    tip = (
+        center + math.cos(end_radians) * radius,
+        center + math.sin(end_radians) * radius,
+    )
+    tangent = (-math.sin(end_radians), math.cos(end_radians))
     normal = (-tangent[1], tangent[0])
-    head_length = 5.6 * SUPERSAMPLE
-    head_half_width = 3.3 * SUPERSAMPLE
+    head_length = 5.0 * SCALE
+    head_half_width = 3.1 * SCALE
     base = (
         tip[0] - tangent[0] * head_length,
         tip[1] - tangent[1] * head_length,
@@ -83,68 +77,55 @@ def build_frame(rotation_degrees: float) -> Image.Image:
     return frame.resize((SIZE, SIZE), Image.Resampling.LANCZOS)
 
 
-def build() -> None:
-    frames = [
-        build_frame(index * 360.0 / FRAME_COUNT)
-        for index in range(FRAME_COUNT)
-    ]
+def indexed_gif_frame(frame: Image.Image) -> Image.Image:
+    alpha = frame.getchannel("A")
+    # GIF has binary transparency. Preserve smooth internal antialiasing while
+    # keeping a single transparent palette entry around the circular badge.
+    rgb = Image.new("RGB", frame.size, BLUE[:3])
+    rgb.paste(frame.convert("RGB"), mask=alpha)
+    quantized = rgb.quantize(colors=255, method=Image.Quantize.MEDIANCUT)
+
+    output = Image.new("P", frame.size, 0)
+    source_pixels = list(quantized.get_flattened_data())
+    alpha_pixels = list(alpha.get_flattened_data())
+    output.putdata(
+        [0 if alpha_value < 128 else palette_index + 1
+         for palette_index, alpha_value in zip(source_pixels, alpha_pixels)]
+    )
+    source_palette = quantized.getpalette()[: 255 * 3]
+    output.putpalette([0, 0, 0, *source_palette, *([0, 0, 0] * (255 - len(source_palette) // 3))])
+    output.info["transparency"] = 0
+    return output
+
+
+def verify(path: Path) -> None:
+    with Image.open(path) as image:
+        assert image.size == (SIZE, SIZE), image.size
+        assert image.n_frames == FRAME_COUNT, image.n_frames
+        assert image.info.get("loop") == 0, image.info.get("loop")
+        durations = []
+        for frame_index in range(image.n_frames):
+            image.seek(frame_index)
+            durations.append(image.info.get("duration"))
+        assert durations == [FRAME_DURATION_MS] * FRAME_COUNT, durations
+
+
+def main() -> None:
+    frames = [indexed_gif_frame(render_frame(index)) for index in range(FRAME_COUNT)]
     for output in OUTPUTS:
         output.parent.mkdir(parents=True, exist_ok=True)
         frames[0].save(
             output,
-            format="GIF",
             save_all=True,
             append_images=frames[1:],
-            duration=FRAME_DURATION_MS,
+            duration=[FRAME_DURATION_MS] * FRAME_COUNT,
             loop=0,
+            transparency=0,
             disposal=2,
-            optimize=True,
+            optimize=False,
         )
-
-
-def validate() -> None:
-    digests: list[str] = []
-    for output in OUTPUTS:
-        if not output.is_file():
-            raise SystemExit(f"missing running-task GIF: {output}")
-        digests.append(hashlib.sha256(output.read_bytes()).hexdigest())
-        with Image.open(output) as image:
-            if image.size != (SIZE, SIZE):
-                raise SystemExit(f"unexpected GIF size: {image.size}")
-            if image.n_frames != FRAME_COUNT:
-                raise SystemExit(f"unexpected GIF frame count: {image.n_frames}")
-            if image.info.get("loop") != 0:
-                raise SystemExit("running-task GIF does not loop forever")
-            for frame_index in range(image.n_frames):
-                image.seek(frame_index)
-                if image.info.get("duration") != FRAME_DURATION_MS:
-                    raise SystemExit(
-                        f"unexpected frame duration at {frame_index}: "
-                        f"{image.info.get('duration')}"
-                    )
-                rgba = image.convert("RGBA")
-                if rgba.getbbox() is None:
-                    raise SystemExit(f"empty GIF frame: {frame_index}")
-    if len(set(digests)) != 1:
-        raise SystemExit("macOS and Windows running-task GIFs differ")
-    print(
-        "task-running-gif: "
-        f"size={SIZE}x{SIZE}; frames={FRAME_COUNT}; "
-        f"duration={FRAME_DURATION_MS}ms; loop=forever; copies=identical"
-    )
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--check",
-        action="store_true",
-        help="validate existing GIFs without rebuilding them",
-    )
-    args = parser.parse_args()
-    if not args.check:
-        build()
-    validate()
+        verify(output)
+        print(output)
 
 
 if __name__ == "__main__":

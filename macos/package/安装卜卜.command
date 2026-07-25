@@ -3,24 +3,23 @@ emulate -L zsh
 setopt ERR_EXIT PIPE_FAIL NO_UNSET
 
 ROOT="${0:A:h}"
-PET_IDS=(bubu-office)
+PET_IDS=(bubu-orange)
 PETS_DEST_ROOT="${CODEX_HOME:-$HOME/.codex}/pets"
-APP_SOURCE="$ROOT/quota-panel/卜卜额度面板.app"
-APP_DEST="$HOME/Applications/卜卜额度面板.app"
-APP_BINARY="$APP_DEST/Contents/MacOS/BubuQuotaPanel"
-LABEL="io.github.mayday-materials.bubu-quota-panel"
+APP_SOURCE="$ROOT/quota-panel/橙色卜卜额度面板.app"
+APP_DEST="$HOME/Applications/橙色卜卜额度面板.app"
+APP_BINARY="$APP_DEST/Contents/MacOS/OrangeBubuQuotaPanel"
+LABEL="io.github.mayday-materials.orange-bubu-quota-panel"
 PLIST_SOURCE="$ROOT/quota-panel/$LABEL.plist.in"
 PLIST_DEST="$HOME/Library/LaunchAgents/$LABEL.plist"
-LOG_PATH="$HOME/Library/Logs/卜卜额度面板.log"
-HEALTH_DIR="$HOME/Library/Caches/io.github.mayday-materials.bubu-quota-panel"
+LOG_PATH="$HOME/Library/Logs/橙色卜卜额度面板.log"
+HEALTH_DIR="$HOME/Library/Caches/io.github.mayday-materials.orange-bubu-quota-panel"
 HEALTH_PATH="$HEALTH_DIR/panel-health.json"
 CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
 STATE_PATH="${CODEX_HOME:-$HOME/.codex}/.codex-global-state.json"
 DOMAIN="gui/$(id -u)"
-PANEL_VERSION="21"
-PANEL_EDITION="blue-bubu"
-BLUE_EDITION_MARKER="$ROOT/BLUE-EDITION.txt"
-EXPECTED_BLUE_ATLAS_SHA256="df3c6f95784ae109f12df57c438afaa88c3e4a786145066c3d93fbf32000b3a0"
+PACKAGE_VERSION="28"
+PANEL_VERSION="36"
+EXPECTED_ORANGE_ATLAS_SHA256="9b179850352e7ff69040c55d5d0d87f06247e8651c465a0f2a13df9e97ff866d"
 CODEX_ONLY_MARKER="$ROOT/CODEX-ONLY.txt"
 MARKET_PRICES_ENABLED="true"
 PANEL_FEATURE_NAME="Codex 额度 + BTC 面板"
@@ -57,8 +56,6 @@ panel_service_has_pid() {
 panel_health_is_current() {
   [[ -s "$HEALTH_PATH" ]] \
     && /usr/bin/grep -q '"version":"'"$PANEL_VERSION"'"' "$HEALTH_PATH" 2>/dev/null \
-    && /usr/bin/grep -q '"edition":"'"$PANEL_EDITION"'"' "$HEALTH_PATH" 2>/dev/null \
-    && /usr/bin/grep -q '"petID":"bubu-office"' "$HEALTH_PATH" 2>/dev/null \
     && /usr/bin/grep -q '"marketPricesEnabled":'"$MARKET_PRICES_ENABLED" "$HEALTH_PATH" 2>/dev/null
 }
 
@@ -75,7 +72,7 @@ wait_for_panel_health() {
 
 expected_atlas_sha256() {
   case "$1" in
-    bubu-office) echo "$EXPECTED_BLUE_ATLAS_SHA256" ;;
+    bubu-orange) echo "$EXPECTED_ORANGE_ATLAS_SHA256" ;;
     *) return 1 ;;
   esac
 }
@@ -92,7 +89,7 @@ select_bubu_in_codex() {
       section = ""
       desktop_seen = 0
       desktop_has_value = 0
-      value = "selected-avatar-id = \"custom:bubu-office\""
+      value = "selected-avatar-id = \"custom:bubu-orange\""
     }
     function add_desktop_value() {
       if (!desktop_has_value) {
@@ -133,7 +130,7 @@ select_bubu_in_codex() {
   /bin/mv "$tmp_config" "$CONFIG"
 }
 
-echo "正在安装卜卜（macOS Universal 开源版 $PANEL_VERSION）…"
+echo "正在安装橙色卜卜（macOS Universal 开源版 $PACKAGE_VERSION）…"
 echo "面板版本：$PANEL_FEATURE_NAME"
 
 MACOS_VERSION="$(/usr/bin/sw_vers -productVersion)"
@@ -154,20 +151,11 @@ for PET_ID in "${PET_IDS[@]}"; do
 done
 [[ -d "$APP_SOURCE" && -f "$PLIST_SOURCE" ]] \
   || fail "额度面板文件不完整，请重新解压整个分享包。"
-[[ -f "$BLUE_EDITION_MARKER" ]] \
-  && /usr/bin/grep -qx 'edition=blue-bubu' "$BLUE_EDITION_MARKER" \
-  || fail "安装包不是蓝色卜卜专用版，请重新下载正确的蓝色版。"
-[[ ! -e "$ROOT/pet/bubu-orange" ]] \
-  || fail "检测到橙色宠物资源混入蓝色安装包，请重新下载。"
-if /usr/bin/strings "$APP_SOURCE/Contents/MacOS/BubuQuotaPanel" \
-    | /usr/bin/grep -Eqi 'lightstick|bubu-orange'; then
-  fail "检测到其他项目代码混入蓝色面板，请重新下载。"
-fi
 
 ARCH="$(/usr/bin/uname -m)"
 [[ "$ARCH" == "arm64" || "$ARCH" == "x86_64" ]] \
   || fail "不支持当前 Mac 架构：$ARCH。"
-/usr/bin/lipo "$APP_SOURCE/Contents/MacOS/BubuQuotaPanel" -verify_arch "$ARCH" \
+/usr/bin/lipo "$APP_SOURCE/Contents/MacOS/OrangeBubuQuotaPanel" -verify_arch "$ARCH" \
   || fail "额度面板不包含 $ARCH 架构。"
 if ! /usr/bin/codesign --verify --deep --strict "$APP_SOURCE" >/dev/null 2>&1; then
   echo "检测到分享或解压过程改变了临时签名，安装器将自动修复。"
@@ -186,20 +174,11 @@ for PET_ID in "${PET_IDS[@]}"; do
   /usr/bin/ditto "$PET_SOURCE" "$PET_DEST"
 done
 
-for EXISTING_PLIST in "$HOME/Library/LaunchAgents"/*.plist(N); do
-  if /usr/bin/grep -q '卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel' "$EXISTING_PLIST" 2>/dev/null; then
-    /bin/launchctl bootout "$DOMAIN" "$EXISTING_PLIST" 2>/dev/null || true
-    /bin/rm -f "$EXISTING_PLIST"
-  fi
-done
+# Only manage this project's own launch agent. Other Bubu projects are left
+# untouched even when they use a similar executable name.
 /bin/launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 for _ in {1..20}; do
   /bin/launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || break
-  /bin/sleep 0.1
-done
-/usr/bin/pkill -x BubuQuotaPanel 2>/dev/null || true
-for _ in {1..20}; do
-  /usr/bin/pgrep -x BubuQuotaPanel >/dev/null 2>&1 || break
   /bin/sleep 0.1
 done
 
@@ -209,9 +188,6 @@ done
 /usr/bin/codesign --force --deep --sign - "$APP_DEST" >/dev/null
 /usr/bin/codesign --verify --deep --strict "$APP_DEST" \
   || fail "额度面板自动签名失败，请重新下载分享包。"
-if /usr/bin/strings "$APP_BINARY" | /usr/bin/grep -Eqi 'lightstick|bubu-orange'; then
-  fail "安装后的蓝色面板仍包含其他项目代码。"
-fi
 /bin/rm -f "$HEALTH_PATH"
 
 /bin/cp "$PLIST_SOURCE" "$PLIST_DEST"
@@ -249,9 +225,9 @@ select_bubu_in_codex
 
 echo ""
 echo "安装完成："
-echo "  ✓ 蓝色卜卜宠物"
+echo "  ✓ 橙色卜卜宠物"
 echo "  ✓ $PANEL_FEATURE_NAME"
-echo "  ✓ 自动选中蓝色卜卜"
+echo "  ✓ 仅安装并自动选中橙色卜卜"
 echo "  ✓ 随登录自动启动"
 echo ""
 echo "请退出并重新打开 Codex。额度读取朋友自己的本机账号，不需要 API Key。"

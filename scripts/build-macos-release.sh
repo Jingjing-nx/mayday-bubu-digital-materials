@@ -2,18 +2,18 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-VERSION="21"
+VERSION="28"
 CODEX_ONLY_RELEASE="false"
 if [[ "${1:-}" == "--codex-only" ]]; then
   CODEX_ONLY_RELEASE="true"
 fi
 STAGE_ROOT="$ROOT/build/release"
-FULL_STAGE="$STAGE_ROOT/卜卜-macOS"
-CODEX_ONLY_STAGE="$STAGE_ROOT/卜卜-macOS-仅Codex额度"
-FULL_OUT="$ROOT/dist/Mayday-Bubu-macOS-Universal-$VERSION.zip"
-CODEX_ONLY_OUT="$ROOT/dist/Mayday-Bubu-macOS-Universal-Codex-Only-$VERSION.zip"
+FULL_STAGE="$STAGE_ROOT/橙色卜卜-macOS"
+CODEX_ONLY_STAGE="$STAGE_ROOT/橙色卜卜-macOS-仅Codex额度"
+FULL_OUT="$ROOT/dist/Orange-Bubu-macOS-Universal-$VERSION.zip"
+CODEX_ONLY_OUT="$ROOT/dist/Orange-Bubu-macOS-Universal-Codex-Only-$VERSION.zip"
 APP_PROJECT="$ROOT/macos/BubuQuotaPanel"
-LABEL="io.github.mayday-materials.bubu-quota-panel"
+LABEL="io.github.mayday-materials.orange-bubu-quota-panel"
 
 "$APP_PROJECT/scripts/build.sh" >/dev/null
 
@@ -22,21 +22,27 @@ stage_package() {
   local codex_only="$2"
 
   /bin/rm -rf "$stage"
-  mkdir -p "$stage/pet" "$stage/quota-panel" "$stage/preview"
+  mkdir -p "$stage/pet/bubu-orange" "$stage/quota-panel" "$stage/preview"
 
-  /usr/bin/ditto "$ROOT/shared/pet/bubu-office" "$stage/pet/bubu-office"
-  for preview in \
-    Codex额度面板.png 任务状态图标总览.png 卜卜动作总览.png \
-    右拖电吉他.gif 左拖唱歌.gif 悬停喝咖啡.gif 默认办公.gif \
-    blue-bubu-static.png; do
-    /bin/cp "$ROOT/shared/preview/$preview" "$stage/preview/$preview"
+  # Ship the immutable runtime contract only. Historical QA, working files and
+  # generation metadata stay in the source repository, never in user packages.
+  /bin/cp "$ROOT/shared/pet/bubu-orange/pet.json" "$stage/pet/bubu-orange/"
+  /bin/cp "$ROOT/shared/pet/bubu-orange/spritesheet.webp" "$stage/pet/bubu-orange/"
+  /bin/cp "$ROOT/shared/pet/bubu-orange/validation.json" "$stage/pet/bubu-orange/"
+  /bin/cp "$ROOT/shared/pet/bubu-orange/qa/release-freeze-v28.json" "$stage/pet/bubu-orange/"
+  local preview_name
+  for preview_name in \
+    "orange-bubu-static.png" \
+    "橙色卜卜-左拖回到那一天-宠物动作.gif" \
+    "橙色卜卜-右拖椅边主唱Live.gif"; do
+    /bin/cp "$ROOT/shared/preview/$preview_name" "$stage/preview/"
   done
-  /usr/bin/ditto "$APP_PROJECT/build/卜卜额度面板.app" "$stage/quota-panel/卜卜额度面板.app"
+  /usr/bin/ditto "$APP_PROJECT/build/橙色卜卜额度面板.app" "$stage/quota-panel/橙色卜卜额度面板.app"
   /bin/cp "$APP_PROJECT/Resources/$LABEL.plist.in" "$stage/quota-panel/$LABEL.plist.in"
   /bin/cp "$ROOT/macos/README.md" "$stage/README.md"
   /bin/cp "$ROOT/macos/VERSION.txt" "$stage/VERSION.txt"
-  /bin/cp "$ROOT/LICENSE" "$ROOT/ASSET-NOTICE.md" "$ROOT/PRIVACY.md" \
-    "$ROOT/BLUE-EDITION.txt" "$stage/"
+  /bin/cp "$ROOT/LICENSE" "$ROOT/ASSET-NOTICE.md" "$ROOT/PRIVACY.md" "$stage/"
+  /bin/cp "$ROOT/ORANGE-BUBU-PROJECT.txt" "$stage/"
   /bin/cp "$ROOT/macos/package/安装卜卜.command" "$stage/安装卜卜-macOS.command"
   /bin/cp "$ROOT/macos/package/卸载卜卜.command" "$stage/卸载卜卜-macOS.command"
   /bin/cp "$ROOT/macos/package/检查卜卜.command" "$stage/检查卜卜-macOS.command"

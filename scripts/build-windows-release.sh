@@ -2,17 +2,17 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-VERSION="21"
+VERSION="28"
 CODEX_ONLY_RELEASE="false"
 if [[ "${1:-}" == "--codex-only" ]]; then
   CODEX_ONLY_RELEASE="true"
 fi
 
 STAGE_ROOT="$ROOT/build/release"
-FULL_STAGE="$STAGE_ROOT/卜卜-Windows"
-CODEX_ONLY_STAGE="$STAGE_ROOT/卜卜-Windows-仅Codex额度"
-FULL_OUT="$ROOT/dist/Mayday-Bubu-Windows-10-11-$VERSION.zip"
-CODEX_ONLY_OUT="$ROOT/dist/Mayday-Bubu-Windows-10-11-Codex-Only-$VERSION.zip"
+FULL_STAGE="$STAGE_ROOT/橙色卜卜-Windows"
+CODEX_ONLY_STAGE="$STAGE_ROOT/橙色卜卜-Windows-仅Codex额度"
+FULL_OUT="$ROOT/dist/Orange-Bubu-Windows-10-11-$VERSION.zip"
+CODEX_ONLY_OUT="$ROOT/dist/Orange-Bubu-Windows-10-11-Codex-Only-$VERSION.zip"
 ATLAS_NAME="spritesheet-win-$VERSION.webp"
 
 command -v jq >/dev/null || {
@@ -27,22 +27,26 @@ stage_package() {
   local temporary_json
 
   /bin/rm -rf "$stage"
-  mkdir -p "$stage"
+  mkdir -p "$stage/pet/bubu-orange" "$stage/preview"
 
-  /usr/bin/ditto "$ROOT/shared/pet/bubu-office" "$stage/pet/bubu-office"
-  mkdir -p "$stage/preview"
-  for preview in \
-    Codex额度面板.png 任务状态图标总览.png 卜卜动作总览.png \
-    右拖电吉他.gif 左拖唱歌.gif 悬停喝咖啡.gif 默认办公.gif \
-    blue-bubu-static.png; do
-    /bin/cp "$ROOT/shared/preview/$preview" "$stage/preview/$preview"
+  # Keep the install payload deterministic and free of historical QA paths.
+  /bin/cp "$ROOT/shared/pet/bubu-orange/pet.json" "$stage/pet/bubu-orange/"
+  /bin/cp "$ROOT/shared/pet/bubu-orange/spritesheet.webp" "$stage/pet/bubu-orange/"
+  /bin/cp "$ROOT/shared/pet/bubu-orange/validation.json" "$stage/pet/bubu-orange/"
+  /bin/cp "$ROOT/shared/pet/bubu-orange/qa/release-freeze-v28.json" "$stage/pet/bubu-orange/"
+  local preview_name
+  for preview_name in \
+    "orange-bubu-static.png" \
+    "橙色卜卜-左拖回到那一天-宠物动作.gif" \
+    "橙色卜卜-右拖椅边主唱Live.gif"; do
+    /bin/cp "$ROOT/shared/preview/$preview_name" "$stage/preview/"
   done
   /usr/bin/ditto "$ROOT/windows/BubuQuotaPanel" "$stage/windows"
   /usr/bin/ditto "$ROOT/windows/package" "$stage"
   /bin/cp "$ROOT/windows/README.md" "$stage/README.md"
   /bin/cp "$ROOT/windows/VERSION.txt" "$stage/VERSION.txt"
-  /bin/cp "$ROOT/LICENSE" "$ROOT/ASSET-NOTICE.md" "$ROOT/PRIVACY.md" \
-    "$ROOT/BLUE-EDITION.txt" "$stage/"
+  /bin/cp "$ROOT/LICENSE" "$ROOT/ASSET-NOTICE.md" "$ROOT/PRIVACY.md" "$stage/"
+  /bin/cp "$ROOT/ORANGE-BUBU-PROJECT.txt" "$stage/"
   if [[ "$codex_only" == "true" ]]; then
     /bin/cp "$ROOT/windows/CODEX-ONLY.txt" "$stage/CODEX-ONLY.txt"
   fi
