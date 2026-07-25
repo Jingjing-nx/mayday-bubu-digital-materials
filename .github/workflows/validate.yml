@@ -71,12 +71,15 @@ jobs:
           $failed = $false
           @(Get-ChildItem -Path windows -Filter *.ps1 -Recurse) +
             @(Get-Item .\scripts\build-windows-release.ps1) | ForEach-Object {
+              $file = $_.FullName
               $tokens = $null
               $errors = $null
-              [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+              [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null
               if ($errors.Count -gt 0) {
                 $failed = $true
-                Write-Error ("Parse errors in " + $_.FullName + ": " + ($errors | Out-String))
+                foreach ($parseError in $errors) {
+                  Write-Host ("::error file=" + $file + ",line=" + $parseError.Extent.StartLineNumber + ",col=" + $parseError.Extent.StartColumnNumber + "::" + $parseError.ErrorId + ": " + $parseError.Message + " near [" + $parseError.Extent.Text + "]")
+                }
               }
             }
           if ($failed) { exit 1 }
