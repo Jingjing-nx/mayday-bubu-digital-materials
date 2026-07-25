@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "canvas": {
+    "width": 219,
+    "height": 1221
+  },
+  "tubeRect": {
+    "left": 34,
+    "top": 17,
+    "right": 187,
+    "bottom": 657
+  },
+  "sourceBBox": {
+    "left": 418,
+    "top": 73,
+    "right": 581,
+    "bottom": 1465
+  },
+  "sourceCollarTop": 925,
+  "tubeVerticalScale": 0.75,
+  "quotaEncoding": "bottom-up illuminated height; cyan hue remains fixed",
+  "renderOrder": [
+    "glow",
+    "unlit",
+    "tube-emission",
+    "specular"
+  ]
+}

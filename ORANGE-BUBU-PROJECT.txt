@@ -1,0 +1,6 @@
+Project: Orange Bubu
+Pet ID: bubu-orange
+Panel bundle: io.github.mayday-materials.orange-bubu-quota-panel
+Isolation: This package must not contain, install, remove, or select bubu-office.
+Lightstick: 219x1221 photoreal material master + aligned unlit/emission/glow/specular layers.
+Quota ticket: approved-design 342x284 transparent airplane material with original paper grain, edge, shadow and metal clip; only number/progress are dynamic; default-office only.

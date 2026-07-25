@@ -5,22 +5,22 @@ chcp 65001 >nul 2>&1
 set "REPORT=%USERPROFILE%\Desktop\Bubu-Windows-Check.txt"
 set "ROOT=%~dp0"
 
->"%REPORT%" echo Bubu Windows compatibility check 16
+>"%REPORT%" echo Orange Bubu Windows compatibility check 28
 >>"%REPORT%" echo Date: %DATE% %TIME%
 >>"%REPORT%" echo Windows: %OS%
 >>"%REPORT%" echo Architecture: %PROCESSOR_ARCHITECTURE%
 >>"%REPORT%" echo User profile: available
 >>"%REPORT%" echo Local app data: available
 
-if exist "%ROOT%pet\bubu-office\pet.json" (
-  >>"%REPORT%" echo Package pet.json: OK
+if exist "%ROOT%pet\bubu-orange\pet.json" (
+  >>"%REPORT%" echo Package orange metadata: OK
 ) else (
-  >>"%REPORT%" echo Package pet.json: MISSING
+  >>"%REPORT%" echo Package orange metadata: MISSING
 )
-if exist "%ROOT%pet\bubu-office\spritesheet-win-16.webp" (
-  >>"%REPORT%" echo Package blue versioned spritesheet: OK
+if exist "%ROOT%pet\bubu-orange\spritesheet-win-28.webp" (
+  >>"%REPORT%" echo Package orange versioned spritesheet: OK
 ) else (
-  >>"%REPORT%" echo Package blue versioned spritesheet: MISSING
+  >>"%REPORT%" echo Package orange versioned spritesheet: MISSING
 )
 where powershell.exe >>"%REPORT%" 2>&1
 if errorlevel 1 (

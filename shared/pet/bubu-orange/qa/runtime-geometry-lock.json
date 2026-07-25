@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "release_version": 28,
+  "panel_version": 36,
+  "project": "orange-bubu",
+  "pet_id": "bubu-orange",
+  "units": "logical points at pet scale 1.0",
+  "approved_scale_policy": {
+    "panel": "panel base size multiplied by the live pet scale",
+    "accessories": "accessory base size multiplied by live pet scale and the fixed 0.785 composition factor",
+    "panel_pet_gap": "fixed at 14 logical points regardless of pet scale",
+    "aspect_ratio": "uniform x/y scaling only; independent width or height scaling is forbidden"
+  },
+  "pet_and_chair": {
+    "canonical_visible_anchor_size": [163, 177],
+    "atlas_cell_size": [192, 208],
+    "top_padding_inside_anchor": 7,
+    "spritesheet_sha256": "9b179850352e7ff69040c55d5d0d87f06247e8651c465a0f2a13df9e97ff866d"
+  },
+  "panel": {
+    "width": 224,
+    "default_height_with_market": 75,
+    "default_height_without_market": 53,
+    "base_height_with_market": 52,
+    "base_height_without_market": 30,
+    "task_row_height": 23,
+    "maximum_visible_task_rows": 5,
+    "gap_above_visible_pet": 14,
+    "pointer_tip_bottom_inset": 1,
+    "required_pointer_center_error": 0
+  },
+  "lightstick": {
+    "base_canvas_size": [38, 102],
+    "runtime_size_at_pet_scale_1": [29.83, 80.07],
+    "composition_scale_factor": 0.785,
+    "product_offset_x_inside_canvas": 8.4,
+    "macos_anchor_before_composition_scale": {
+      "chair": [-91, -206],
+      "guitar_x": 54
+    },
+    "windows_anchor_before_composition_scale": {
+      "chair_x": -91,
+      "top_from_overlay_top": 104,
+      "guitar_x": 54
+    },
+    "rewind_visible": false,
+    "right_drag_live_visible": false,
+    "tilt_degrees": {
+      "macos": {"chair": -12, "guitar": 12},
+      "windows": {"chair": 12, "guitar": -12}
+    }
+  },
+  "airplane_ticket": {
+    "base_canvas_size": [78, 65],
+    "runtime_size_at_pet_scale_1": [61.23, 51.025],
+    "composition_scale_factor": 0.785,
+    "macos_anchor_before_composition_scale": [-130, -105],
+    "windows_anchor_before_composition_scale": {
+      "x": -130,
+      "top_from_overlay_top": 40
+    },
+    "left_drag_rewind": {
+      "duration_seconds": 0.8,
+      "start_x_from_overlay_center": 96,
+      "end_x_from_overlay_center": -130,
+      "motion": "smoothstep right-to-left, once per gesture"
+    }
+  },
+  "locked_asset_sha256": {
+    "panel_background": "770a82eeb7e50ed698ca106b25e73c4b1060a632ab6a7766671359d72b8afef8",
+    "airplane_material": "13ab83761b7a7adad350fbc354266be05d15cb1c8fcccfdc9f52c49113e672c7",
+    "airplane_flight_material": "6a0d96db2b982ce6d58b423e5a91cc2a9ae43e9b447cda73aee315196d1f1941",
+    "lightstick_unlit": "e06b3cd8a7ef20d775f34f81ce22dc7484d5c6cd4c94dab12e1b5b0b2d67b791",
+    "lightstick_tube_emission": "7f39a6f242bbd5e562c1585fa04fc14353cd61877cf9a1e98793227ba818cab0",
+    "lightstick_glow": "2fd4ab5fa530cd26560cdc642d9e7a95ed00e617de552613d867313d91048b97",
+    "lightstick_specular": "f84d09a5ace63810da81608836a9dce1c8d225496baa739aed7e889b70880ba9"
+  },
+  "locked_invariants": [
+    "the orange pet and complete chair stay one atlas-backed unit",
+    "panel is centered above the visible pet with a 14-point gap",
+    "panel, lightstick, and airplane preserve their approved aspect ratios",
+    "lightstick and airplane positions are derived from the pet overlay rather than their fuzzy alpha bounds",
+    "left-drag rewind uses no lightsticks; its airplane ticket crosses right-to-left once in 0.8 seconds",
+    "right-drag chairside Live uses an atlas-baked mounted microphone and five base LEDs; it shows no external lightstick or airplane",
+    "a 2x pet scale produces exactly 2x panel and accessory sizes"
+  ]
+}

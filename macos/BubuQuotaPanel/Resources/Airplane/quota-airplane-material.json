@@ -1,0 +1,36 @@
+{
+  "sourceCrop": [
+    174,
+    270,
+    516,
+    554
+  ],
+  "sourcePixelSize": [
+    1311,
+    1200
+  ],
+  "materialPixelSize": [
+    342,
+    284
+  ],
+  "runtimeSize": {
+    "width": 78.0,
+    "height": 65.0
+  },
+  "numberCenter": {
+    "x": 36.25,
+    "yFromTop": 30.9
+  },
+  "progress": {
+    "x": 17.35,
+    "yFromTop": 38.0,
+    "width": 34.0
+  },
+  "clipCenter": {
+    "x": 73.0,
+    "yFromTop": 31.0
+  },
+  "dynamicPixelsRemoved": 3684,
+  "extraction": "approved-design-pixel-extraction-v1",
+  "source": "shared/preview/橙色卜卜-回到那一天额度飞机设计图.png"
+}

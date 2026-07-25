@@ -1,6 +1,6 @@
-Package: Bubu Windows
-Version: 16
+Package: Orange Bubu Windows
+Version: 28
 System: Windows 10/11
 Architecture: x64 + ARM64
 Variants: Full / Codex Only (no BTC)
-Skins: Blue Bubu
+Pet: Orange Bubu only

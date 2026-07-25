@@ -4,12 +4,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = "16"
+$Version = "28"
 $StageRoot = Join-Path $Root "build\release"
-$FullStage = Join-Path $StageRoot "卜卜-Windows"
-$CodexOnlyStage = Join-Path $StageRoot "卜卜-Windows-仅Codex额度"
-$FullOutput = Join-Path $Root "dist\Mayday-Bubu-Windows-10-11-$Version.zip"
-$CodexOnlyOutput = Join-Path $Root "dist\Mayday-Bubu-Windows-10-11-Codex-Only-$Version.zip"
+$FullStage = Join-Path $StageRoot "橙色卜卜-Windows"
+$CodexOnlyStage = Join-Path $StageRoot "橙色卜卜-Windows-仅Codex额度"
+$FullOutput = Join-Path $Root "dist\Orange-Bubu-Windows-10-11-$Version.zip"
+$CodexOnlyOutput = Join-Path $Root "dist\Orange-Bubu-Windows-10-11-Codex-Only-$Version.zip"
 
 function New-ReleasePackage {
     param(
@@ -25,9 +25,21 @@ function New-ReleasePackage {
     Remove-Item -LiteralPath $Output -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $Stage | Out-Null
 
-    New-Item -ItemType Directory -Force -Path (Join-Path $Stage "pet") | Out-Null
-    Copy-Item -LiteralPath (Join-Path $Root "shared\pet\bubu-office") -Destination (Join-Path $Stage "pet") -Recurse
-    Copy-Item -LiteralPath (Join-Path $Root "shared\preview") -Destination $Stage -Recurse
+    $petStage = Join-Path $Stage "pet\bubu-orange"
+    New-Item -ItemType Directory -Force -Path $petStage | Out-Null
+    @("pet.json", "spritesheet.webp", "validation.json") | ForEach-Object {
+        Copy-Item -LiteralPath (Join-Path $Root "shared\pet\bubu-orange\$_") -Destination $petStage
+    }
+    Copy-Item -LiteralPath (Join-Path $Root "shared\pet\bubu-orange\qa\release-freeze-v28.json") -Destination $petStage
+    $previewStage = Join-Path $Stage "preview"
+    New-Item -ItemType Directory -Force -Path $previewStage | Out-Null
+    @(
+        "orange-bubu-static.png",
+        "橙色卜卜-左拖回到那一天-宠物动作.gif",
+        "橙色卜卜-右拖椅边主唱Live.gif"
+    ) | ForEach-Object {
+        Copy-Item -LiteralPath (Join-Path $Root "shared\preview\$_") -Destination $previewStage -Force
+    }
     Copy-Item -LiteralPath (Join-Path $Root "windows\BubuQuotaPanel") -Destination (Join-Path $Stage "windows") -Recurse
     Copy-Item -Path (Join-Path $Root "windows\package\*") -Destination $Stage -Force
     Copy-Item -LiteralPath (Join-Path $Root "windows\README.md") -Destination (Join-Path $Stage "README.md")
@@ -35,6 +47,7 @@ function New-ReleasePackage {
     Copy-Item -LiteralPath (Join-Path $Root "LICENSE") -Destination $Stage
     Copy-Item -LiteralPath (Join-Path $Root "ASSET-NOTICE.md") -Destination $Stage
     Copy-Item -LiteralPath (Join-Path $Root "PRIVACY.md") -Destination $Stage
+    Copy-Item -LiteralPath (Join-Path $Root "ORANGE-BUBU-PROJECT.txt") -Destination $Stage
     if ($CodexOnly) {
         Copy-Item -LiteralPath (Join-Path $Root "windows\CODEX-ONLY.txt") -Destination (Join-Path $Stage "CODEX-ONLY.txt")
     }

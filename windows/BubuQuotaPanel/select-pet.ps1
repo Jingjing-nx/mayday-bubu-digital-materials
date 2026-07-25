@@ -1,8 +1,8 @@
 ﻿param(
     [Parameter(Mandatory = $true)]
     [string]$CodexHome,
-    [ValidateSet("bubu-office")]
-    [string]$PetId = "bubu-office"
+    [ValidateSet("bubu-orange")]
+    [string]$PetId = "bubu-orange"
 )
 
 $ErrorActionPreference = "Stop"

@@ -2,13 +2,13 @@
 emulate -L zsh
 setopt PIPE_FAIL
 
-BLUE_PET_DIR="${CODEX_HOME:-$HOME/.codex}/pets/bubu-office"
-APP="$HOME/Applications/卜卜额度面板.app"
-BIN="$APP/Contents/MacOS/BubuQuotaPanel"
-LABEL="io.github.mayday-materials.bubu-quota-panel"
+ORANGE_PET_DIR="${CODEX_HOME:-$HOME/.codex}/pets/bubu-orange"
+APP="$HOME/Applications/橙色卜卜额度面板.app"
+BIN="$APP/Contents/MacOS/OrangeBubuQuotaPanel"
+LABEL="io.github.mayday-materials.orange-bubu-quota-panel"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 DOMAIN="gui/$(id -u)"
-HEALTH="$HOME/Library/Caches/io.github.mayday-materials.bubu-quota-panel/panel-health.json"
+HEALTH="$HOME/Library/Caches/io.github.mayday-materials.orange-bubu-quota-panel/panel-health.json"
 FAILED=0
 MARKET_PRICES_ENABLED="$(/usr/bin/plutil -extract EnvironmentVariables.BUBU_SHOW_MARKET_PRICES raw "$PLIST" 2>/dev/null || echo true)"
 
@@ -21,9 +21,9 @@ check() {
   fi
 }
 
-echo "卜卜安装检查"
+echo "橙色卜卜安装检查"
 echo "────────────"
-check "蓝色宠物文件完整" '[[ -f "$BLUE_PET_DIR/pet.json" && -f "$BLUE_PET_DIR/spritesheet.webp" ]]'
+check "橙色宠物文件完整" '[[ -f "$ORANGE_PET_DIR/pet.json" && -f "$ORANGE_PET_DIR/spritesheet.webp" ]]'
 check "额度面板已安装" '[[ -x "$BIN" ]]'
 check "额度面板支持当前 Mac" '[[ -x "$BIN" ]] && /usr/bin/lipo "$BIN" -verify_arch "$(/usr/bin/uname -m)"'
 check "额度面板签名正常" '[[ -d "$APP" ]] && /usr/bin/codesign --verify --deep --strict "$APP"'
@@ -61,7 +61,7 @@ if [[ "$FAILED" -eq 0 ]]; then
   echo "全部检查通过。"
 else
   echo "有项目未通过：请先确认 Codex 已安装并已登录，再重新运行“安装卜卜-macOS.command”。"
-  echo "日志：$HOME/Library/Logs/卜卜额度面板.log"
+  echo "日志：$HOME/Library/Logs/橙色卜卜额度面板.log"
 fi
 
 if [[ -t 0 ]]; then
