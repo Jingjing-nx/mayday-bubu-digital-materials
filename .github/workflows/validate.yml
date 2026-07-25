@@ -114,7 +114,13 @@ jobs:
           if (-not (Test-Path $web3Zip) -or -not (Test-Path $standardZip)) { throw 'Windows v28 ZIP missing' }
           $extractRoot = Join-Path $env:RUNNER_TEMP 'orange-bubu-v28'
           Expand-Archive -LiteralPath $standardZip -DestinationPath $extractRoot -Force
-          $stage = Join-Path $extractRoot '橙色卜卜-Windows-仅Codex额度'
+          # The Actions runner materializes `run:` as a UTF-8 temporary
+          # PowerShell file. Locate the release by its ASCII marker instead
+          # of comparing a Chinese directory literal under Windows PS 5.1.
+          $stage = @(Get-ChildItem -LiteralPath $extractRoot -Directory |
+            Where-Object { Test-Path (Join-Path $_.FullName 'CODEX-ONLY.txt') })
+          if ($stage.Count -ne 1) { throw 'Expected exactly one Codex-only package root' }
+          $stage = $stage[0].FullName
           $pet = Join-Path $stage 'pet\bubu-orange'
           if (-not (Test-Path (Join-Path $stage 'CODEX-ONLY.txt'))) { throw 'Codex-only marker missing' }
           if (Test-Path (Join-Path $stage 'pet\bubu-office')) { throw 'Blue pet leaked into Orange package' }
