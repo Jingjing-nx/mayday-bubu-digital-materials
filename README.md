@@ -44,27 +44,27 @@
   <tbody>
     <tr>
       <td rowspan="4"><strong>蓝色卜卜</strong></td>
-      <td rowspan="4" align="center"><img src="shared/preview/blue-bubu-static.png" alt="蓝色卜卜静态示意图" width="280"></td>
+      <td rowspan="4" align="center"><img src="shared/preview/blue-bubu-static.png" alt="蓝色卜卜看板与宠物示意图" width="280"></td>
       <td rowspan="2">Web3 版</td>
       <td>唱歌版</td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-macOS-Universal-20.zip">版本 20 下载</a></td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-Windows-10-11-20.zip">版本 20 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-macOS-Universal-46.zip">版本 46 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-Windows-10-11-46.zip">版本 46 下载</a></td>
     </tr>
     <tr>
       <td>不唱歌版</td>
-      <td>制作中</td>
-      <td>制作中</td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-macOS-Universal-No-Singing-46.zip">版本 46 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-Windows-10-11-No-Singing-46.zip">版本 46 下载</a></td>
     </tr>
     <tr>
       <td rowspan="2">普通版</td>
       <td>唱歌版</td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-macOS-Universal-Codex-Only-20.zip">版本 20 下载</a></td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-Windows-10-11-Codex-Only-20.zip">版本 20 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-macOS-Universal-Codex-Only-46.zip">版本 46 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-Windows-10-11-Codex-Only-46.zip">版本 46 下载</a></td>
     </tr>
     <tr>
       <td>不唱歌版</td>
-      <td>制作中</td>
-      <td>制作中</td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-macOS-Universal-Codex-Only-No-Singing-46.zip">版本 46 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-Windows-10-11-Codex-Only-No-Singing-46.zip">版本 46 下载</a></td>
     </tr>
     <tr>
       <td rowspan="4"><strong>橙色卜卜</strong></td>
@@ -95,9 +95,9 @@
 
 - **Web3 版**：包含 Codex 额度、任务进度与 BTC 行情。
 - **普通版**：保留 Codex 额度和任务进度，不显示、也不请求 BTC 行情。
-- **唱歌版**：保留宠物的拖动唱歌动作。
-- **不唱歌版**：不含唱歌动作，其他看板与宠物功能保持一致；当前正在制作。
-- 蓝色卜卜当前正式版为 **20**；橙色卜卜当前正式版为 **28**，两套项目和安装目录彼此隔离。
+- **唱歌版**：向左拖动时保留唱歌画面动作，并播放 27.5 秒音乐。
+- **不唱歌版**：只删除唱歌 MP3 音效；唱歌画面动作、持续时间和其他功能完全相同。
+- 蓝色卜卜当前正式版为 **46**；橙色卜卜当前正式版为 **28**，两套项目和安装目录彼此隔离。
 <!-- DOWNLOAD_TABLE:END -->
 
 macOS 支持 12.3+、Apple 芯片与 Intel Mac；Windows 支持 Windows 10/11、x64 与 ARM64。压缩包的系统和版本不能混用。
@@ -127,8 +127,9 @@ macOS 支持 12.3+、Apple 芯片与 Intel Mac；Windows 支持 Windows 10/11、
 
 - 默认：卜卜戴黑框眼镜，坐在完整办公椅上使用带蓝色萝卜标志的电脑。
 - 鼠标悬停：卜卜拿起咖啡杯喝咖啡。
-- 向左拖动：播放约 0.8 秒的「回到那一天」；卜卜在椅上轻微左歪，眼睛先看左边再眨一次，三片叶子延迟摇动，独立蓝色飞机票根从右向左划过一次。
-- 向右拖动：播放「椅边主唱 Live」；卜卜留在完整躺椅中，电脑稍降露出口型，面对固定在右侧椅架上的深蓝立麦唱歌，底座五颗蓝灯依次点亮。右拖期间不叠加外置荧光棒或飞机，松手恢复默认办公。
+- 按住卜卜向左拖动：保留头顶三瓣装饰，变成无手脚圆球，在立式麦克风前持续唱歌；只要鼠标保持按住，唱歌画面动作会保持 27.5 秒，松开后立即回办公椅。唱歌版会同步播放音乐，不唱歌版保持同样动作但没有音乐。
+- macOS 第一次启动会请求一次“辅助功能”权限；它只用于在持续按住期间续接唱歌动作。允许后才能绕过 Codex 原生约 3.18 秒的非待机动作上限；Windows 不需要这项授权。
+- 向右拖动：变成无手脚圆球，弹奏深蓝色电吉他。
 - 双击卜卜：在“显示面板”和“隐藏面板”之间循环切换；只识别卜卜本体范围，普通单击与拖动不会误触。
 - 额度面板：跟随在卜卜头顶约 14 px，并随卜卜同比放大缩小；额度每 5 分钟更新，可隐藏和显示。
 - 任务进度：约每 2 秒读取本机 Codex 任务索引，用每个任务的唯一 ID 对应左侧任务列表里的正式名称。四种状态使用同一套角色图标：正在执行为蓝色眼镜球与持续旋转的蓝色循环箭头，等你确认为橙色手机球与黄色问号，已完成为粉色球与绿色勾，执行失败为红色球与红色叉。Codex 自动化生成的定时任务不会计入面板。带蓝点、尚未查看的已完成或失败手动任务会保留在面板底部，用户在 Codex 中点开该任务、蓝点消失后，面板同步移除该行。多个手动任务按开始时间依次向下排列，最多显示前 5 个真实任务，不显示额外汇总行。任务名称与已读状态只在本机读取和显示，不写入面板日志，也不上传；旧版 Codex 没有相关索引时才会回退到任务消息摘要与短时完成提示。

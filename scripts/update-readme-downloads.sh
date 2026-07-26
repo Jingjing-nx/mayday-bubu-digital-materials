@@ -62,7 +62,7 @@ BLOCK="$START
   <tbody>
     <tr>
       <td rowspan=\"4\"><strong>蓝色卜卜</strong></td>
-      <td rowspan=\"4\" align=\"center\"><img src=\"shared/preview/blue-bubu-static.png\" alt=\"蓝色卜卜静态示意图\" width=\"280\"></td>
+      <td rowspan=\"4\" align=\"center\"><img src=\"shared/preview/blue-bubu-static.png\" alt=\"蓝色卜卜看板与宠物示意图\" width=\"280\"></td>
       <td rowspan=\"2\">Web3 版</td>
       <td>唱歌版</td>
       <td><a href=\"$BLUE_URL/Mayday-Bubu-macOS-Universal-$BLUE_VERSION.zip\">版本 $BLUE_VERSION 下载</a></td>
@@ -70,8 +70,8 @@ BLOCK="$START
     </tr>
     <tr>
       <td>不唱歌版</td>
-      <td>制作中</td>
-      <td>制作中</td>
+      <td><a href=\"$BLUE_URL/Mayday-Bubu-macOS-Universal-No-Singing-$BLUE_VERSION.zip\">版本 $BLUE_VERSION 下载</a></td>
+      <td><a href=\"$BLUE_URL/Mayday-Bubu-Windows-10-11-No-Singing-$BLUE_VERSION.zip\">版本 $BLUE_VERSION 下载</a></td>
     </tr>
     <tr>
       <td rowspan=\"2\">普通版</td>
@@ -81,8 +81,8 @@ BLOCK="$START
     </tr>
     <tr>
       <td>不唱歌版</td>
-      <td>制作中</td>
-      <td>制作中</td>
+      <td><a href=\"$BLUE_URL/Mayday-Bubu-macOS-Universal-Codex-Only-No-Singing-$BLUE_VERSION.zip\">版本 $BLUE_VERSION 下载</a></td>
+      <td><a href=\"$BLUE_URL/Mayday-Bubu-Windows-10-11-Codex-Only-No-Singing-$BLUE_VERSION.zip\">版本 $BLUE_VERSION 下载</a></td>
     </tr>
     <tr>
       <td rowspan=\"4\"><strong>橙色卜卜</strong></td>
@@ -113,8 +113,8 @@ BLOCK="$START
 
 - **Web3 版**：包含 Codex 额度、任务进度与 BTC 行情。
 - **普通版**：保留 Codex 额度和任务进度，不显示、也不请求 BTC 行情。
-- **唱歌版**：保留宠物的拖动唱歌动作。
-- **不唱歌版**：不含唱歌动作，其他看板与宠物功能保持一致；当前正在制作。
+- **唱歌版**：向左拖动时保留唱歌画面动作，并播放 27.5 秒音乐。
+- **不唱歌版**：只删除唱歌 MP3 音效；唱歌画面动作、持续时间和其他功能完全相同。
 - 蓝色卜卜当前正式版为 **$BLUE_VERSION**；橙色卜卜当前正式版为 **$ORANGE_VERSION**，两套项目和安装目录彼此隔离。
 $END"
 

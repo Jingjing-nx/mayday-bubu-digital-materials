@@ -31,7 +31,7 @@ jobs:
           }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Detect pet and verify all four packages
+      - name: Detect pet and verify release packages
         id: packages
         env:
           GH_TOKEN: ${{ github.token }}
@@ -43,9 +43,13 @@ jobs:
             SKIN="blue"
             EXPECTED=(
               "Mayday-Bubu-macOS-Universal-$VERSION.zip"
+              "Mayday-Bubu-macOS-Universal-No-Singing-$VERSION.zip"
               "Mayday-Bubu-macOS-Universal-Codex-Only-$VERSION.zip"
+              "Mayday-Bubu-macOS-Universal-Codex-Only-No-Singing-$VERSION.zip"
               "Mayday-Bubu-Windows-10-11-$VERSION.zip"
+              "Mayday-Bubu-Windows-10-11-No-Singing-$VERSION.zip"
               "Mayday-Bubu-Windows-10-11-Codex-Only-$VERSION.zip"
+              "Mayday-Bubu-Windows-10-11-Codex-Only-No-Singing-$VERSION.zip"
             )
           elif grep -Fxq "Orange-Bubu-macOS-Universal-$VERSION.zip" <<< "$ASSETS"; then
             SKIN="orange"
