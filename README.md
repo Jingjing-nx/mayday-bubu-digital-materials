@@ -36,40 +36,67 @@
       <th>宠物</th>
       <th>示意图</th>
       <th>版本</th>
+      <th>唱歌功能</th>
       <th>macOS</th>
       <th>Windows</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td rowspan="2"><strong>蓝色卜卜</strong></td>
-      <td rowspan="2" align="center"><img src="shared/preview/blue-bubu-static.png" alt="蓝色卜卜静态示意图" width="280"></td>
-      <td>Web3 版</td>
+      <td rowspan="4"><strong>蓝色卜卜</strong></td>
+      <td rowspan="4" align="center"><img src="shared/preview/blue-bubu-static.png" alt="蓝色卜卜静态示意图" width="280"></td>
+      <td rowspan="2">Web3 版</td>
+      <td>唱歌版</td>
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-macOS-Universal-20.zip">版本 20 下载</a></td>
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-Windows-10-11-20.zip">版本 20 下载</a></td>
     </tr>
     <tr>
-      <td>普通版</td>
+      <td>不唱歌版</td>
+      <td>制作中</td>
+      <td>制作中</td>
+    </tr>
+    <tr>
+      <td rowspan="2">普通版</td>
+      <td>唱歌版</td>
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-macOS-Universal-Codex-Only-20.zip">版本 20 下载</a></td>
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/20/Mayday-Bubu-Windows-10-11-Codex-Only-20.zip">版本 20 下载</a></td>
     </tr>
     <tr>
-      <td rowspan="2"><strong>橙色卜卜</strong></td>
-      <td rowspan="2" align="center"><img src="shared/preview/orange-bubu-static.png" alt="橙色卜卜完整效果示意图" width="280"></td>
-      <td>Web3 版</td>
+      <td>不唱歌版</td>
+      <td>制作中</td>
+      <td>制作中</td>
+    </tr>
+    <tr>
+      <td rowspan="4"><strong>橙色卜卜</strong></td>
+      <td rowspan="4" align="center"><img src="shared/preview/orange-bubu-static.png" alt="橙色卜卜完整效果示意图" width="280"></td>
+      <td rowspan="2">Web3 版</td>
+      <td>唱歌版</td>
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/28/Orange-Bubu-macOS-Universal-28.zip">版本 28 下载</a></td>
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/28/Orange-Bubu-Windows-10-11-28.zip">版本 28 下载</a></td>
     </tr>
     <tr>
-      <td>普通版</td>
+      <td>不唱歌版</td>
+      <td>制作中</td>
+      <td>制作中</td>
+    </tr>
+    <tr>
+      <td rowspan="2">普通版</td>
+      <td>唱歌版</td>
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/28/Orange-Bubu-macOS-Universal-Codex-Only-28.zip">版本 28 下载</a></td>
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/28/Orange-Bubu-Windows-10-11-Codex-Only-28.zip">版本 28 下载</a></td>
+    </tr>
+    <tr>
+      <td>不唱歌版</td>
+      <td>制作中</td>
+      <td>制作中</td>
     </tr>
   </tbody>
 </table>
 
 - **Web3 版**：包含 Codex 额度、任务进度与 BTC 行情。
 - **普通版**：保留 Codex 额度和任务进度，不显示、也不请求 BTC 行情。
+- **唱歌版**：保留宠物的拖动唱歌动作。
+- **不唱歌版**：不含唱歌动作，其他看板与宠物功能保持一致；当前正在制作。
 - 蓝色卜卜当前正式版为 **20**；橙色卜卜当前正式版为 **28**，两套项目和安装目录彼此隔离。
 <!-- DOWNLOAD_TABLE:END -->
 
