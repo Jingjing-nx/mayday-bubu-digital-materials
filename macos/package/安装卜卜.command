@@ -17,10 +17,10 @@ HEALTH_PATH="$HEALTH_DIR/panel-health.json"
 CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
 STATE_PATH="${CODEX_HOME:-$HOME/.codex}/.codex-global-state.json"
 DOMAIN="gui/$(id -u)"
-PANEL_VERSION="21"
+PANEL_VERSION="46"
 PANEL_EDITION="blue-bubu"
 BLUE_EDITION_MARKER="$ROOT/BLUE-EDITION.txt"
-EXPECTED_BLUE_ATLAS_SHA256="df3c6f95784ae109f12df57c438afaa88c3e4a786145066c3d93fbf32000b3a0"
+EXPECTED_BLUE_ATLAS_SHA256="c07f2b5d4c35efe36681a9d9b9ff37dbba4cb2d2c2503b3aba2deea616d8eb6d"
 CODEX_ONLY_MARKER="$ROOT/CODEX-ONLY.txt"
 MARKET_PRICES_ENABLED="true"
 PANEL_FEATURE_NAME="Codex 额度 + BTC 面板"
@@ -212,10 +212,16 @@ done
 if /usr/bin/strings "$APP_BINARY" | /usr/bin/grep -Eqi 'lightstick|bubu-orange'; then
   fail "安装后的蓝色面板仍包含其他项目代码。"
 fi
+# Accessibility approval is tied to the installed code identity. Clear stale
+# approvals before launching a newly signed build, otherwise System Settings
+# may show an enabled switch while macOS still rejects the restart events.
+/usr/bin/tccutil reset Accessibility "$LABEL" >/dev/null 2>&1 || true
 /bin/rm -f "$HEALTH_PATH"
 
 /bin/cp "$PLIST_SOURCE" "$PLIST_DEST"
-/usr/bin/plutil -replace ProgramArguments.0 -string "$APP_BINARY" "$PLIST_DEST"
+/usr/libexec/PlistBuddy -c 'Delete :ProgramArguments' "$PLIST_DEST"
+/usr/libexec/PlistBuddy -c 'Add :ProgramArguments array' "$PLIST_DEST"
+/usr/libexec/PlistBuddy -c "Add :ProgramArguments:0 string $APP_BINARY" "$PLIST_DEST"
 /usr/bin/plutil -replace EnvironmentVariables.BUBU_PANEL_HEALTH_FILE -string "$HEALTH_PATH" "$PLIST_DEST"
 /usr/bin/plutil -replace EnvironmentVariables.BUBU_CODEX_STATE_FILE -string "$STATE_PATH" "$PLIST_DEST"
 if [[ "$MARKET_PRICES_ENABLED" == "false" ]]; then
@@ -253,6 +259,12 @@ echo "  ✓ 蓝色卜卜宠物"
 echo "  ✓ $PANEL_FEATURE_NAME"
 echo "  ✓ 自动选中蓝色卜卜"
 echo "  ✓ 随登录自动启动"
+echo "  ✓ 已请求唱歌续帧所需的辅助功能权限（只需允许一次）"
 echo ""
+echo "如果系统弹出权限提示，请点“打开系统设置”，开启“卜卜额度面板”。"
+if [[ "${BUBU_INSTALL_NONINTERACTIVE:-0}" != "1" ]]; then
+  /usr/bin/open 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility' \
+    >/dev/null 2>&1 || true
+fi
 echo "请退出并重新打开 Codex。额度读取朋友自己的本机账号，不需要 API Key。"
 pause_before_exit

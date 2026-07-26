@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${1:-}"
+if [[ "$#" -eq 1 ]]; then
+  SKIN="blue"
+  VERSION="$1"
+else
+  SKIN="${1:-}"
+  VERSION="${2:-}"
+fi
+if [[ "$SKIN" != "blue" && "$SKIN" != "orange" ]]; then
+  echo "用法：$0 <blue|orange> <纯数字 Release 版本>" >&2
+  exit 1
+fi
 if [[ ! "$VERSION" =~ ^[0-9]+$ ]]; then
-  echo "用法：$0 <纯数字 Release 版本>" >&2
+  echo "用法：$0 <blue|orange> <纯数字 Release 版本>" >&2
   exit 1
 fi
 
@@ -12,43 +22,88 @@ README="$ROOT/README.md"
 START='<!-- DOWNLOAD_TABLE:START -->'
 END='<!-- DOWNLOAD_TABLE:END -->'
 REPOSITORY='Jingjing-nx/mayday-bubu-digital-materials'
-BASE_URL="https://github.com/$REPOSITORY/releases/download/$VERSION"
 TEMP_FILE="$(mktemp)"
 trap 'rm -f "$TEMP_FILE"' EXIT
+
+current_version() {
+  local asset_prefix="$1"
+  grep -oE "releases/download/[0-9]+/${asset_prefix}" "$README" \
+    | head -n 1 \
+    | sed -E 's#releases/download/([0-9]+)/.*#\1#'
+}
+
+BLUE_VERSION="$(current_version 'Mayday-Bubu-macOS-Universal-[0-9]+\.zip')"
+ORANGE_VERSION="$(current_version 'Orange-Bubu-macOS-Universal-[0-9]+\.zip' || true)"
+[[ "$BLUE_VERSION" =~ ^[0-9]+$ ]] || BLUE_VERSION="46"
+[[ "$ORANGE_VERSION" =~ ^[0-9]+$ ]] || ORANGE_VERSION="28"
+
+if [[ "$SKIN" == "blue" ]]; then
+  BLUE_VERSION="$VERSION"
+else
+  ORANGE_VERSION="$VERSION"
+fi
+
+BLUE_URL="https://github.com/$REPOSITORY/releases/download/$BLUE_VERSION"
+ORANGE_URL="https://github.com/$REPOSITORY/releases/download/$ORANGE_VERSION"
 
 BLOCK="$START
 <table>
   <thead>
     <tr>
-      <th>皮肤</th>
+      <th>宠物</th>
       <th>示意图</th>
       <th>版本</th>
+      <th>唱歌功能</th>
       <th>macOS</th>
       <th>Windows</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td rowspan=\"2\"><strong>蓝色卜卜</strong></td>
-      <td rowspan=\"2\" align=\"center\"><img src=\"shared/preview/blue-bubu-panel-preview.png\" alt=\"蓝色卜卜额度与任务看板示意图\" width=\"180\"></td>
-      <td>Web3 版</td>
-      <td><a href=\"$BASE_URL/Mayday-Bubu-macOS-Universal-$VERSION.zip\">版本 $VERSION 下载</a></td>
-      <td><a href=\"$BASE_URL/Mayday-Bubu-Windows-10-11-$VERSION.zip\">版本 $VERSION 下载</a></td>
+      <td rowspan=\"4\"><strong>蓝色卜卜</strong></td>
+      <td rowspan=\"4\" align=\"center\"><img src=\"shared/preview/blue-bubu-static.png\" alt=\"蓝色卜卜看板与宠物示意图\" width=\"280\"></td>
+      <td rowspan=\"2\">Web3 版</td>
+      <td>唱歌版</td>
+      <td><a href=\"$BLUE_URL/Mayday-Bubu-macOS-Universal-$BLUE_VERSION.zip\">版本 $BLUE_VERSION 下载</a></td>
+      <td><a href=\"$BLUE_URL/Mayday-Bubu-Windows-10-11-$BLUE_VERSION.zip\">版本 $BLUE_VERSION 下载</a></td>
     </tr>
     <tr>
-      <td>普通版</td>
-      <td><a href=\"$BASE_URL/Mayday-Bubu-macOS-Universal-Codex-Only-$VERSION.zip\">版本 $VERSION 下载</a></td>
-      <td><a href=\"$BASE_URL/Mayday-Bubu-Windows-10-11-Codex-Only-$VERSION.zip\">版本 $VERSION 下载</a></td>
+      <td>不唱歌版</td>
+      <td><a href=\"$BLUE_URL/Mayday-Bubu-macOS-Universal-No-Singing-$BLUE_VERSION.zip\">版本 $BLUE_VERSION 下载</a></td>
+      <td><a href=\"$BLUE_URL/Mayday-Bubu-Windows-10-11-No-Singing-$BLUE_VERSION.zip\">版本 $BLUE_VERSION 下载</a></td>
     </tr>
     <tr>
-      <td rowspan=\"2\"><strong>橙色卜卜</strong></td>
-      <td rowspan=\"2\" align=\"center\"><img src=\"shared/preview/orange-bubu-static.png\" alt=\"橙色卜卜静态示意图\" width=\"80\"></td>
-      <td>Web3 版</td>
+      <td rowspan=\"2\">普通版</td>
+      <td>唱歌版</td>
+      <td><a href=\"$BLUE_URL/Mayday-Bubu-macOS-Universal-Codex-Only-$BLUE_VERSION.zip\">版本 $BLUE_VERSION 下载</a></td>
+      <td><a href=\"$BLUE_URL/Mayday-Bubu-Windows-10-11-Codex-Only-$BLUE_VERSION.zip\">版本 $BLUE_VERSION 下载</a></td>
+    </tr>
+    <tr>
+      <td>不唱歌版</td>
+      <td><a href=\"$BLUE_URL/Mayday-Bubu-macOS-Universal-Codex-Only-No-Singing-$BLUE_VERSION.zip\">版本 $BLUE_VERSION 下载</a></td>
+      <td><a href=\"$BLUE_URL/Mayday-Bubu-Windows-10-11-Codex-Only-No-Singing-$BLUE_VERSION.zip\">版本 $BLUE_VERSION 下载</a></td>
+    </tr>
+    <tr>
+      <td rowspan=\"4\"><strong>橙色卜卜</strong></td>
+      <td rowspan=\"4\" align=\"center\"><img src=\"shared/preview/orange-bubu-static.png\" alt=\"橙色卜卜完整效果示意图\" width=\"280\"></td>
+      <td rowspan=\"2\">Web3 版</td>
+      <td>唱歌版</td>
+      <td><a href=\"$ORANGE_URL/Orange-Bubu-macOS-Universal-$ORANGE_VERSION.zip\">版本 $ORANGE_VERSION 下载</a></td>
+      <td><a href=\"$ORANGE_URL/Orange-Bubu-Windows-10-11-$ORANGE_VERSION.zip\">版本 $ORANGE_VERSION 下载</a></td>
+    </tr>
+    <tr>
+      <td>不唱歌版</td>
       <td>制作中</td>
       <td>制作中</td>
     </tr>
     <tr>
-      <td>普通版</td>
+      <td rowspan=\"2\">普通版</td>
+      <td>唱歌版</td>
+      <td><a href=\"$ORANGE_URL/Orange-Bubu-macOS-Universal-Codex-Only-$ORANGE_VERSION.zip\">版本 $ORANGE_VERSION 下载</a></td>
+      <td><a href=\"$ORANGE_URL/Orange-Bubu-Windows-10-11-Codex-Only-$ORANGE_VERSION.zip\">版本 $ORANGE_VERSION 下载</a></td>
+    </tr>
+    <tr>
+      <td>不唱歌版</td>
       <td>制作中</td>
       <td>制作中</td>
     </tr>
@@ -57,7 +112,9 @@ BLOCK="$START
 
 - **Web3 版**：包含 Codex 额度、任务进度与 BTC 行情。
 - **普通版**：保留 Codex 额度和任务进度，不显示、也不请求 BTC 行情。
-- 当前流水版本为 **$VERSION**；每次发布新 Release 后，表格中的蓝色卜卜下载链接会自动更新。
+- **唱歌版**：向左拖动时保留唱歌画面动作，并播放 27.5 秒音乐。
+- **不唱歌版**：只删除唱歌 MP3 音效；唱歌画面动作、持续时间和其他功能完全相同。
+- 蓝色卜卜当前正式版为 **$BLUE_VERSION**；橙色卜卜当前正式版为 **$ORANGE_VERSION**，两套项目和安装目录彼此隔离。
 $END"
 
 DOWNLOAD_BLOCK="$BLOCK" awk '
@@ -80,4 +137,4 @@ fi
 
 mv "$TEMP_FILE" "$README"
 trap - EXIT
-echo "README 下载链接已更新为 Release $VERSION"
+echo "README 已更新 ${SKIN} Release ${VERSION}；另一宠物的版本号保持不变。"

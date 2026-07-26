@@ -9,7 +9,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "21"
+$script:PanelVersion = "46"
 $script:PanelEdition = "blue-bubu"
 $script:BluePetId = "bubu-office"
 $script:BluePetAvatarId = "custom:bubu-office"
@@ -56,6 +56,9 @@ $script:VisualScaleTolerance = 0.12
 $script:VisualProbeIntervalMilliseconds = 120
 $script:VisualScaleConfirmationSamples = 3
 $script:VisualScalePendingTolerance = 0.045
+$script:NativeCoordinateMatchTolerance = 0.10
+$script:VisualAnchorCenterTolerance = 0.62
+$script:VisualAnchorTopTolerance = 0.58
 $script:CachedVisualMetrics = $null
 $script:CachedVisualWindowHandle = [IntPtr]::Zero
 $script:LastVisualProbeAt = [DateTime]::MinValue
@@ -63,6 +66,21 @@ $script:CachedVisualAt = [DateTime]::MinValue
 $script:PendingPanelScale = [double]::NaN
 $script:PendingPanelScaleSamples = 0
 $script:PendingPanelScaleWindowHandle = [IntPtr]::Zero
+$script:LeftDragAudioFileName = "bubu-left-drag-song.mp3"
+$script:LeftDragAudioThreshold = 8.0
+$script:LeftDragAudioDurationSeconds = 27.5
+$script:LeftDragAnimationRestartMilliseconds = 1800.0
+$script:LeftDragAnimationReturnMilliseconds = 5.0
+$script:LeftDragAnimationNudgePixels = 8
+$script:LeftDragAudioPlayer = $null
+$script:LeftDragAudioPath = $null
+$script:IsLeftDragAudioActive = $false
+$script:LeftDragMouseWasDown = $false
+$script:LeftDragOrigin = $null
+$script:LeftDragAudioEndsAt = [DateTime]::MinValue
+$script:LastLeftDragAnimationRestartAt = [DateTime]::MinValue
+$script:LeftDragAnimationReturnAt = [DateTime]::MinValue
+$script:LeftDragAnimationReturnPending = $false
 
 if ($PrintConfiguration) {
     Write-Output (
@@ -253,6 +271,13 @@ namespace BubuPanel {
         private static extern bool GetCursorPos(out POINT point);
 
         [DllImport("user32.dll")]
+        private static extern bool ScreenToClient(IntPtr hWnd, ref POINT point);
+
+        [DllImport("user32.dll")]
+        private static extern bool PostMessage(
+            IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
         private static extern uint GetDoubleClickTime();
 
         [DllImport("user32.dll")]
@@ -326,6 +351,21 @@ namespace BubuPanel {
         public static Point GetCursorPosition() {
             POINT point;
             return GetCursorPos(out point) ? new Point(point.X, point.Y) : Point.Empty;
+        }
+
+        public static bool PostLeftDragAtOffset(IntPtr hWnd, int offsetX) {
+            if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return false;
+            POINT point;
+            if (!GetCursorPos(out point) || !ScreenToClient(hWnd, ref point)) return false;
+            point.X += offsetX;
+            const uint WM_MOUSEMOVE = 0x0200;
+            const int MK_LBUTTON = 0x0001;
+            int packedPoint = (point.X & 0xffff) | ((point.Y & 0xffff) << 16);
+            return PostMessage(
+                hWnd,
+                WM_MOUSEMOVE,
+                new IntPtr(MK_LBUTTON),
+                new IntPtr(packedPoint));
         }
 
         public static int GetDoubleClickTimeMilliseconds() {
@@ -1871,11 +1911,35 @@ function Read-TaskRolloutTail([string]$path) {
     }
 }
 
+function Test-AutomationHeartbeatMessage([string]$message) {
+    if ([string]::IsNullOrWhiteSpace($message)) { return $false }
+    $normalized = $message.Trim().ToLowerInvariant()
+    return $normalized.StartsWith('<heartbeat>') -and
+        $normalized.Contains('<automation_id>automation</automation_id>') -and
+        $normalized.Contains('<instructions>')
+}
+
+function Test-TaskLinesContainAutomationHeartbeat([object[]]$lines) {
+    foreach ($lineObject in $lines) {
+        $line = [string]$lineObject
+        if ($line -notmatch 'user_message' -or $line -notmatch '(?i)<heartbeat>') { continue }
+        try { $record = $line | ConvertFrom-Json } catch { continue }
+        if (-not $record -or $record.type -ne 'event_msg' -or -not $record.payload) { continue }
+        if ($record.payload.type -eq 'user_message' -and
+            (Test-AutomationHeartbeatMessage ([string]$record.payload.message))) {
+            return $true
+        }
+    }
+    return $false
+}
+
 function Get-TaskProgressKind(
     [object[]]$lines,
     [DateTime]$modificationDate,
     [DateTime]$now
 ) {
+    if (Test-TaskLinesContainAutomationHeartbeat $lines) { return 'idle' }
+
     $lifecycle = $null
     $pendingUserInput = @{}
     foreach ($lineObject in $lines) {
@@ -2538,6 +2602,62 @@ function ConvertTo-PhysicalPetVisualMetrics(
     }
 }
 
+function Test-PhysicalPetVisualMetrics(
+    $petWindow,
+    $bounds,
+    $geometry,
+    $visualMetrics
+) {
+    if (-not $petWindow -or -not $bounds -or -not $geometry -or -not $visualMetrics -or
+        [double]$bounds.width -le 0 -or [double]$bounds.height -le 0 -or
+        [double]$visualMetrics.Width -le 0 -or [double]$visualMetrics.Height -le 0) {
+        return $false
+    }
+
+    # PrintWindow occasionally returns only a small child surface (for example
+    # the laptop or one status badge) instead of the complete transparent pet
+    # window. Never use such a fragment for either panel size or centering.
+    $windowScaleX = [double]$petWindow.Width / [double]$bounds.width
+    $windowScaleY = [double]$petWindow.Height / [double]$bounds.height
+    $expectedCenterX = ($geometry.Left + $geometry.Width / 2.0) * $windowScaleX
+    $expectedTop = $geometry.Top * $windowScaleY
+    $observedCenterX = [double]$visualMetrics.Left + [double]$visualMetrics.Width / 2.0
+    $observedTop = [double]$visualMetrics.Top
+    $centerNormalizer = [Math]::Max(32.0, [double]$geometry.Width * $windowScaleX)
+    $topNormalizer = [Math]::Max(
+        36.0,
+        $script:CanonicalPetHeight *
+            ([double]$geometry.Width / $script:CanonicalPetWidth) * $windowScaleY
+    )
+    $centerError = [Math]::Abs($observedCenterX - $expectedCenterX) / $centerNormalizer
+    $topError = [Math]::Abs($observedTop - $expectedTop) / $topNormalizer
+    return $centerError -le $script:VisualAnchorCenterTolerance -and
+        $topError -le $script:VisualAnchorTopTolerance
+}
+
+function Get-NativeWindowCoordinateScale($petWindow, $bounds, [double]$dpi) {
+    if (-not $petWindow -or -not $bounds -or
+        [double]$bounds.width -le 0 -or [double]$bounds.height -le 0) { return 1.0 }
+    $dpiScale = [Math]::Max(0.1, $dpi / 96.0)
+    if ($dpiScale -le 1.05) { return 1.0 }
+
+    $rawScaleX = [double]$petWindow.Width / [double]$bounds.width
+    $rawScaleY = [double]$petWindow.Height / [double]$bounds.height
+    if ($rawScaleX -le 0 -or $rawScaleY -le 0) { return $dpiScale }
+    $rawWindowRatio = [Math]::Sqrt($rawScaleX * $rawScaleY)
+
+    # DWM normally reports physical pixels, but transparent Electron helper
+    # windows on some Windows 11 systems are returned in 96-DPI logical units.
+    # A default overlay then has a native/state ratio near 1.0, not dpi/96.
+    # Detect both forms so the panel cannot be divided by DPI twice.
+    $logicalError = [Math]::Abs([Math]::Log($rawWindowRatio))
+    $physicalError = [Math]::Abs([Math]::Log($rawWindowRatio / $dpiScale))
+    if ($logicalError -le $script:NativeCoordinateMatchTolerance) { return 1.0 }
+    if ($physicalError -le $script:NativeCoordinateMatchTolerance) { return $dpiScale }
+    if ($logicalError -lt $physicalError) { return 1.0 }
+    return $dpiScale
+}
+
 function Reset-PanelScaleStabilizer {
     $script:PendingPanelScale = [double]::NaN
     $script:PendingPanelScaleSamples = 0
@@ -2611,8 +2731,9 @@ function Get-NativePetScale($petWindow, $bounds, $geometry, [double]$dpi, $visua
     }
     $dpiScale = [Math]::Max(0.1, $dpi / 96.0)
     $storedPetScale = [double]$geometry.Width / $script:CanonicalPetWidth
-    $liveScaleX = $petWindow.Width / [double]$bounds.width / $dpiScale
-    $liveScaleY = $petWindow.Height / [double]$bounds.height / $dpiScale
+    $windowCoordinateScale = Get-NativeWindowCoordinateScale $petWindow $bounds $dpi
+    $liveScaleX = $petWindow.Width / [double]$bounds.width / $windowCoordinateScale
+    $liveScaleY = $petWindow.Height / [double]$bounds.height / $windowCoordinateScale
     if ($liveScaleX -le 0 -or $liveScaleY -le 0) { return Limit-PanelScale $storedPetScale }
 
     # The persisted geometry may lag briefly while the native overlay is being
@@ -2783,6 +2904,11 @@ function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
     $capturedVisualMetrics = Get-NativePetVisualMetrics $petWindow
     $visualMetrics = ConvertTo-PhysicalPetVisualMetrics `
         $petWindow $bounds $geometry $capturedVisualMetrics $dpi
+    if ($visualMetrics -and
+        -not (Test-PhysicalPetVisualMetrics $petWindow $bounds $geometry $visualMetrics)) {
+        Write-PanelLog "VISUAL-PROBE rejected incomplete or misaligned capture"
+        $visualMetrics = $null
+    }
     $candidatePanelScale = Get-NativePetScale `
         $petWindow $bounds $geometry $dpi $visualMetrics
     $panelScale = Get-StabilizedPanelScale $candidatePanelScale $petWindow.Handle
@@ -2832,6 +2958,12 @@ function Show-PanelAtHeuristicWindow($petWindow) {
     $capturedVisualMetrics = Get-NativePetVisualMetrics $petWindow
     $visualMetrics = ConvertTo-PhysicalPetVisualMetrics `
         $petWindow $estimatedBounds $estimatedGeometry $capturedVisualMetrics $dpi
+    if ($visualMetrics -and
+        -not (Test-PhysicalPetVisualMetrics `
+            $petWindow $estimatedBounds $estimatedGeometry $visualMetrics)) {
+        Write-PanelLog "VISUAL-PROBE rejected incomplete or misaligned heuristic capture"
+        $visualMetrics = $null
+    }
     $candidatePanelScale = Get-NativePetScale `
         $petWindow $estimatedBounds $estimatedGeometry $dpi $visualMetrics
     $panelScale = Get-StabilizedPanelScale $candidatePanelScale $petWindow.Handle
@@ -3087,6 +3219,93 @@ function Test-PetDoubleClickGesture(
             [double]$maximumMovement.Height
 }
 
+function Test-LeftDragAudioGesture($initialPoint, $currentPoint, [double]$threshold) {
+    if (-not $initialPoint -or -not $currentPoint -or $threshold -le 0) { return $false }
+    return [double]$initialPoint.X - [double]$currentPoint.X -ge $threshold
+}
+
+function Get-LeftDragAudioPath {
+    $candidates = @(
+        (Join-Path $PSScriptRoot $script:LeftDragAudioFileName),
+        (Join-Path $PSScriptRoot "..\..\shared\audio\$($script:LeftDragAudioFileName)")
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+    return $null
+}
+
+function Initialize-LeftDragAudio {
+    if ($script:LeftDragAudioPlayer) { return $true }
+    $path = Get-LeftDragAudioPath
+    if ([string]::IsNullOrWhiteSpace([string]$path)) {
+        Write-PanelLog "AUDIO missing left-drag clip"
+        return $false
+    }
+    try {
+        $player = [Windows.Media.MediaPlayer]::new()
+        $player.Volume = 0.85
+        $player.Open([Uri]::new($path, [UriKind]::Absolute))
+        $player.Add_MediaOpened({
+            if ($script:IsLeftDragAudioActive) {
+                $script:LeftDragAudioPlayer.Position = [TimeSpan]::Zero
+                $script:LeftDragAudioPlayer.Play()
+            }
+        })
+        $player.Add_MediaEnded({
+            $script:LeftDragAudioPlayer.Stop()
+            $script:LeftDragAudioPlayer.Position = [TimeSpan]::Zero
+        })
+        $script:LeftDragAudioPlayer = $player
+        $script:LeftDragAudioPath = $path
+        return $true
+    } catch {
+        Write-PanelLog ("AUDIO initialize failed " + $_.Exception.Message)
+        $script:LeftDragAudioPlayer = $null
+        return $false
+    }
+}
+
+function Start-LeftDragAudio {
+    if (-not (Initialize-LeftDragAudio)) { return }
+    try {
+        $script:IsLeftDragAudioActive = $true
+        $script:LeftDragAudioPlayer.Stop()
+        $script:LeftDragAudioPlayer.Position = [TimeSpan]::Zero
+        $script:LeftDragAudioPlayer.Play()
+        $now = [DateTime]::UtcNow
+        $script:LeftDragAudioEndsAt = $now.AddSeconds($script:LeftDragAudioDurationSeconds)
+        $script:LastLeftDragAnimationRestartAt = $now
+        $script:LeftDragAnimationReturnAt = [DateTime]::MinValue
+        $script:LeftDragAnimationReturnPending = $false
+        Write-PanelLog "AUDIO left-drag started"
+    } catch {
+        $script:IsLeftDragAudioActive = $false
+        $script:LeftDragAudioEndsAt = [DateTime]::MinValue
+        $script:LastLeftDragAnimationRestartAt = [DateTime]::MinValue
+        $script:LeftDragAnimationReturnAt = [DateTime]::MinValue
+        $script:LeftDragAnimationReturnPending = $false
+        Write-PanelLog ("AUDIO play failed " + $_.Exception.Message)
+    }
+}
+
+function Stop-LeftDragAudio {
+    if ($script:LeftDragAudioPlayer) {
+        try {
+            $script:LeftDragAudioPlayer.Stop()
+            $script:LeftDragAudioPlayer.Position = [TimeSpan]::Zero
+        } catch {
+        }
+    }
+    $script:IsLeftDragAudioActive = $false
+    $script:LeftDragAudioEndsAt = [DateTime]::MinValue
+    $script:LastLeftDragAnimationRestartAt = [DateTime]::MinValue
+    $script:LeftDragAnimationReturnAt = [DateTime]::MinValue
+    $script:LeftDragAnimationReturnPending = $false
+}
+
 function Get-CurrentPetHitRect {
     if ($script:PetWindowHandle -eq [IntPtr]::Zero) { return $null }
     $petWindow = [BubuPanel.NativeWindows]::GetWindow($script:PetWindowHandle)
@@ -3167,6 +3386,67 @@ function Update-PetDoubleClickToggle {
     $script:LastPetClickPoint = $point
 }
 
+function Update-LeftDragAudioGesture {
+    $isDown = [BubuPanel.NativeWindows]::IsLeftMouseButtonDown()
+    if (-not $isDown) {
+        if ($script:IsLeftDragAudioActive) { Stop-LeftDragAudio }
+        $script:LeftDragMouseWasDown = $false
+        $script:LeftDragOrigin = $null
+        return
+    }
+
+    $point = [BubuPanel.NativeWindows]::GetCursorPosition()
+    if (-not $script:LeftDragMouseWasDown) {
+        $script:LeftDragMouseWasDown = $true
+        $petRect = Get-CurrentPetHitRect
+        $script:LeftDragOrigin = if (Test-PointInsidePetRect $point $petRect) { $point } else { $null }
+        return
+    }
+
+    if (-not $script:IsLeftDragAudioActive -and $script:LeftDragOrigin -and
+        (Test-LeftDragAudioGesture $script:LeftDragOrigin $point $script:LeftDragAudioThreshold)) {
+        Start-LeftDragAudio
+    }
+
+    if ($script:IsLeftDragAudioActive -and
+        $script:PetWindowHandle -ne [IntPtr]::Zero) {
+        $now = [DateTime]::UtcNow
+
+        # Commit the return to the held-left direction on a later compositor
+        # pass. Sending both events back-to-back lets Chromium coalesce them on
+        # some Windows/DPI combinations, so the singing action is not restarted.
+        if ($script:LeftDragAnimationReturnPending -and
+            $now -ge $script:LeftDragAnimationReturnAt) {
+            if ([BubuPanel.NativeWindows]::IsLeftMouseButtonDown()) {
+                [void][BubuPanel.NativeWindows]::PostLeftDragAtOffset(
+                    $script:PetWindowHandle, 0)
+            }
+            $script:LeftDragAnimationReturnAt = [DateTime]::MinValue
+            $script:LeftDragAnimationReturnPending = $false
+        }
+
+        $restartElapsed = if ($script:LastLeftDragAnimationRestartAt -eq [DateTime]::MinValue) {
+            [double]::PositiveInfinity
+        } else {
+            ($now - $script:LastLeftDragAnimationRestartAt).TotalMilliseconds
+        }
+        if ($now -lt $script:LeftDragAudioEndsAt -and
+            -not $script:LeftDragAnimationReturnPending -and
+            $restartElapsed -ge $script:LeftDragAnimationRestartMilliseconds) {
+            $script:LastLeftDragAnimationRestartAt = $now
+            # Codex falls back to idle after three non-idle animation cycles.
+            # First commit a direction change. The next compositor pass returns
+            # to the held-left direction; atlas row 1 cell 0 intentionally
+            # matches the singing restart cell, so no guitar frame is exposed.
+            [void][BubuPanel.NativeWindows]::PostLeftDragAtOffset(
+                $script:PetWindowHandle, $script:LeftDragAnimationNudgePixels)
+            $script:LeftDragAnimationReturnAt =
+                $now.AddMilliseconds($script:LeftDragAnimationReturnMilliseconds)
+            $script:LeftDragAnimationReturnPending = $true
+        }
+    }
+}
+
 if ($PrintTaskProgress) {
     Update-TaskProgress
     $summary = @($script:LastTaskItems | ForEach-Object {
@@ -3184,6 +3464,8 @@ if ($ValidateTaskProgress) {
     $failed = '{"type":"event_msg","payload":{"type":"turn_aborted","reason":"interrupted"}}'
     $request = '{"type":"response_item","payload":{"type":"function_call","name":"request_user_input","call_id":"call-1"}}'
     $response = '{"type":"response_item","payload":{"type":"function_call_output","call_id":"call-1"}}'
+    $automationHeartbeat = '{"type":"event_msg","payload":{"type":"user_message","message":"<heartbeat>\n<automation_id>automation</automation_id>\n<current_time_iso>2026-07-25T20:00:41Z</current_time_iso>\n<instructions>运行定时任务</instructions>"}}'
+    $ordinaryHeartbeatMention = '{"type":"event_msg","payload":{"type":"user_message","message":"修复 heartbeat 文字显示"}}'
     $cases = @(
         [PSCustomObject]@{ Name = "running"; Lines = @($started); Modified = $now; Expected = "running" },
         [PSCustomObject]@{ Name = "waiting"; Lines = @($started, $request); Modified = $now; Expected = "waiting" },
@@ -3191,7 +3473,9 @@ if ($ValidateTaskProgress) {
         [PSCustomObject]@{ Name = "completed"; Lines = @($started, $completed); Modified = $now; Expected = "completed" },
         [PSCustomObject]@{ Name = "failed"; Lines = @($started, $failed); Modified = $now; Expected = "failed" },
         [PSCustomObject]@{ Name = "fresh-fallback"; Lines = @(); Modified = $now; Expected = "running" },
-        [PSCustomObject]@{ Name = "idle"; Lines = @(); Modified = $now.AddMinutes(-31); Expected = "idle" }
+        [PSCustomObject]@{ Name = "idle"; Lines = @(); Modified = $now.AddMinutes(-31); Expected = "idle" },
+        [PSCustomObject]@{ Name = "automation-heartbeat"; Lines = @($started, $automationHeartbeat, $completed); Modified = $now; Expected = "idle" },
+        [PSCustomObject]@{ Name = "ordinary-heartbeat-mention"; Lines = @($ordinaryHeartbeatMention, $started); Modified = $now; Expected = "running" }
     )
     foreach ($case in $cases) {
         $actual = Get-TaskProgressKind -lines @($case.Lines) `
@@ -3303,7 +3587,7 @@ if ($ValidateTaskProgress) {
         throw "Task status icon UI rendering failed."
     }
 
-    Write-Output "task-progress-validation: lifecycle=7/7; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=4/4; running-gif=12f/100ms"
+    Write-Output "task-progress-validation: lifecycle=9/9; automation-heartbeat=pass; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=4/4; running-gif=12f/100ms"
     $script:Window.Close()
     exit 0
 }
@@ -3358,14 +3642,22 @@ if ($ValidateTrackingFilters) {
     $scaleSamples = 0
     $visualScaleSamples = 0
     $captureCoordinateSamples = 0
+    $nativeCoordinateSamples = 0
+    $visualConfidenceSamples = 0
     $geometry = [PSCustomObject]@{ Left = 165.0; Top = 15.0; Width = 163.0 }
     foreach ($dpi in @(96.0, 120.0, 144.0, 192.0, 288.0)) {
         foreach ($petScale in @(0.5, 1.0, 1.75, 2.5)) {
-            $combinedScale = ($dpi / 96.0) * $petScale
+            $dpiScale = $dpi / 96.0
+            $scaledWidth = $script:CanonicalPetWidth * $petScale
+            $scaledGeometry = [PSCustomObject]@{
+                Left = 165.0 + ($script:CanonicalPetWidth - $scaledWidth) / 2.0
+                Top = 15.0
+                Width = $scaledWidth
+            }
             $syntheticPet = [PSCustomObject]@{
                 Left = -640; Top = 26
-                Width = [int][Math]::Round(356.0 * $combinedScale)
-                Height = [int][Math]::Round(320.0 * $combinedScale)
+                Width = [int][Math]::Round(356.0 * $dpiScale)
+                Height = [int][Math]::Round(320.0 * $dpiScale)
             }
             $syntheticPanel = [PSCustomObject]@{
                 Width = [int][Math]::Round(224.0 * $dpi / 96.0 * $petScale)
@@ -3374,12 +3666,13 @@ if ($ValidateTrackingFilters) {
             $syntheticWorkArea = [PSCustomObject]@{
                 Left = -1920; Top = 0; Right = 1920; Bottom = 2160
             }
-            $derivedScale = Get-NativePetScale $syntheticPet $testBounds $geometry $dpi
+            $derivedScale = Get-NativePetScale `
+                $syntheticPet $testBounds $scaledGeometry $dpi
             if ([Math]::Abs($derivedScale - $petScale) -gt 0.01) {
                 throw "Panel scale derivation failed at dpi=$dpi petScale=$petScale derived=$derivedScale."
             }
             $scaleSamples++
-            $placement = Get-NativePanelPlacement $syntheticPet $testBounds $geometry `
+            $placement = Get-NativePanelPlacement $syntheticPet $testBounds $scaledGeometry `
                 $syntheticPanel $dpi $petScale $syntheticWorkArea
             $expectedGap = 14.0 * $dpi / 96.0
             if (-not $placement -or
@@ -3389,6 +3682,60 @@ if ($ValidateTrackingFilters) {
             }
             $placementSamples++
         }
+    }
+    # Windows 11 can expose the same Electron overlay in either physical pixels
+    # or 96-DPI logical units. Both coordinate forms must produce scale 1.0;
+    # dividing an already-logical window by DPI caused the tiny-panel regression.
+    foreach ($dpi in @(144.0, 192.0, 240.0, 288.0)) {
+        $dpiScale = $dpi / 96.0
+        foreach ($coordinateMode in @('physical', 'logical')) {
+            $coordinateScale = if ($coordinateMode -eq 'physical') { $dpiScale } else { 1.0 }
+            $coordinatePet = [PSCustomObject]@{
+                Left = 400; Top = 240
+                Width = [int][Math]::Round(356.0 * $coordinateScale)
+                Height = [int][Math]::Round(320.0 * $coordinateScale)
+            }
+            $detectedCoordinateScale = Get-NativeWindowCoordinateScale `
+                $coordinatePet $testBounds $dpi
+            $coordinateDerivedScale = Get-NativePetScale `
+                $coordinatePet $testBounds $geometry $dpi
+            if ([Math]::Abs($detectedCoordinateScale - $coordinateScale) -gt 0.01 -or
+                [Math]::Abs($coordinateDerivedScale - 1.0) -gt 0.01) {
+                throw ("Native coordinate mode failed at dpi=$dpi mode=$coordinateMode " +
+                    "coordinate=$detectedCoordinateScale scale=$coordinateDerivedScale.")
+            }
+            $nativeCoordinateSamples++
+        }
+    }
+    # PrintWindow may paint only a child surface. A complete pet capture remains
+    # centered near the persisted mascot geometry; an upper-left fragment must
+    # never become the panel's size or anchor.
+    foreach ($coordinateScale in @(1.0, 2.0)) {
+        $confidencePet = [PSCustomObject]@{
+            Left = 400; Top = 240
+            Width = [int][Math]::Round(356.0 * $coordinateScale)
+            Height = [int][Math]::Round(320.0 * $coordinateScale)
+        }
+        $expectedCenter = ($geometry.Left + $geometry.Width / 2.0) * $coordinateScale
+        $completeMetrics = [PSCustomObject]@{
+            Left = $expectedCenter - 68.0 * $coordinateScale
+            Top = $geometry.Top * $coordinateScale
+            Width = 136.0 * $coordinateScale
+            Height = 172.0 * $coordinateScale
+        }
+        $fragmentMetrics = [PSCustomObject]@{
+            Left = 5.0 * $coordinateScale
+            Top = 5.0 * $coordinateScale
+            Width = 24.0 * $coordinateScale
+            Height = 32.0 * $coordinateScale
+        }
+        if (-not (Test-PhysicalPetVisualMetrics `
+                $confidencePet $testBounds $geometry $completeMetrics) -or
+            (Test-PhysicalPetVisualMetrics `
+                $confidencePet $testBounds $geometry $fragmentMetrics)) {
+            throw "Visual capture confidence failed at coordinateScale=$coordinateScale."
+        }
+        $visualConfidenceSamples += 2
     }
     # Reproduce Codex keeping the 356x320 transparent overlay while rendering
     # a much smaller or larger Bubu inside it. The measured visible pixels must
@@ -3592,9 +3939,41 @@ if ($ValidateTrackingFilters) {
         -not (Test-PointInsidePetRect $outsidePetClick $petHitRect) -and
         (Test-PetDoubleClickGesture $firstPetClick $secondPetClick 300 500 $doubleClickMovement) -and
         -not (Test-PetDoubleClickGesture $firstPetClick $secondPetClick 501 500 $doubleClickMovement)
+    $leftDragAudioPath = Get-LeftDragAudioPath
+    $leftDragValid = (Test-LeftDragAudioGesture `
+        $firstPetClick ([Drawing.Point]::new(172, 280)) $script:LeftDragAudioThreshold) -and
+        -not (Test-LeftDragAudioGesture `
+            $firstPetClick ([Drawing.Point]::new(173, 280)) $script:LeftDragAudioThreshold) -and
+        -not [string]::IsNullOrWhiteSpace([string]$leftDragAudioPath)
+    $leftDragAnimationRestartValid =
+        [Math]::Abs($script:LeftDragAudioDurationSeconds - 27.5) -lt 0.01 -and
+        $script:LeftDragAnimationRestartMilliseconds -ge 1700 -and
+        $script:LeftDragAnimationRestartMilliseconds -le 1900 -and
+        $script:LeftDragAnimationReturnMilliseconds -ge 4 -and
+        $script:LeftDragAnimationReturnMilliseconds -le 6 -and
+        $script:LeftDragAnimationNudgePixels -ge 6 -and
+        $script:LeftDragAnimationNudgePixels -le 10 -and
+        -not [BubuPanel.NativeWindows]::PostLeftDragAtOffset([IntPtr]::Zero, 0)
+    $nativeLeftDragActionMilliseconds = 3180.0
+    $worstCaseRestartMilliseconds =
+        $script:LeftDragAnimationRestartMilliseconds + 33.0
+    $secondBySecondCheckpoints = @(@(0..27 | ForEach-Object { [double]$_ }) + 27.5)
+    $failedSingingCheckpoints = @($secondBySecondCheckpoints | Where-Object {
+        $checkpointMilliseconds = $_ * 1000.0
+        $lastRestartMilliseconds =
+            [Math]::Floor($checkpointMilliseconds / $worstCaseRestartMilliseconds) *
+            $worstCaseRestartMilliseconds
+        ($checkpointMilliseconds - $lastRestartMilliseconds) -ge
+            $nativeLeftDragActionMilliseconds
+    })
+    $secondBySecondSingingValid =
+        $worstCaseRestartMilliseconds -lt $nativeLeftDragActionMilliseconds -and
+        $failedSingingCheckpoints.Count -eq 0
     if (-not $petAccepted -or -not $imeRejected -or -not $imeClassRejected -or
         -not $noActivateApplied -or -not $physicalWindowBounds -or
-        -not $doubleClickValid) {
+        -not $doubleClickValid -or -not $leftDragValid -or
+        -not $leftDragAnimationRestartValid -or
+        -not $secondBySecondSingingValid) {
         throw "Pet-window tracking filters failed validation."
     }
     Write-Output ("tracking-filter-validation: pet=True ime-size=True ime-class=True " +
@@ -3602,9 +3981,13 @@ if ($ValidateTrackingFilters) {
         " scale-matrix=" + $scaleSamples +
         " visual-scale-matrix=" + $visualScaleSamples +
         " capture-coordinate-matrix=" + $captureCoordinateSamples +
+        " native-coordinate-matrix=" + $nativeCoordinateSamples +
+        " visual-confidence-matrix=" + $visualConfidenceSamples +
         " layout-scale-matrix=" + $layoutScaleSamples +
         " state-aware-selection=True center-calibration=True drag-center=True" +
-        " anchor-monitor=True flicker-grace=True scale-stability=True pet-double-click=True")
+        " anchor-monitor=True flicker-grace=True scale-stability=True pet-double-click=True" +
+        " left-drag-audio=True left-drag-animation-restart=True" +
+        " left-drag-second-checks=29/29 return-delay=5ms restart-frame-safe=True")
     $script:Window.Close()
     exit 0
 }
@@ -3651,6 +4034,8 @@ $script:Window.Add_Closed({
     if ($script:FollowFallbackTimer) { $script:FollowFallbackTimer.Stop() }
     if ($script:TargetTimer) { $script:TargetTimer.Stop() }
     if ($script:ServiceTimer) { $script:ServiceTimer.Stop() }
+    Stop-LeftDragAudio
+    if ($script:LeftDragAudioPlayer) { $script:LeftDragAudioPlayer.Close() }
     Stop-QuotaProcess
     if ($script:HttpClient) { $script:HttpClient.Dispose() }
     if ($script:instanceMutex) {
@@ -3666,6 +4051,7 @@ $script:FastFollowHandler = [EventHandler]{
     param($sender, $eventArgs)
     $script:LastCompositionFollowAt = [DateTime]::UtcNow
     Update-PetDoubleClickToggle
+    Update-LeftDragAudioGesture
     Follow-PetWindowFast
 }
 $script:LastCompositionFollowAt = [DateTime]::MinValue
@@ -3682,6 +4068,7 @@ $script:FollowFallbackTimer.Interval = [TimeSpan]::FromMilliseconds(33)
 $script:FollowFallbackTimer.Add_Tick({
     if (([DateTime]::UtcNow - $script:LastCompositionFollowAt).TotalMilliseconds -ge 24) {
         Update-PetDoubleClickToggle
+        Update-LeftDragAudioGesture
         Follow-PetWindowFast
     }
 })

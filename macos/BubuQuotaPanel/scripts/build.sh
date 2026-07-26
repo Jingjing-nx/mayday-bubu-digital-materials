@@ -20,16 +20,26 @@ cp "$ROOT/Resources/task-running-badge.gif" "$RESOURCES/task-running-badge.gif"
 cp "$ROOT/Resources/task-waiting-icon.png" "$RESOURCES/task-waiting-icon.png"
 cp "$ROOT/Resources/task-failed-icon.png" "$RESOURCES/task-failed-icon.png"
 cp "$ROOT/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
+cp "$ROOT/../../shared/audio/bubu-left-drag-song.mp3" "$RESOURCES/bubu-left-drag-song.mp3"
 
 for ARCH in arm64 x86_64; do
+  /usr/bin/clang \
+    -O2 \
+    -target "$ARCH-apple-macos12.3" \
+    -isysroot "$SDK" \
+    -c "$ROOT/Sources/BubuQuotaPanel/HIDBridge.c" \
+    -o "$TMP_DIR/HIDBridge-$ARCH.o"
   /usr/bin/swiftc \
     -swift-version 5 \
     -O \
     -target "$ARCH-apple-macos12.3" \
     -sdk "$SDK" \
     -framework AppKit \
+    -framework AVFoundation \
     -framework CoreGraphics \
+    -framework IOKit \
     "$ROOT/Sources/BubuQuotaPanel/main.swift" \
+    "$TMP_DIR/HIDBridge-$ARCH.o" \
     -o "$TMP_DIR/BubuQuotaPanel-$ARCH"
 done
 

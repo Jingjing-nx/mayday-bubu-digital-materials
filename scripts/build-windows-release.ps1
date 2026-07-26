@@ -4,12 +4,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = "21"
+$Version = "46"
 $StageRoot = Join-Path $Root "build\release"
 $FullStage = Join-Path $StageRoot "卜卜-Windows"
+$FullNoSingingStage = Join-Path $StageRoot "卜卜-Windows-无唱歌音效"
 $CodexOnlyStage = Join-Path $StageRoot "卜卜-Windows-仅Codex额度"
+$CodexOnlyNoSingingStage = Join-Path $StageRoot "卜卜-Windows-仅Codex额度-无唱歌音效"
 $FullOutput = Join-Path $Root "dist\Mayday-Bubu-Windows-10-11-$Version.zip"
+$FullNoSingingOutput = Join-Path $Root "dist\Mayday-Bubu-Windows-10-11-No-Singing-$Version.zip"
 $CodexOnlyOutput = Join-Path $Root "dist\Mayday-Bubu-Windows-10-11-Codex-Only-$Version.zip"
+$CodexOnlyNoSingingOutput = Join-Path $Root "dist\Mayday-Bubu-Windows-10-11-Codex-Only-No-Singing-$Version.zip"
 
 function New-ReleasePackage {
     param(
@@ -18,7 +22,9 @@ function New-ReleasePackage {
         [Parameter(Mandatory = $true)]
         [string]$Output,
         [Parameter(Mandatory = $true)]
-        [bool]$CodexOnly
+        [bool]$CodexOnly,
+        [Parameter(Mandatory = $true)]
+        [bool]$IncludeSingingAudio
     )
 
     Remove-Item -LiteralPath $Stage -Recurse -Force -ErrorAction SilentlyContinue
@@ -33,6 +39,12 @@ function New-ReleasePackage {
         Where-Object { $_.Name -ne "orange-bubu-static.png" } |
         Copy-Item -Destination $previewDestination
     Copy-Item -LiteralPath (Join-Path $Root "windows\BubuQuotaPanel") -Destination (Join-Path $Stage "windows") -Recurse
+    if ($IncludeSingingAudio) {
+        Copy-Item -LiteralPath (Join-Path $Root "shared\audio\bubu-left-drag-song.mp3") `
+            -Destination (Join-Path $Stage "windows\bubu-left-drag-song.mp3")
+    } else {
+        Copy-Item -LiteralPath (Join-Path $Root "NO-SINGING-AUDIO.txt") -Destination $Stage
+    }
     Copy-Item -Path (Join-Path $Root "windows\package\*") -Destination $Stage -Force
     Copy-Item -LiteralPath (Join-Path $Root "windows\README.md") -Destination (Join-Path $Stage "README.md")
     Copy-Item -LiteralPath (Join-Path $Root "windows\VERSION.txt") -Destination (Join-Path $Stage "VERSION.txt")
@@ -83,6 +95,8 @@ function New-ReleasePackage {
 }
 
 if (-not $CodexOnlyRelease) {
-    New-ReleasePackage -Stage $FullStage -Output $FullOutput -CodexOnly $false
+    New-ReleasePackage -Stage $FullStage -Output $FullOutput -CodexOnly $false -IncludeSingingAudio $true
+    New-ReleasePackage -Stage $FullNoSingingStage -Output $FullNoSingingOutput -CodexOnly $false -IncludeSingingAudio $false
 }
-New-ReleasePackage -Stage $CodexOnlyStage -Output $CodexOnlyOutput -CodexOnly $true
+New-ReleasePackage -Stage $CodexOnlyStage -Output $CodexOnlyOutput -CodexOnly $true -IncludeSingingAudio $true
+New-ReleasePackage -Stage $CodexOnlyNoSingingStage -Output $CodexOnlyNoSingingOutput -CodexOnly $true -IncludeSingingAudio $false

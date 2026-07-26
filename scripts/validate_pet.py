@@ -2,7 +2,7 @@ import json
 import pathlib
 import sys
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 
 root = pathlib.Path(__file__).resolve().parents[1]
@@ -19,4 +19,19 @@ for pet_id in pet_ids:
         assert atlas.mode == "RGBA"
         assert atlas.getextrema()[3][0] == 0, "atlas must contain transparent pixels"
 
-print("Blue Bubu manifest and 8x11 atlas geometry: OK")
+        cell_width = atlas.width // 8
+        cell_height = atlas.height // 11
+        right_restart = atlas.crop((0, cell_height, cell_width, cell_height * 2))
+        left_restart = atlas.crop((0, cell_height * 2, cell_width, cell_height * 3))
+        assert ImageChops.difference(right_restart, left_restart).getbbox() is None, (
+            "running-right restart cell must match the singing restart cell"
+        )
+
+        right_guitar = atlas.crop(
+            (cell_width, cell_height, cell_width * 2, cell_height * 2)
+        )
+        assert ImageChops.difference(right_guitar, left_restart).getbbox() is not None, (
+            "running-right guitar frames must remain available after the safe restart cell"
+        )
+
+print("Blue Bubu manifest, 8x11 atlas geometry, and restart-safe cell: OK")

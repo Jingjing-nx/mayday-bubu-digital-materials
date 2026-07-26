@@ -132,6 +132,10 @@ try {
     Copy-Item -LiteralPath (Join-Path $panelSource "task-running-badge.gif") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "task-waiting-icon.png") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "task-failed-icon.png") -Destination $installDirectory -Force
+    $singingAudioSource = Join-Path $panelSource "bubu-left-drag-song.mp3"
+    if (Test-Path -LiteralPath $singingAudioSource -PathType Leaf) {
+        Copy-Item -LiteralPath $singingAudioSource -Destination $installDirectory -Force
+    }
     $installedCodexOnlyMarker = Join-Path $installDirectory "CODEX-ONLY.txt"
     if ($marketPricesEnabled) {
         Remove-Item -LiteralPath $installedCodexOnlyMarker -Force -ErrorAction SilentlyContinue
@@ -193,7 +197,7 @@ try {
                 $health = [IO.File]::ReadAllText($oldHealthPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
                 $healthProcess = Get-Process -Id ([int]$health.processId) -ErrorAction SilentlyContinue
                 $healthAge = [DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($oldHealthPath)
-                if ($health.version -eq "21" -and
+                if ($health.version -eq "46" -and
                     $health.edition -eq "blue-bubu" -and
                     $health.petID -eq "bubu-office" -and
                     [bool]$health.marketPricesEnabled -eq $marketPricesEnabled -and

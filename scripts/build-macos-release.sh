@@ -2,16 +2,20 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-VERSION="21"
+VERSION="46"
 CODEX_ONLY_RELEASE="false"
 if [[ "${1:-}" == "--codex-only" ]]; then
   CODEX_ONLY_RELEASE="true"
 fi
 STAGE_ROOT="$ROOT/build/release"
 FULL_STAGE="$STAGE_ROOT/卜卜-macOS"
+FULL_NO_SINGING_STAGE="$STAGE_ROOT/卜卜-macOS-无唱歌音效"
 CODEX_ONLY_STAGE="$STAGE_ROOT/卜卜-macOS-仅Codex额度"
+CODEX_ONLY_NO_SINGING_STAGE="$STAGE_ROOT/卜卜-macOS-仅Codex额度-无唱歌音效"
 FULL_OUT="$ROOT/dist/Mayday-Bubu-macOS-Universal-$VERSION.zip"
+FULL_NO_SINGING_OUT="$ROOT/dist/Mayday-Bubu-macOS-Universal-No-Singing-$VERSION.zip"
 CODEX_ONLY_OUT="$ROOT/dist/Mayday-Bubu-macOS-Universal-Codex-Only-$VERSION.zip"
+CODEX_ONLY_NO_SINGING_OUT="$ROOT/dist/Mayday-Bubu-macOS-Universal-Codex-Only-No-Singing-$VERSION.zip"
 APP_PROJECT="$ROOT/macos/BubuQuotaPanel"
 LABEL="io.github.mayday-materials.bubu-quota-panel"
 
@@ -20,6 +24,7 @@ LABEL="io.github.mayday-materials.bubu-quota-panel"
 stage_package() {
   local stage="$1"
   local codex_only="$2"
+  local include_singing_audio="$3"
 
   /bin/rm -rf "$stage"
   mkdir -p "$stage/pet" "$stage/quota-panel" "$stage/preview"
@@ -32,6 +37,11 @@ stage_package() {
     /bin/cp "$ROOT/shared/preview/$preview" "$stage/preview/$preview"
   done
   /usr/bin/ditto "$APP_PROJECT/build/卜卜额度面板.app" "$stage/quota-panel/卜卜额度面板.app"
+  if [[ "$include_singing_audio" != "true" ]]; then
+    /bin/rm -f "$stage/quota-panel/卜卜额度面板.app/Contents/Resources/bubu-left-drag-song.mp3"
+    /usr/bin/codesign --force --deep --sign - "$stage/quota-panel/卜卜额度面板.app" >/dev/null
+    /bin/cp "$ROOT/NO-SINGING-AUDIO.txt" "$stage/NO-SINGING-AUDIO.txt"
+  fi
   /bin/cp "$APP_PROJECT/Resources/$LABEL.plist.in" "$stage/quota-panel/$LABEL.plist.in"
   /bin/cp "$ROOT/macos/README.md" "$stage/README.md"
   /bin/cp "$ROOT/macos/VERSION.txt" "$stage/VERSION.txt"
@@ -55,16 +65,22 @@ stage_package() {
   )
 }
 
-/bin/rm -f "$CODEX_ONLY_OUT"
+/bin/rm -f "$CODEX_ONLY_OUT" "$CODEX_ONLY_NO_SINGING_OUT"
 if [[ "$CODEX_ONLY_RELEASE" != "true" ]]; then
-  /bin/rm -f "$FULL_OUT"
-  stage_package "$FULL_STAGE" false
+  /bin/rm -f "$FULL_OUT" "$FULL_NO_SINGING_OUT"
+  stage_package "$FULL_STAGE" false true
+  stage_package "$FULL_NO_SINGING_STAGE" false false
 fi
-stage_package "$CODEX_ONLY_STAGE" true
+stage_package "$CODEX_ONLY_STAGE" true true
+stage_package "$CODEX_ONLY_NO_SINGING_STAGE" true false
 
 if [[ "$CODEX_ONLY_RELEASE" != "true" ]]; then
   /usr/bin/ditto -c -k --norsrc --keepParent "$FULL_STAGE" "$FULL_OUT"
+  /usr/bin/ditto -c -k --norsrc --keepParent "$FULL_NO_SINGING_STAGE" "$FULL_NO_SINGING_OUT"
   printf '%s\n' "$FULL_OUT"
+  printf '%s\n' "$FULL_NO_SINGING_OUT"
 fi
 /usr/bin/ditto -c -k --norsrc --keepParent "$CODEX_ONLY_STAGE" "$CODEX_ONLY_OUT"
+/usr/bin/ditto -c -k --norsrc --keepParent "$CODEX_ONLY_NO_SINGING_STAGE" "$CODEX_ONLY_NO_SINGING_OUT"
 printf '%s\n' "$CODEX_ONLY_OUT"
+printf '%s\n' "$CODEX_ONLY_NO_SINGING_OUT"

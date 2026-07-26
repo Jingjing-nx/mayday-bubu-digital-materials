@@ -42,8 +42,8 @@ jobs:
           BIN='macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel'
           "$BIN" --self-test-placement | grep 'visual-scaling=6/6; panel-scaling=6/6'
           BUBU_SHOW_MARKET_PRICES=false "$BIN" --self-test-placement | grep 'visual-scaling=6/6; panel-scaling=6/6'
-          "$BIN" --self-test-lifecycle | grep 'desktop-app=5/5 visibility=4/4 pet-double-click=3/3 hidden-window=orderOut status-item=restore'
-          "$BIN" --self-test-task-progress | grep '7/7; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; task-dedup=pass; status-icons=4/4'
+          "$BIN" --self-test-lifecycle | grep 'desktop-app=5/5 visibility=4/4 pet-double-click=3/3 left-drag-audio=pass duration=27.5 animation-restart=1800ms return-delay=5ms second-by-second=29/29 physical-polling=enabled hidden-window=orderOut status-item=restore'
+          "$BIN" --self-test-task-progress | grep '9/9; automation-heartbeat=pass; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; task-dedup=pass; status-icons=4/4'
           "$BIN" --self-test-blue-edition | grep 'edition=blue-bubu pet=bubu-office persistence=pass duplicate-key=pass'
           ! grep -q 'collapsedPanelSize\|isCollapsed\|onToggleCollapsed' macos/BubuQuotaPanel/Sources/BubuQuotaPanel/main.swift
           ! grep -q 'runningArrowTimer\|drawRunningArrow' macos/BubuQuotaPanel/Sources/BubuQuotaPanel/main.swift
@@ -58,8 +58,8 @@ jobs:
       - name: Verify panel runtime health
         run: |
           BIN='macos/BubuQuotaPanel/build/卜卜额度面板.app/Contents/MacOS/BubuQuotaPanel'
-          "$BIN" --print-panel-config | grep 'version=21 edition=blue-bubu petID=bubu-office marketPricesEnabled=true width=224 height=160'
-          BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config | grep 'version=21 edition=blue-bubu petID=bubu-office marketPricesEnabled=false width=224 height=139'
+          "$BIN" --print-panel-config | grep 'version=46 edition=blue-bubu petID=bubu-office marketPricesEnabled=true width=224 height=160'
+          BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config | grep 'version=46 edition=blue-bubu petID=bubu-office marketPricesEnabled=false width=224 height=139'
           HEALTH="$(mktemp)"
           rm -f "$HEALTH"
           BUBU_PANEL_HEALTH_FILE="$HEALTH" "$BIN" &
@@ -69,10 +69,11 @@ jobs:
             test -s "$HEALTH" && break
             sleep 0.1
           done
-          grep '"version":"21"' "$HEALTH"
+          grep '"version":"46"' "$HEALTH"
           grep '"edition":"blue-bubu"' "$HEALTH"
           grep '"petID":"bubu-office"' "$HEALTH"
           grep '"marketPricesEnabled":true' "$HEALTH"
+          grep '"accessibilityTrusted":' "$HEALTH"
           kill "$PID" 2>/dev/null || true
           wait "$PID" 2>/dev/null || true
           rm -f "$HEALTH"
@@ -82,7 +83,7 @@ jobs:
             test -s "$HEALTH" && break
             sleep 0.1
           done
-          grep '"version":"21"' "$HEALTH"
+          grep '"version":"46"' "$HEALTH"
           grep '"edition":"blue-bubu"' "$HEALTH"
           grep '"petID":"bubu-office"' "$HEALTH"
           grep '"marketPricesEnabled":false' "$HEALTH"
@@ -92,22 +93,34 @@ jobs:
       - name: Build macOS releases
         run: |
           ./scripts/build-macos-release.sh
-          test -f dist/Mayday-Bubu-macOS-Universal-Codex-Only-21.zip
-          test -f dist/Mayday-Bubu-macOS-Universal-21.zip
+          test -f dist/Mayday-Bubu-macOS-Universal-Codex-Only-46.zip
+          test -f dist/Mayday-Bubu-macOS-Universal-Codex-Only-No-Singing-46.zip
+          test -f dist/Mayday-Bubu-macOS-Universal-46.zip
+          test -f dist/Mayday-Bubu-macOS-Universal-No-Singing-46.zip
           test -f build/release/卜卜-macOS-仅Codex额度/BLUE-EDITION.txt
           test -f build/release/卜卜-macOS-仅Codex额度/CODEX-ONLY.txt
           test -f build/release/卜卜-macOS-仅Codex额度/pet/bubu-office/spritesheet.webp
           test -f build/release/卜卜-macOS-仅Codex额度/quota-panel/卜卜额度面板.app/Contents/Resources/task-running-badge.gif
+          test -f build/release/卜卜-macOS-仅Codex额度/quota-panel/卜卜额度面板.app/Contents/Resources/bubu-left-drag-song.mp3
+          test -f build/release/卜卜-macOS-仅Codex额度-无唱歌音效/NO-SINGING-AUDIO.txt
+          test ! -e build/release/卜卜-macOS-仅Codex额度-无唱歌音效/quota-panel/卜卜额度面板.app/Contents/Resources/bubu-left-drag-song.mp3
+          codesign --verify --deep --strict build/release/卜卜-macOS-仅Codex额度-无唱歌音效/quota-panel/卜卜额度面板.app
+          ATLAS_SHA="$(shasum -a 256 shared/pet/bubu-office/spritesheet.webp | awk '{print $1}')"
+          grep -Fq "EXPECTED_BLUE_ATLAS_SHA256=\"$ATLAS_SHA\"" macos/package/安装卜卜.command
+          grep -Fq 'tccutil reset Accessibility "$LABEL"' macos/package/安装卜卜.command
+          grep -Fq 'Privacy_Accessibility' macos/package/安装卜卜.command
           test ! -e build/release/卜卜-macOS-仅Codex额度/pet/bubu-orange
           test ! -e build/release/卜卜-macOS-仅Codex额度/preview/orange-bubu-static.png
           ! grep -ERqi 'lightstick|荧光棒|应援棒|bubu-orange' build/release/卜卜-macOS-仅Codex额度/quota-panel
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-21
+          name: macos-46
           if-no-files-found: error
           path: |
-            dist/Mayday-Bubu-macOS-Universal-21.zip
-            dist/Mayday-Bubu-macOS-Universal-Codex-Only-21.zip
+            dist/Mayday-Bubu-macOS-Universal-46.zip
+            dist/Mayday-Bubu-macOS-Universal-No-Singing-46.zip
+            dist/Mayday-Bubu-macOS-Universal-Codex-Only-46.zip
+            dist/Mayday-Bubu-macOS-Universal-Codex-Only-No-Singing-46.zip
       - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh
 
   windows-syntax:
@@ -132,7 +145,7 @@ jobs:
         run: |
           $panel = ".\windows\BubuQuotaPanel\BubuQuotaPanel.ps1"
           $fullConfig = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
-          if ($LASTEXITCODE -ne 0 -or $fullConfig -notmatch "version=21 edition=blue-bubu petID=bubu-office marketPricesEnabled=true width=224 height=160") {
+          if ($LASTEXITCODE -ne 0 -or $fullConfig -notmatch "version=46 edition=blue-bubu petID=bubu-office marketPricesEnabled=true width=224 height=160") {
             throw "Unexpected full panel configuration: $fullConfig"
           }
           $fullXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
@@ -142,7 +155,7 @@ jobs:
 
           $env:BUBU_SHOW_MARKET_PRICES = "false"
           $onlyConfig = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
-          if ($LASTEXITCODE -ne 0 -or $onlyConfig -notmatch "version=21 edition=blue-bubu petID=bubu-office marketPricesEnabled=false width=224 height=139") {
+          if ($LASTEXITCODE -ne 0 -or $onlyConfig -notmatch "version=46 edition=blue-bubu petID=bubu-office marketPricesEnabled=false width=224 height=139") {
             throw "Unexpected Codex-only panel configuration: $onlyConfig"
           }
           $onlyXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
@@ -150,11 +163,11 @@ jobs:
             throw "Codex-only panel XAML validation failed: $onlyXaml"
           }
           $trackingFilters = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateTrackingFilters
-          if ($LASTEXITCODE -ne 0 -or $trackingFilters -notmatch "pet=True ime-size=True ime-class=True no-activate=True physical-window-bounds=True placement-matrix=20 scale-matrix=20 visual-scale-matrix=11 capture-coordinate-matrix=12 layout-scale-matrix=2 state-aware-selection=True center-calibration=True drag-center=True anchor-monitor=True flicker-grace=True scale-stability=True pet-double-click=True") {
+          if ($LASTEXITCODE -ne 0 -or $trackingFilters -notmatch "pet=True ime-size=True ime-class=True no-activate=True physical-window-bounds=True placement-matrix=20 scale-matrix=20 visual-scale-matrix=11 capture-coordinate-matrix=12 native-coordinate-matrix=8 visual-confidence-matrix=4 layout-scale-matrix=2 state-aware-selection=True center-calibration=True drag-center=True anchor-monitor=True flicker-grace=True scale-stability=True pet-double-click=True left-drag-audio=True left-drag-animation-restart=True left-drag-second-checks=29/29 return-delay=5ms restart-frame-safe=True") {
             throw "Tracking-filter validation failed: $trackingFilters"
           }
           $taskProgress = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateTaskProgress
-          if ($LASTEXITCODE -ne 0 -or $taskProgress -notmatch "7/7; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=4/4; running-gif=12f/100ms") {
+          if ($LASTEXITCODE -ne 0 -or $taskProgress -notmatch "9/9; automation-heartbeat=pass; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=4/4; running-gif=12f/100ms") {
             throw "Task-progress validation failed: $taskProgress"
           }
           $blueEdition = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateBlueEdition
@@ -175,9 +188,11 @@ jobs:
         shell: powershell
         run: |
           .\scripts\build-windows-release.ps1
-          $zip = "dist\Mayday-Bubu-Windows-10-11-Codex-Only-21.zip"
+          $zip = "dist\Mayday-Bubu-Windows-10-11-Codex-Only-46.zip"
           if (-not (Test-Path -LiteralPath $zip)) { throw "Codex-only ZIP missing" }
-          if (-not (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-21.zip")) { throw "Full ZIP missing" }
+          if (-not (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-46.zip")) { throw "Full ZIP missing" }
+          if (-not (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-No-Singing-46.zip")) { throw "Full no-singing ZIP missing" }
+          if (-not (Test-Path -LiteralPath "dist\Mayday-Bubu-Windows-10-11-Codex-Only-No-Singing-46.zip")) { throw "Codex-only no-singing ZIP missing" }
 
           $extractRoot = Join-Path $env:RUNNER_TEMP "bubu-windows-release-extracted"
           Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -190,12 +205,13 @@ jobs:
           if (Test-Path -LiteralPath (Join-Path $stage "pet\bubu-orange")) { throw "Orange preview pet leaked into the blue release" }
           if (Test-Path -LiteralPath (Join-Path $stage "preview\orange-bubu-static.png")) { throw "Orange preview leaked into the blue release" }
           if (-not (Test-Path -LiteralPath (Join-Path $stage "windows\task-running-badge.gif"))) { throw "Running-task GIF badge missing from Windows release" }
+          if (-not (Test-Path -LiteralPath (Join-Path $stage "windows\bubu-left-drag-song.mp3"))) { throw "Left-drag audio missing from Windows release" }
           $packagedPanel = Join-Path $stage "windows\BubuQuotaPanel.ps1"
           if (Select-String -LiteralPath $packagedPanel -Pattern 'lightstick|bubu-orange' -Quiet) {
             throw "Other-project content leaked into the blue release"
           }
           $manifest = Get-Content -Raw -LiteralPath (Join-Path $packagePet "pet.json") | ConvertFrom-Json
-          if ($manifest.spritesheetPath -ne "spritesheet-win-21.webp") { throw "Versioned blue pet atlas path missing" }
+          if ($manifest.spritesheetPath -ne "spritesheet-win-46.webp") { throw "Versioned blue pet atlas path missing" }
           $packageAtlas = Join-Path $packagePet $manifest.spritesheetPath
           if (-not (Test-Path -LiteralPath $packageAtlas)) { throw "Versioned pet atlas missing" }
           if ((Get-FileHash -Algorithm SHA256 -LiteralPath $packageAtlas).Hash -ne
@@ -213,19 +229,28 @@ jobs:
           & (Join-Path $stage "Install-Bubu.cmd") /petonly
           if ($LASTEXITCODE -ne 0) { throw "Codex-only pet installer simulation failed" }
           if (Test-Path -LiteralPath (Join-Path $oldPet "spritesheet.webp")) { throw "Stale pet atlas was not removed" }
-          if (-not (Test-Path -LiteralPath (Join-Path $oldPet "spritesheet-win-21.webp"))) { throw "New blue pet atlas was not installed" }
+          if (-not (Test-Path -LiteralPath (Join-Path $oldPet "spritesheet-win-46.webp"))) { throw "New blue pet atlas was not installed" }
           $installedConfig = Get-Content -Raw -LiteralPath (Join-Path $testHome "config.toml")
           if ($installedConfig -notmatch '(?ms)^\s*\[desktop\].*?^\s*selected-avatar-id\s*=\s*"custom:bubu-office"\s*$') {
             throw "Bubu was not selected in the installed config"
           }
           $widthMatches = [regex]::Matches($installedConfig, '(?m)^\s*avatar-overlay-mascot-width-px\s*=\s*163\s*$')
           if ($widthMatches.Count -ne 1) { throw "Bubu's canonical 163px width was not written exactly once" }
+
+          $silentExtractRoot = Join-Path $env:RUNNER_TEMP "bubu-windows-no-singing-extracted"
+          Remove-Item -LiteralPath $silentExtractRoot -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath "dist\Mayday-Bubu-Windows-10-11-Codex-Only-No-Singing-46.zip" -DestinationPath $silentExtractRoot -Force
+          $silentStage = Join-Path $silentExtractRoot "卜卜-Windows-仅Codex额度-无唱歌音效"
+          if (-not (Test-Path -LiteralPath (Join-Path $silentStage "NO-SINGING-AUDIO.txt"))) { throw "No-singing marker missing" }
+          if (Test-Path -LiteralPath (Join-Path $silentStage "windows\bubu-left-drag-song.mp3")) { throw "Singing audio leaked into no-singing release" }
           Remove-Item Env:CODEX_HOME
           Remove-Item Env:BUBU_INSTALL_NONINTERACTIVE
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-21
+          name: windows-46
           if-no-files-found: error
           path: |
-            dist/Mayday-Bubu-Windows-10-11-21.zip
-            dist/Mayday-Bubu-Windows-10-11-Codex-Only-21.zip
+            dist/Mayday-Bubu-Windows-10-11-46.zip
+            dist/Mayday-Bubu-Windows-10-11-No-Singing-46.zip
+            dist/Mayday-Bubu-Windows-10-11-Codex-Only-46.zip
+            dist/Mayday-Bubu-Windows-10-11-Codex-Only-No-Singing-46.zip

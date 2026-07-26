@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "file": "spritesheet.webp",
+  "file": "/private/tmp/bubu-new-task-ball-wave/shared/pet/bubu-office/spritesheet.webp",
   "format": "WEBP",
   "mode": "RGBA",
   "columns": 8,
@@ -89,7 +89,7 @@
       "row": 1,
       "column": 0,
       "used": true,
-      "nontransparent_pixels": 16813,
+      "nontransparent_pixels": 18753,
       "opaque_chroma_key_pixels": 0,
       "chroma_fringe_pixels": 0
     },

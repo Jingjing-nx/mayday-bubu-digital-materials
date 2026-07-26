@@ -29,7 +29,8 @@ check "额度面板支持当前 Mac" '[[ -x "$BIN" ]] && /usr/bin/lipo "$BIN" -v
 check "额度面板签名正常" '[[ -d "$APP" ]] && /usr/bin/codesign --verify --deep --strict "$APP"'
 check "登录启动项存在" '[[ -f "$PLIST" ]]'
 check "额度面板进程正在运行" '/bin/launchctl print "$DOMAIN/$LABEL" 2>/dev/null | /usr/bin/grep -Eq "^[[:space:]]*pid = [0-9]+"'
-check "额度面板已通过启动自检" '[[ -s "$HEALTH" ]] && /usr/bin/grep -q '"'"'"version"'"'"' "$HEALTH"'
+check "额度面板已通过启动自检" '[[ -s "$HEALTH" ]] && /usr/bin/grep -q "\"version\"" "$HEALTH"'
+check "27.5 秒唱歌续帧权限已开启" '[[ -s "$HEALTH" ]] && /usr/bin/grep -q "\"accessibilityTrusted\":true" "$HEALTH"'
 
 if [[ -s "$HEALTH" ]]; then
   echo ""

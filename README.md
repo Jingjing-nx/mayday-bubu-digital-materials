@@ -33,35 +33,60 @@
 <table>
   <thead>
     <tr>
-      <th>皮肤</th>
+      <th>宠物</th>
       <th>示意图</th>
       <th>版本</th>
+      <th>唱歌功能</th>
       <th>macOS</th>
       <th>Windows</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td rowspan="2"><strong>蓝色卜卜</strong></td>
-      <td rowspan="2" align="center"><img src="shared/preview/blue-bubu-panel-preview.png" alt="蓝色卜卜额度与任务看板示意图" width="180"></td>
-      <td>Web3 版</td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/21/Mayday-Bubu-macOS-Universal-21.zip">版本 21 下载</a></td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/21/Mayday-Bubu-Windows-10-11-21.zip">版本 21 下载</a></td>
+      <td rowspan="4"><strong>蓝色卜卜</strong></td>
+      <td rowspan="4" align="center"><img src="shared/preview/blue-bubu-static.png" alt="蓝色卜卜看板与宠物示意图" width="280"></td>
+      <td rowspan="2">Web3 版</td>
+      <td>唱歌版</td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-macOS-Universal-46.zip">版本 46 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-Windows-10-11-46.zip">版本 46 下载</a></td>
     </tr>
     <tr>
-      <td>普通版</td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/21/Mayday-Bubu-macOS-Universal-Codex-Only-21.zip">版本 21 下载</a></td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/21/Mayday-Bubu-Windows-10-11-Codex-Only-21.zip">版本 21 下载</a></td>
+      <td>不唱歌版</td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-macOS-Universal-No-Singing-46.zip">版本 46 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-Windows-10-11-No-Singing-46.zip">版本 46 下载</a></td>
     </tr>
     <tr>
-      <td rowspan="2"><strong>橙色卜卜</strong></td>
-      <td rowspan="2" align="center"><img src="shared/preview/orange-bubu-static.png" alt="橙色卜卜静态示意图" width="80"></td>
-      <td>Web3 版</td>
+      <td rowspan="2">普通版</td>
+      <td>唱歌版</td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-macOS-Universal-Codex-Only-46.zip">版本 46 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-Windows-10-11-Codex-Only-46.zip">版本 46 下载</a></td>
+    </tr>
+    <tr>
+      <td>不唱歌版</td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-macOS-Universal-Codex-Only-No-Singing-46.zip">版本 46 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-Windows-10-11-Codex-Only-No-Singing-46.zip">版本 46 下载</a></td>
+    </tr>
+    <tr>
+      <td rowspan="4"><strong>橙色卜卜</strong></td>
+      <td rowspan="4" align="center"><img src="shared/preview/orange-bubu-static.png" alt="橙色卜卜完整效果示意图" width="280"></td>
+      <td rowspan="2">Web3 版</td>
+      <td>唱歌版</td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/28/Orange-Bubu-macOS-Universal-28.zip">版本 28 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/28/Orange-Bubu-Windows-10-11-28.zip">版本 28 下载</a></td>
+    </tr>
+    <tr>
+      <td>不唱歌版</td>
       <td>制作中</td>
       <td>制作中</td>
     </tr>
     <tr>
-      <td>普通版</td>
+      <td rowspan="2">普通版</td>
+      <td>唱歌版</td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/28/Orange-Bubu-macOS-Universal-Codex-Only-28.zip">版本 28 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/28/Orange-Bubu-Windows-10-11-Codex-Only-28.zip">版本 28 下载</a></td>
+    </tr>
+    <tr>
+      <td>不唱歌版</td>
       <td>制作中</td>
       <td>制作中</td>
     </tr>
@@ -70,7 +95,9 @@
 
 - **Web3 版**：包含 Codex 额度、任务进度与 BTC 行情。
 - **普通版**：保留 Codex 额度和任务进度，不显示、也不请求 BTC 行情。
-- 当前流水版本为 **21**；每次发布新 Release 后，表格中的蓝色卜卜下载链接会自动更新。
+- **唱歌版**：向左拖动时保留唱歌画面动作，并播放 27.5 秒音乐。
+- **不唱歌版**：只删除唱歌 MP3 音效；唱歌画面动作、持续时间和其他功能完全相同。
+- 蓝色卜卜当前正式版为 **46**；橙色卜卜当前正式版为 **28**，两套项目和安装目录彼此隔离。
 <!-- DOWNLOAD_TABLE:END -->
 
 macOS 支持 12.3+、Apple 芯片与 Intel Mac；Windows 支持 Windows 10/11、x64 与 ARM64。压缩包的系统和版本不能混用。
@@ -100,7 +127,8 @@ macOS 支持 12.3+、Apple 芯片与 Intel Mac；Windows 支持 Windows 10/11、
 
 - 默认：卜卜戴黑框眼镜，坐在完整办公椅上使用带蓝色萝卜标志的电脑。
 - 鼠标悬停：卜卜拿起咖啡杯喝咖啡。
-- 向左拖动：保留头顶三瓣装饰，变成无手脚圆球，在立式麦克风前唱歌。
+- 按住卜卜向左拖动：保留头顶三瓣装饰，变成无手脚圆球，在立式麦克风前持续唱歌；只要鼠标保持按住，唱歌画面动作会保持 27.5 秒，松开后立即回办公椅。唱歌版会同步播放音乐，不唱歌版保持同样动作但没有音乐。
+- macOS 第一次启动会请求一次“辅助功能”权限；它只用于在持续按住期间续接唱歌动作。允许后才能绕过 Codex 原生约 3.18 秒的非待机动作上限；Windows 不需要这项授权。
 - 向右拖动：变成无手脚圆球，弹奏深蓝色电吉他。
 - 双击卜卜：在“显示面板”和“隐藏面板”之间循环切换；只识别卜卜本体范围，普通单击与拖动不会误触。
 - 额度面板：跟随在卜卜头顶约 14 px，并随卜卜同比放大缩小；额度每 5 分钟更新，可隐藏和显示。
@@ -130,7 +158,7 @@ macOS 需要 Xcode Command Line Tools：
 ./scripts/build-macos-release.sh
 ```
 
-该命令会同时生成完整版和 `Codex-Only` 版两个 macOS 压缩包。
+该命令会同时生成 Web3 / 普通版，以及对应的唱歌 / 不唱歌版，共四个 macOS 压缩包。
 
 Windows 10/11 使用 Windows PowerShell 5.1：
 
@@ -138,7 +166,7 @@ Windows 10/11 使用 Windows PowerShell 5.1：
 powershell -ExecutionPolicy Bypass -File .\scripts\build-windows-release.ps1
 ```
 
-该命令会生成 Windows 完整版和 `Codex-Only` 版两个压缩包。
+该命令会生成 Web3 / 普通版，以及对应的唱歌 / 不唱歌版，共四个 Windows 压缩包。
 
 在 macOS 上只打包 Windows 分发文件时，也可运行 `./scripts/build-windows-release.sh`；Windows PowerShell 语法与 WPF 布局仍由 GitHub Actions 的 Windows 环境校验。
 

@@ -31,39 +31,62 @@ jobs:
           }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Verify all four blue packages exist
+      - name: Detect pet and verify release packages
+        id: packages
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.release.outputs.version }}
         shell: bash
         run: |
           ASSETS="$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
-          for NAME in \
-            "Mayday-Bubu-macOS-Universal-$VERSION.zip" \
-            "Mayday-Bubu-macOS-Universal-Codex-Only-$VERSION.zip" \
-            "Mayday-Bubu-Windows-10-11-$VERSION.zip" \
-            "Mayday-Bubu-Windows-10-11-Codex-Only-$VERSION.zip"
+          if grep -Fxq "Mayday-Bubu-macOS-Universal-$VERSION.zip" <<< "$ASSETS"; then
+            SKIN="blue"
+            EXPECTED=(
+              "Mayday-Bubu-macOS-Universal-$VERSION.zip"
+              "Mayday-Bubu-macOS-Universal-No-Singing-$VERSION.zip"
+              "Mayday-Bubu-macOS-Universal-Codex-Only-$VERSION.zip"
+              "Mayday-Bubu-macOS-Universal-Codex-Only-No-Singing-$VERSION.zip"
+              "Mayday-Bubu-Windows-10-11-$VERSION.zip"
+              "Mayday-Bubu-Windows-10-11-No-Singing-$VERSION.zip"
+              "Mayday-Bubu-Windows-10-11-Codex-Only-$VERSION.zip"
+              "Mayday-Bubu-Windows-10-11-Codex-Only-No-Singing-$VERSION.zip"
+            )
+          elif grep -Fxq "Orange-Bubu-macOS-Universal-$VERSION.zip" <<< "$ASSETS"; then
+            SKIN="orange"
+            EXPECTED=(
+              "Orange-Bubu-macOS-Universal-$VERSION.zip"
+              "Orange-Bubu-macOS-Universal-Codex-Only-$VERSION.zip"
+              "Orange-Bubu-Windows-10-11-$VERSION.zip"
+              "Orange-Bubu-Windows-10-11-Codex-Only-$VERSION.zip"
+            )
+          else
+            echo "Release $VERSION 中没有可识别的蓝色或橙色卜卜安装包。" >&2
+            exit 1
+          fi
+          for NAME in "${EXPECTED[@]}"
           do
             grep -Fxq "$NAME" <<< "$ASSETS" || {
               echo "Release $VERSION 缺少安装包：$NAME" >&2
               exit 1
             }
           done
+          echo "skin=$SKIN" >> "$GITHUB_OUTPUT"
 
       - name: Update README download table
-        run: ./scripts/update-readme-downloads.sh "${{ steps.release.outputs.version }}"
+        run: ./scripts/update-readme-downloads.sh "${{ steps.packages.outputs.skin }}" "${{ steps.release.outputs.version }}"
 
       - name: Commit updated links
         env:
           VERSION: ${{ steps.release.outputs.version }}
+          SKIN: ${{ steps.packages.outputs.skin }}
         shell: bash
         run: |
           if git diff --quiet -- README.md; then
-            echo "README 已经指向 Release $VERSION"
+            echo "README 已经指向 $SKIN Release $VERSION"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add README.md
-          git commit -m "更新 Release $VERSION 下载链接"
+          git commit -m "更新 $SKIN Release $VERSION 下载链接"
           git push origin HEAD:main

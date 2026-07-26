@@ -1,11 +1,20 @@
 import AppKit
+import AVFoundation
 import CoreGraphics
+import Darwin
 import Foundation
+
+@_silgen_name("BubuPostPhysicalLeftDrag")
+private func bubuPostPhysicalLeftDrag(_ x: Int32, _ y: Int32) -> Bool
+@_silgen_name("BubuIsAccessibilityTrusted")
+private func bubuIsAccessibilityTrusted() -> Bool
+@_silgen_name("BubuRequestAccessibilityPermission")
+private func bubuRequestAccessibilityPermission() -> Bool
 
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
 private let taskProgressRefreshInterval: TimeInterval = 2
-private let panelVersion = "21"
+private let panelVersion = "46"
 private let panelEdition = "blue-bubu"
 private let bluePetID = "bubu-office"
 private let bluePetAvatarID = "custom:\(bluePetID)"
@@ -34,6 +43,57 @@ private func panelSizeForTaskRows(_ count: Int) -> NSSize {
 private let expandedPanelSize = panelSizeForTaskRows(1)
 private let panelPetGap: CGFloat = 14
 private let panelScreenMargin: CGFloat = 8
+private let leftDragAudioResourceName = "bubu-left-drag-song"
+private let leftDragAudioThreshold: CGFloat = 8
+private let leftDragAudioDuration: TimeInterval = 27.5
+// Codex currently renders non-idle pet actions three times, then falls back to
+// the idle row even while the drag state remains active. Briefly cross the
+// opposite horizontal direction and return to the held left-drag direction
+// before that fallback so React restarts the singing animation.
+private let leftDragAnimationRestartInterval: TimeInterval = 1.80
+private let leftDragAnimationReturnDelay: TimeInterval = 0.005
+private let leftDragAnimationNudge: CGFloat = 8
+private let leftDragDiagnosticsEnabled =
+    ProcessInfo.processInfo.environment["BUBU_DEBUG_LEFT_DRAG"] == "1"
+
+// LaunchServices normally reuses an existing app instance, but diagnostics and
+// installer scripts can execute the binary directly. A process-wide advisory
+// lock prevents those direct launches from creating a second floating panel.
+private final class SinglePanelInstanceLock {
+    private let fileDescriptor: Int32
+
+    private init(fileDescriptor: Int32) {
+        self.fileDescriptor = fileDescriptor
+    }
+
+    static func acquire() -> SinglePanelInstanceLock? {
+        let lockURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("io.github.mayday-materials.bubu-quota-panel.lock")
+        let descriptor = Darwin.open(
+            lockURL.path,
+            O_CREAT | O_RDWR,
+            S_IRUSR | S_IWUSR
+        )
+        guard descriptor >= 0 else { return nil }
+        guard Darwin.lockf(descriptor, F_TLOCK, 0) == 0 else {
+            Darwin.close(descriptor)
+            return nil
+        }
+        return SinglePanelInstanceLock(fileDescriptor: descriptor)
+    }
+
+    deinit {
+        _ = Darwin.lockf(fileDescriptor, F_ULOCK, 0)
+        Darwin.close(fileDescriptor)
+    }
+}
+
+private func writeLeftDragDiagnostic(_ message: String) {
+    guard leftDragDiagnosticsEnabled,
+          let data = "left-drag: \(message)\n".data(using: .utf8)
+    else { return }
+    FileHandle.standardError.write(data)
+}
 private let pointerTipBottomInset: CGFloat = 1
 private let pointerHorizontalSafeInset: CGFloat = 18
 private let canonicalPetSpriteSize = NSSize(width: 163, height: 177)
@@ -298,6 +358,14 @@ private func shouldTogglePanelForPetDoubleClick(
     clickCount == 2 && petVisibleRect.contains(clickLocation)
 }
 
+private func shouldStartLeftDragAudio(
+    from initialLocation: NSPoint,
+    to currentLocation: NSPoint,
+    threshold: CGFloat = leftDragAudioThreshold
+) -> Bool {
+    initialLocation.x - currentLocation.x >= threshold
+}
+
 private final class RuntimeHealthWriter {
     private let fileURL: URL = {
         if let override = ProcessInfo.processInfo.environment["BUBU_PANEL_HEALTH_FILE"],
@@ -324,10 +392,11 @@ private final class RuntimeHealthWriter {
         let now = CFAbsoluteTimeGetCurrent()
         let safeScale = normalizedPanelScale(panelScale)
         let livePanelSize = panelSize ?? scaledPanelSize(expandedPanelSize, scale: safeScale)
+        let accessibilityTrusted = bubuIsAccessibilityTrusted()
         // Do not turn a live resize into 30 disk writes per second. Scale and
         // dimensions are included in the periodic payload, while the signature
         // remains limited to meaningful visibility/source changes.
-        let signature = "\(status)|\(panelVisible)|\(locationSource ?? "none")"
+        let signature = "\(status)|\(panelVisible)|\(locationSource ?? "none")|\(accessibilityTrusted)"
         guard force || signature != lastSignature || now - lastWriteAt >= 15 else { return }
 
         var payload: [String: Any] = [
@@ -338,6 +407,7 @@ private final class RuntimeHealthWriter {
             "status": status,
             "panelVisible": panelVisible,
             "marketPricesEnabled": marketPricesEnabled,
+            "accessibilityTrusted": accessibilityTrusted,
             "panelBaseHeightPoints": expandedPanelSize.height,
             "panelWidthPoints": livePanelSize.width,
             "panelHeightPoints": livePanelSize.height,
@@ -586,6 +656,8 @@ private final class CodexTaskProgressReader {
         modificationDate: Date,
         now: Date
     ) -> TaskProgressSnapshot {
+        guard !containsAutomationHeartbeat(lines: lines) else { return .idle }
+
         var lifecycle: TaskProgressKind?
         var pendingUserInputCalls = Set<String>()
         var latestUserTitle: String?
@@ -676,6 +748,31 @@ private final class CodexTaskProgressReader {
             )])
         }
         return .idle
+    }
+
+    private static func containsAutomationHeartbeat(lines: [String]) -> Bool {
+        for line in lines {
+            guard line.contains("user_message"),
+                  line.range(of: "<heartbeat>", options: [.caseInsensitive]) != nil,
+                  let data = line.data(using: .utf8),
+                  let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  record["type"] as? String == "event_msg",
+                  let payload = record["payload"] as? [String: Any],
+                  payload["type"] as? String == "user_message",
+                  let message = payload["message"] as? String
+            else { continue }
+
+            let normalized = message
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if normalized.hasPrefix("<heartbeat>")
+                && normalized.contains("<automation_id>automation</automation_id>")
+                && normalized.contains("<instructions>")
+            {
+                return true
+            }
+        }
+        return false
     }
 
     private static func taskTitle(from rawMessage: String) -> String? {
@@ -2674,6 +2771,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var btcRefreshTimer: Timer?
     private var followTimer: Timer?
     private var globalMouseMonitor: Any?
+    private var leftDragAudioPlayer: AVAudioPlayer?
+    private var leftDragOrigin: NSPoint?
+    private var leftDragMouseWasDown = false
+    private var isLeftDragAudioActive = false
+    private var leftDragAudioEndsAt: CFAbsoluteTime = 0
+    private var lastLeftDragAnimationRestartAt: CFAbsoluteTime = 0
+    private var leftDragAnimationReturnAt: CFAbsoluteTime = 0
+    private var leftDragAnimationReturnLocation: CGPoint?
     private var isRefreshing = false
     private var isRefreshingTaskProgress = false
     private var isRefreshingBTCPrice = false
@@ -2693,7 +2798,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = petSelectionStore.selectBluePet()
         makePanel()
         makeStatusItem()
-        startPetDoubleClickMonitor()
+        prepareLeftDragAudio()
+        // macOS permits observing the physical hold without a special grant,
+        // but Chromium only accepts the tiny animation-restart drag from a
+        // trusted helper. Trigger the standard one-time system prompt so the
+        // installed LaunchAgent behaves exactly like a directly launched app.
+        _ = bubuRequestAccessibilityPermission()
+        startPetMouseMonitor()
         healthWriter.write(status: "started", panelVisible: false, locationSource: nil, force: true)
         followPet()
         refreshQuota()
@@ -2727,6 +2838,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         taskProgressTimer?.invalidate()
         btcRefreshTimer?.invalidate()
         followTimer?.invalidate()
+        finishLeftDragAudioGesture()
         if let globalMouseMonitor {
             NSEvent.removeMonitor(globalMouseMonitor)
         }
@@ -2770,16 +2882,183 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = item
     }
 
-    private func startPetDoubleClickMonitor() {
-        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) {
+    private func prepareLeftDragAudio() {
+        guard let url = Bundle.main.url(
+            forResource: leftDragAudioResourceName,
+            withExtension: "mp3"
+        ) else { return }
+        do {
+            let player = try AVAudioPlayer(contentsOf: url)
+            player.volume = 0.85
+            player.numberOfLoops = 0
+            player.prepareToPlay()
+            leftDragAudioPlayer = player
+        } catch {
+            leftDragAudioPlayer = nil
+        }
+    }
+
+    private func startPetMouseMonitor() {
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+        ) {
             [weak self] event in
-            guard event.clickCount == 2 else { return }
-            let clickCount = event.clickCount
             let clickLocation = NSEvent.mouseLocation
             DispatchQueue.main.async {
-                self?.handlePetDoubleClick(at: clickLocation, clickCount: clickCount)
+                self?.handlePetMouseEvent(
+                    type: event.type,
+                    at: clickLocation,
+                    clickCount: event.clickCount
+                )
             }
         }
+    }
+
+    private func handlePetMouseEvent(
+        type: NSEvent.EventType,
+        at location: NSPoint,
+        clickCount: Int
+    ) {
+        switch type {
+        case .leftMouseDown:
+            if clickCount == 2 {
+                handlePetDoubleClick(at: location, clickCount: clickCount)
+            }
+            let now = CFAbsoluteTimeGetCurrent()
+            guard codexDesktopRunning(at: now) else {
+                finishLeftDragAudioGesture()
+                return
+            }
+            let pet = lastLocatedPet ?? locator.locate()
+            guard let pet, pet.visibleRect.contains(location) else {
+                leftDragOrigin = nil
+                return
+            }
+            lastLocatedPet = pet
+            lastLocatedAt = now
+            leftDragOrigin = location
+            leftDragMouseWasDown = true
+            isLeftDragAudioActive = false
+        case .leftMouseDragged:
+            guard let origin = leftDragOrigin,
+                  !isLeftDragAudioActive,
+                  shouldStartLeftDragAudio(from: origin, to: location)
+            else { return }
+            startLeftDragAudio()
+        case .leftMouseUp:
+            finishLeftDragAudioGesture()
+        default:
+            break
+        }
+    }
+
+    private func startLeftDragAudio() {
+        guard let player = leftDragAudioPlayer else { return }
+        player.stop()
+        player.currentTime = 0
+        let didStartPlayback = player.play()
+        isLeftDragAudioActive = true
+        leftDragAudioEndsAt = CFAbsoluteTimeGetCurrent() + leftDragAudioDuration
+        lastLeftDragAnimationRestartAt = CFAbsoluteTimeGetCurrent()
+        leftDragAnimationReturnAt = 0
+        leftDragAnimationReturnLocation = nil
+        writeLeftDragDiagnostic("started audio=\(didStartPlayback)")
+    }
+
+    private func finishLeftDragAudioGesture() {
+        if let returnLocation = leftDragAnimationReturnLocation {
+            // Never leave the user's cursor at the temporary eight-pixel nudge
+            // if the physical button is released during the short restart.
+            CGWarpMouseCursorPosition(returnLocation)
+        }
+        if isLeftDragAudioActive {
+            leftDragAudioPlayer?.stop()
+            leftDragAudioPlayer?.currentTime = 0
+        }
+        isLeftDragAudioActive = false
+        leftDragMouseWasDown = false
+        leftDragOrigin = nil
+        leftDragAudioEndsAt = 0
+        lastLeftDragAnimationRestartAt = 0
+        leftDragAnimationReturnAt = 0
+        leftDragAnimationReturnLocation = nil
+        writeLeftDragDiagnostic("finished")
+    }
+
+    private func keepLeftDragSingingAlive(at now: CFAbsoluteTime) {
+        guard isLeftDragAudioActive,
+              now < leftDragAudioEndsAt,
+              bubuIsAccessibilityTrusted()
+        else { return }
+
+        guard now - lastLeftDragAnimationRestartAt >= leftDragAnimationRestartInterval,
+              let cursorLocation = CGEvent(source: nil)?.location
+        else { return }
+
+        lastLeftDragAnimationRestartAt = now
+        leftDragAnimationReturnLocation = cursorLocation
+        leftDragAnimationReturnAt = now + leftDragAnimationReturnDelay
+        let nudgeLocation = CGPoint(
+            x: cursorLocation.x + leftDragAnimationNudge,
+            y: cursorLocation.y
+        )
+        guard bubuPostPhysicalLeftDrag(Int32(nudgeLocation.x.rounded()), Int32(nudgeLocation.y.rounded()))
+        else {
+            writeLeftDragDiagnostic("restart-nudge failed")
+            leftDragAnimationReturnAt = 0
+            leftDragAnimationReturnLocation = nil
+            return
+        }
+        writeLeftDragDiagnostic("restart-nudge posted")
+        DispatchQueue.main.asyncAfter(deadline: .now() + leftDragAnimationReturnDelay) {
+            [weak self] in
+            guard let self else { return }
+            defer {
+                self.leftDragAnimationReturnAt = 0
+                self.leftDragAnimationReturnLocation = nil
+            }
+            guard self.isLeftDragAudioActive,
+                  NSEvent.pressedMouseButtons & 1 != 0
+            else { return }
+            // Five milliseconds gives Codex time to commit the temporary
+            // direction before returning to the held left-drag state.
+            let didReturn = bubuPostPhysicalLeftDrag(
+                Int32(cursorLocation.x.rounded()),
+                Int32(cursorLocation.y.rounded())
+            )
+            writeLeftDragDiagnostic("restart-return posted=\(didReturn)")
+        }
+    }
+
+    private func pollPhysicalLeftDragGesture(at now: CFAbsoluteTime) {
+        let isDown = NSEvent.pressedMouseButtons & 1 != 0
+        guard isDown else {
+            if leftDragMouseWasDown || leftDragOrigin != nil || isLeftDragAudioActive {
+                finishLeftDragAudioGesture()
+            }
+            leftDragMouseWasDown = false
+            return
+        }
+
+        let location = NSEvent.mouseLocation
+        if !leftDragMouseWasDown {
+            leftDragMouseWasDown = true
+            guard codexDesktopRunning(at: now) else { return }
+            let pet = lastLocatedPet ?? locator.locate()
+            leftDragOrigin = pet?.visibleRect.contains(location) == true ? location : nil
+            writeLeftDragDiagnostic("down hit=\(leftDragOrigin != nil)")
+            if let pet {
+                lastLocatedPet = pet
+                lastLocatedAt = now
+            }
+            return
+        }
+
+        guard let origin = leftDragOrigin,
+              !isLeftDragAudioActive,
+              shouldStartLeftDragAudio(from: origin, to: location)
+        else { return }
+        startLeftDragAudio()
     }
 
     private func handlePetDoubleClick(at location: NSPoint, clickCount: Int) {
@@ -2833,7 +3112,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func followPet() {
         let now = CFAbsoluteTimeGetCurrent()
+        // Polling backs up the global monitor on machines where drag callbacks
+        // are dropped under load or because of input-monitoring differences.
+        pollPhysicalLeftDragGesture(at: now)
+        keepLeftDragSingingAlive(at: now)
         guard codexDesktopRunning(at: now) else {
+            finishLeftDragAudioGesture()
             lastLocatedPet = nil
             lastLocatedAt = 0
             quotaView.setRunningTaskBadgeAnimationsEnabled(false)
@@ -3309,7 +3593,41 @@ private func runLifecycleSelfTest() -> Never {
         exit(1)
     }
 
-    print("lifecycle-self-test: desktop-app=5/5 visibility=4/4 pet-double-click=3/3 hidden-window=orderOut status-item=restore")
+    let dragStart = NSPoint(x: petRect.midX, y: petRect.midY)
+    let nativeLeftDragActionDuration: TimeInterval = 3.18
+    let worstCaseRestartSpacing = leftDragAnimationRestartInterval + followInterval
+    let secondBySecondCheckpoints = (0...27).map(TimeInterval.init) + [27.5]
+    let secondBySecondSingingIsContinuous = secondBySecondCheckpoints.allSatisfy { checkpoint in
+        let lastRestart = floor(checkpoint / worstCaseRestartSpacing) * worstCaseRestartSpacing
+        return checkpoint - lastRestart < nativeLeftDragActionDuration
+    }
+    guard shouldStartLeftDragAudio(
+        from: dragStart,
+        to: NSPoint(x: dragStart.x - leftDragAudioThreshold, y: dragStart.y)
+    ), !shouldStartLeftDragAudio(
+        from: dragStart,
+        to: NSPoint(x: dragStart.x - leftDragAudioThreshold + 1, y: dragStart.y)
+    ), let audioURL = Bundle.main.url(
+        forResource: leftDragAudioResourceName,
+        withExtension: "mp3"
+    ), let audioPlayer = try? AVAudioPlayer(contentsOf: audioURL),
+       audioPlayer.duration >= 27.4,
+       audioPlayer.duration <= 27.7,
+       leftDragAudioDuration == 27.5,
+       leftDragAnimationRestartInterval >= 1.7,
+       leftDragAnimationRestartInterval <= 1.9,
+       leftDragAnimationReturnDelay >= 0.004,
+       leftDragAnimationReturnDelay <= 0.006,
+       leftDragAnimationNudge >= 6,
+       leftDragAnimationNudge <= 10,
+       worstCaseRestartSpacing < nativeLeftDragActionDuration,
+       secondBySecondSingingIsContinuous
+    else {
+        fputs("left-drag audio gesture, animation restart, or packaged clip failed\n", stderr)
+        exit(1)
+    }
+
+    print("lifecycle-self-test: desktop-app=5/5 visibility=4/4 pet-double-click=3/3 left-drag-audio=pass duration=27.5 animation-restart=1800ms return-delay=5ms second-by-second=29/29 physical-polling=enabled hidden-window=orderOut status-item=restore")
     exit(0)
 }
 
@@ -3320,6 +3638,8 @@ private func runTaskProgressSelfTest() -> Never {
     let failed = #"{"type":"event_msg","payload":{"type":"turn_aborted","reason":"interrupted"}}"#
     let request = #"{"type":"response_item","payload":{"type":"function_call","name":"request_user_input","call_id":"call-1"}}"#
     let response = #"{"type":"response_item","payload":{"type":"function_call_output","call_id":"call-1"}}"#
+    let automationHeartbeat = #"{"type":"event_msg","payload":{"type":"user_message","message":"<heartbeat>\n<automation_id>automation</automation_id>\n<current_time_iso>2026-07-25T20:00:41Z</current_time_iso>\n<instructions>运行定时任务</instructions>"}}"#
+    let ordinaryHeartbeatMention = #"{"type":"event_msg","payload":{"type":"user_message","message":"修复 heartbeat 文字显示"}}"#
     let cases: [(String, [String], Date, TaskProgressKind)] = [
         ("running", [started], now, .running),
         ("waiting", [started, request], now, .waitingForInput),
@@ -3328,6 +3648,8 @@ private func runTaskProgressSelfTest() -> Never {
         ("failed", [started, failed], now, .failed),
         ("fresh-tail-fallback", [], now, .running),
         ("idle", [], now.addingTimeInterval(-31 * 60), .idle),
+        ("automation-heartbeat", [started, automationHeartbeat, completed], now, .idle),
+        ("ordinary-heartbeat-mention", [ordinaryHeartbeatMention, started], now, .running),
     ]
 
     for test in cases {
@@ -3506,7 +3828,7 @@ private func runTaskProgressSelfTest() -> Never {
         exit(1)
     }
 
-    print("task-progress-self-test: lifecycle=7/7; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; task-dedup=pass; status-icons=4/4")
+    print("task-progress-self-test: lifecycle=9/9; automation-heartbeat=pass; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; task-dedup=pass; status-icons=4/4")
     exit(0)
 }
 
@@ -3678,7 +4000,12 @@ if CommandLine.arguments.contains("--self-test-blue-edition") {
     runBlueEditionSelfTest()
 }
 
-if CommandLine.arguments.contains("--print-panel-config") {
+// Keep both spellings as command-line-only diagnostics. An older validation
+// command used `--print-configuration`; without this alias the executable fell
+// through to the AppKit run loop and accidentally opened a second panel.
+if CommandLine.arguments.contains("--print-panel-config")
+    || CommandLine.arguments.contains("--print-configuration")
+{
     printPanelConfiguration()
 }
 
@@ -3691,6 +4018,15 @@ if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-preview"),
 {
     renderPreviewOnce(to: CommandLine.arguments[previewFlag + 1])
 }
+
+// Keep this object alive for the whole AppKit run loop. A second direct launch
+// exits before it can create another panel or status-bar item.
+private let singlePanelInstanceLock: SinglePanelInstanceLock = {
+    guard let lock = SinglePanelInstanceLock.acquire() else {
+        exit(0)
+    }
+    return lock
+}()
 
 let application = NSApplication.shared
 private let delegate = AppDelegate()
