@@ -196,7 +196,7 @@ private func rewindTicketXFromOverlayCenter(progress: CGFloat) -> CGFloat {
 }
 
 private func quotaLightstickFrame(
-    petOverlayRect: NSRect,
+    petVisibleRect: NSRect,
     petRenderScale: CGFloat,
     screenVisibleFrame: NSRect,
     originXFromOverlayCenter: CGFloat = quotaLightstickOriginXFromOverlayCenter
@@ -204,8 +204,8 @@ private func quotaLightstickFrame(
     let safeScale = normalizedPanelScale(petRenderScale)
     let size = scaledPanelSize(quotaLightstickBaseSize, scale: safeScale)
     let desiredOrigin = NSPoint(
-        x: petOverlayRect.midX + originXFromOverlayCenter * safeScale,
-        y: petOverlayRect.maxY + quotaLightstickOriginYFromOverlayTop * safeScale
+        x: petVisibleRect.midX + originXFromOverlayCenter * safeScale,
+        y: petVisibleRect.maxY + quotaLightstickOriginYFromOverlayTop * safeScale
     )
     let maximumX = max(screenVisibleFrame.minX, screenVisibleFrame.maxX - size.width)
     let maximumY = max(screenVisibleFrame.minY, screenVisibleFrame.maxY - size.height)
@@ -218,7 +218,7 @@ private func quotaLightstickFrame(
 }
 
 private func quotaAirplaneFrame(
-    petOverlayRect: NSRect,
+    petVisibleRect: NSRect,
     petRenderScale: CGFloat,
     screenVisibleFrame: NSRect,
     originXFromOverlayCenter: CGFloat = quotaAirplaneOriginXFromOverlayCenter
@@ -226,8 +226,8 @@ private func quotaAirplaneFrame(
     let safeScale = normalizedPanelScale(petRenderScale)
     let size = scaledPanelSize(quotaAirplaneBaseSize, scale: safeScale)
     let desiredOrigin = NSPoint(
-        x: petOverlayRect.midX + originXFromOverlayCenter * safeScale,
-        y: petOverlayRect.maxY + quotaAirplaneOriginYFromOverlayTop * safeScale
+        x: petVisibleRect.midX + originXFromOverlayCenter * safeScale,
+        y: petVisibleRect.maxY + quotaAirplaneOriginYFromOverlayTop * safeScale
     )
     let maximumX = max(screenVisibleFrame.minX, screenVisibleFrame.maxX - size.width)
     let maximumY = max(screenVisibleFrame.minY, screenVisibleFrame.maxY - size.height)
@@ -435,7 +435,10 @@ private func isCodexDesktopApplication(
     guard activationPolicy == .regular else { return false }
 
     let normalizedIdentifier = bundleIdentifier?.lowercased() ?? ""
-    if ["com.openai.codex", "com.openai.chatgpt", "com.openai.chat"].contains(normalizedIdentifier) {
+    // Orange Bubu belongs to Codex only. Treating the separately-installed
+    // ChatGPT app as Codex meant the detached panel, lightstick and ticket
+    // could stay on the desktop after Codex itself had quit.
+    if normalizedIdentifier == "com.openai.codex" {
         return true
     }
 
@@ -444,8 +447,8 @@ private func isCodexDesktopApplication(
         .deletingPathExtension()
         .lastPathComponent
         .lowercased() ?? ""
-    let knownName = normalizedName == "codex" || normalizedName == "chatgpt"
-    let knownBundle = normalizedBundleName == "codex" || normalizedBundleName == "chatgpt"
+    let knownName = normalizedName == "codex"
+    let knownBundle = normalizedBundleName == "codex"
     return knownName && knownBundle
 }
 
@@ -2443,6 +2446,25 @@ private struct LocatedPet {
     let source: String
 }
 
+/// A Quartz window-list read may briefly fail while Codex is applying a drag.
+/// The persisted state is intentionally asynchronous, so it can still contain
+/// the *previous* pet coordinate. Keep a fresh live anchor during that narrow
+/// interval instead of snapping all attachments back to stale saved geometry.
+private func shouldHoldRecentLiveAttachment(
+    liveLocationAvailable: Bool,
+    overlayOpen: Bool?,
+    recentLocationSource: String?,
+    recentLocatedAt: CFAbsoluteTime,
+    now: CFAbsoluteTime
+) -> Bool {
+    guard !liveLocationAvailable,
+          overlayOpen != false,
+          let recentLocationSource,
+          PetAnchorCalibration.acceptsLiveGeometrySource(recentLocationSource)
+    else { return false }
+    return now - recentLocatedAt <= recentLocationGraceInterval
+}
+
 /// Locks Bubu's visible center/top to the live Electron overlay. Codex's saved
 /// x/y is accurate but can trail a drag; the live Quartz window is immediate
 /// but includes transparent padding. One calibration combines both strengths.
@@ -3378,6 +3400,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var btcRefreshTimer: Timer?
     private var followTimer: Timer?
     private var globalMouseMonitor: Any?
+    private var workspaceLifecycleObservers: [NSObjectProtocol] = []
     private var petDragStart: NSPoint?
     private var fastFollowUntil: CFAbsoluteTime = 0
     private var quotaLightstickMode: QuotaLightstickMode = .chair
@@ -3406,6 +3429,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         makePanel()
         makeQuotaLightstickPanel()
         makeStatusItem()
+        startCodexLifecycleObserver()
         startPetDoubleClickMonitor()
         healthWriter.write(status: "started", panelVisible: false, locationSource: nil, force: true)
         followPet()
@@ -3438,16 +3462,94 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         btcRefreshTimer?.invalidate()
         followTimer?.invalidate()
         quotaView.setPanelAnimationVisible(false)
+        stopCodexLifecycleObserver()
         if let globalMouseMonitor {
             NSEvent.removeMonitor(globalMouseMonitor)
         }
         if let statusItem {
             NSStatusBar.system.removeStatusItem(statusItem)
         }
+        hidePetAttachmentWindows(resetGestureState: true)
+        healthWriter.write(status: "terminated", panelVisible: false, locationSource: nil, force: true)
+    }
+
+    /// The polling loop is intentionally still present as a compatibility
+    /// fallback, but quitting Codex must clear all detached windows immediately
+    /// instead of waiting up to two seconds for the next poll.
+    private func startCodexLifecycleObserver() {
+        let center = NSWorkspace.shared.notificationCenter
+        let names: [NSNotification.Name] = [
+            NSWorkspace.didLaunchApplicationNotification,
+            NSWorkspace.didTerminateApplicationNotification,
+        ]
+        workspaceLifecycleObservers = names.map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                guard let self,
+                      let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                        as? NSRunningApplication,
+                      isCodexDesktopApplication(
+                          bundleIdentifier: application.bundleIdentifier,
+                          localizedName: application.localizedName,
+                          bundleURL: application.bundleURL,
+                          activationPolicy: application.activationPolicy
+                      )
+                else { return }
+
+                if name == NSWorkspace.didTerminateApplicationNotification {
+                    self.handleCodexTermination()
+                } else {
+                    // Do not reuse an old false cache after Codex relaunches.
+                    self.lastCodexDesktopCheckAt = 0
+                    self.cachedCodexDesktopRunning = true
+                    self.followPet()
+                }
+            }
+        }
+    }
+
+    private func stopCodexLifecycleObserver() {
+        let center = NSWorkspace.shared.notificationCenter
+        workspaceLifecycleObservers.forEach(center.removeObserver)
+        workspaceLifecycleObservers.removeAll()
+    }
+
+    private func handleCodexTermination() {
+        // Clear the cache first: a pending follow timer must not restore any
+        // window from its last pet coordinate after the termination callback.
+        cachedCodexDesktopRunning = false
+        lastCodexDesktopCheckAt = CFAbsoluteTimeGetCurrent()
+        lastLocatedPet = nil
+        lastLocatedAt = 0
+        cachedSavedAnchor = nil
+        lastSavedAnchorReadAt = 0
+        petAnchorCalibration = nil
+        hidePetAttachmentWindows(resetGestureState: true)
+        healthWriter.write(
+            status: "waiting-for-codex",
+            panelVisible: false,
+            locationSource: nil,
+            panelScale: currentPanelScale,
+            panelSize: scaledPanelSize(currentBasePanelSize, scale: currentPanelScale),
+            force: true
+        )
+    }
+
+    /// All visible companion elements are independent NSPanel instances, so
+    /// they must always be hidden as one unit. They are never draggable; each
+    /// later frame is recomputed from the live pet anchor in `followPet()`.
+    private func hidePetAttachmentWindows(resetGestureState: Bool) {
+        quotaView.setPanelAnimationVisible(false)
+        panel?.orderOut(nil)
         quotaLightstickPanel?.orderOut(nil)
         secondaryQuotaLightstickPanel?.orderOut(nil)
         quotaAirplanePanel?.orderOut(nil)
-        healthWriter.write(status: "terminated", panelVisible: false, locationSource: nil, force: true)
+        quotaAirplaneView.isFlying = false
+        if resetGestureState {
+            petDragStart = nil
+            fastFollowUntil = 0
+            quotaLightstickMode = .chair
+            rewindTicketStartedAt = nil
+        }
     }
 
     private func makePanel() {
@@ -3706,11 +3808,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             cachedSavedAnchor = nil
             lastSavedAnchorReadAt = 0
             petAnchorCalibration = nil
-            quotaView.setPanelAnimationVisible(false)
-            panel.orderOut(nil)
-            quotaLightstickPanel.orderOut(nil)
-            secondaryQuotaLightstickPanel.orderOut(nil)
-            quotaAirplanePanel.orderOut(nil)
+            hidePetAttachmentWindows(resetGestureState: true)
             healthWriter.write(
                 status: "waiting-for-codex",
                 panelVisible: false,
@@ -3737,6 +3835,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             refreshStoredState: false,
             allowSavedFallback: false
         )
+        let holdRecentLiveAttachment = shouldHoldRecentLiveAttachment(
+            liveLocationAvailable: liveLocation != nil,
+            overlayOpen: locator.overlayOpen,
+            recentLocationSource: lastLocatedPet?.source,
+            recentLocatedAt: lastLocatedAt,
+            now: now
+        )
         let located: LocatedPet?
         if let liveLocation {
             if petAnchorCalibration == nil, let savedAnchor {
@@ -3757,6 +3862,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 located = liveLocation
             }
+        } else if holdRecentLiveAttachment {
+            // Do not use the saved anchor here: it can lag a drag by one
+            // persistence cycle and make the panel, ticket and lightstick
+            // jump away from Bubu before returning on the next Quartz read.
+            located = lastLocatedPet
         } else {
             located = savedAnchor
         }
@@ -3774,11 +3884,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             cachedSavedAnchor = nil
             lastSavedAnchorReadAt = 0
             petAnchorCalibration = nil
-            quotaView.setPanelAnimationVisible(false)
-            panel.orderOut(nil)
-            quotaLightstickPanel.orderOut(nil)
-            secondaryQuotaLightstickPanel.orderOut(nil)
-            quotaAirplanePanel.orderOut(nil)
+            hidePetAttachmentWindows(resetGestureState: false)
             healthWriter.write(
                 status: "waiting-for-pet-location",
                 panelVisible: false,
@@ -3798,7 +3904,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             let primaryOriginX = quotaLightstickOriginXFromOverlayCenter
             quotaLightstickView.tiltDegrees = OrangeBubuRuntimeGeometry.lightstickChairTiltDegrees
             let lightstickFrame = quotaLightstickFrame(
-                petOverlayRect: pet.overlayRect,
+                petVisibleRect: pet.visibleRect,
                 petRenderScale: lightstickPetScale,
                 screenVisibleFrame: pet.screen.visibleFrame,
                 originXFromOverlayCenter: primaryOriginX
@@ -3837,7 +3943,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             } ?? quotaAirplaneOriginXFromOverlayCenter
             quotaAirplaneView.isFlying = activeRewindTicketProgress != nil
             let airplaneFrame = quotaAirplaneFrame(
-                petOverlayRect: pet.overlayRect,
+                petVisibleRect: pet.visibleRect,
                 petRenderScale: lightstickPetScale,
                 screenVisibleFrame: pet.screen.visibleFrame,
                 originXFromOverlayCenter: originX
@@ -4243,7 +4349,36 @@ private func runPlacementSelfTest() -> Never {
         exit(1)
     }
 
-    print("placement-self-test: 6/6 passed; realtime-follow=2/2; live-source-gate=3/3; mascot-scaling=6/6; visual-scaling=6/6; panel-scaling=6/6; gap=14.0; centerError=0.0")
+    guard shouldHoldRecentLiveAttachment(
+        liveLocationAvailable: false,
+        overlayOpen: true,
+        recentLocationSource: "window-calibrated-live",
+        recentLocatedAt: 100,
+        now: 101
+    ), !shouldHoldRecentLiveAttachment(
+        liveLocationAvailable: true,
+        overlayOpen: true,
+        recentLocationSource: "window-calibrated-live",
+        recentLocatedAt: 100,
+        now: 101
+    ), !shouldHoldRecentLiveAttachment(
+        liveLocationAvailable: false,
+        overlayOpen: false,
+        recentLocationSource: "window-calibrated-live",
+        recentLocatedAt: 100,
+        now: 101
+    ), !shouldHoldRecentLiveAttachment(
+        liveLocationAvailable: false,
+        overlayOpen: true,
+        recentLocationSource: "window-calibrated-live",
+        recentLocatedAt: 100,
+        now: 103
+    ) else {
+        fputs("recent live attachment fallback drifted to saved geometry\n", stderr)
+        exit(1)
+    }
+
+    print("placement-self-test: 6/6 passed; realtime-follow=2/2; recent-live-hold=4/4; live-source-gate=3/3; mascot-scaling=6/6; visual-scaling=6/6; panel-scaling=6/6; gap=14.0; centerError=0.0")
     exit(0)
 }
 
@@ -4269,7 +4404,21 @@ private func runLifecycleSelfTest() -> Never {
             localizedName: "ChatGPT",
             bundlePath: "/Applications/ChatGPT.app",
             activationPolicy: .regular,
-            expected: true
+            expected: false
+        ),
+        DesktopCase(
+            bundleIdentifier: "com.openai.chat",
+            localizedName: "ChatGPT",
+            bundlePath: "/Applications/ChatGPT.app",
+            activationPolicy: .regular,
+            expected: false
+        ),
+        DesktopCase(
+            bundleIdentifier: nil,
+            localizedName: "ChatGPT",
+            bundlePath: "/Applications/ChatGPT.app",
+            activationPolicy: .regular,
+            expected: false
         ),
         DesktopCase(
             bundleIdentifier: nil,
@@ -4348,7 +4497,7 @@ private func runLifecycleSelfTest() -> Never {
         exit(1)
     }
 
-    print("lifecycle-self-test: desktop-app=5/5 visibility=4/4 pet-double-click=3/3 hidden-window=orderOut status-item=restore")
+    print("lifecycle-self-test: desktop-app=7/7 codex-only=pass visibility=4/4 pet-double-click=3/3 hidden-window=orderOut status-item=restore")
     exit(0)
 }
 
@@ -4603,12 +4752,12 @@ private func runRuntimeGeometryLockSelfTest() -> Never {
     let screenRect = NSRect(x: 0, y: 0, width: 2_000, height: 1_200)
     let accessoryScale = quotaLightstickPetRenderScaleFactor
     let lightstick = quotaLightstickFrame(
-        petOverlayRect: petRect,
+        petVisibleRect: petRect,
         petRenderScale: accessoryScale,
         screenVisibleFrame: screenRect
     )
     let airplane = quotaAirplaneFrame(
-        petOverlayRect: petRect,
+        petVisibleRect: petRect,
         petRenderScale: accessoryScale,
         screenVisibleFrame: screenRect
     )
@@ -4617,6 +4766,11 @@ private func runRuntimeGeometryLockSelfTest() -> Never {
           matches(lightstick.height, 80.07),
           matches(airplane.width, 61.23),
           matches(airplane.height, 51.025),
+          // Both accessories sit beside the visible chair, below Bubu's
+          // visible top. A transparent Electron overlay must not lift either
+          // one above the panel.
+          lightstick.maxY < petRect.maxY,
+          airplane.maxY < petRect.maxY,
           matches(quotaLightstickOriginXFromOverlayCenter, -91),
           matches(quotaLightstickOriginYFromOverlayTop, -206),
           matches(quotaLightstickGuitarXFromOverlayCenter, 54),
@@ -4630,12 +4784,12 @@ private func runRuntimeGeometryLockSelfTest() -> Never {
     }
 
     let lightstickAtTwoX = quotaLightstickFrame(
-        petOverlayRect: petRect,
+        petVisibleRect: petRect,
         petRenderScale: accessoryScale * 2,
         screenVisibleFrame: screenRect
     )
     let airplaneAtTwoX = quotaAirplaneFrame(
-        petOverlayRect: petRect,
+        petVisibleRect: petRect,
         petRenderScale: accessoryScale * 2,
         screenVisibleFrame: screenRect
     )
@@ -4648,6 +4802,30 @@ private func runRuntimeGeometryLockSelfTest() -> Never {
           matches(panelAtTwoX.height, expandedPanelSize.height * 2)
     else {
         fputs("runtime geometry lock lost uniform 2x scaling\n", stderr)
+        exit(1)
+    }
+
+    // Dragging changes only the pet's live anchor. The companion windows must
+    // preserve their exact relative offsets with no remembered screen-space
+    // delta from a previous drag.
+    let dragDelta = NSPoint(x: 181, y: -117)
+    let draggedPetRect = petRect.offsetBy(dx: dragDelta.x, dy: dragDelta.y)
+    let draggedLightstick = quotaLightstickFrame(
+        petVisibleRect: draggedPetRect,
+        petRenderScale: accessoryScale,
+        screenVisibleFrame: screenRect
+    )
+    let draggedAirplane = quotaAirplaneFrame(
+        petVisibleRect: draggedPetRect,
+        petRenderScale: accessoryScale,
+        screenVisibleFrame: screenRect
+    )
+    guard matches(draggedLightstick.minX, lightstick.minX + dragDelta.x),
+          matches(draggedLightstick.minY, lightstick.minY + dragDelta.y),
+          matches(draggedAirplane.minX, airplane.minX + dragDelta.x),
+          matches(draggedAirplane.minY, airplane.minY + dragDelta.y)
+    else {
+        fputs("runtime accessory anchor drifted after a pet drag\n", stderr)
         exit(1)
     }
 
@@ -4678,7 +4856,7 @@ private func runRuntimeGeometryLockSelfTest() -> Never {
         "runtime-geometry-lock-self-test: schema=1 "
             + "pet=163x177 panel=224x\(Int(expectedPanelHeight)) gap=14 "
             + "lightstick=29.83x80.07 airplane=61.23x51.03 "
-            + "anchors=pass uniform-2x=pass"
+            + "anchors=pass uniform-2x=pass drag-translation=pass"
     )
     exit(0)
 }
@@ -4687,20 +4865,21 @@ private func runQuotaLightstickSelfTest() -> Never {
     let petRect = NSRect(x: 400, y: 260, width: 163, height: 177)
     let screenRect = NSRect(x: 0, y: 0, width: 1200, height: 800)
     let frame = quotaLightstickFrame(
-        petOverlayRect: petRect,
+        petVisibleRect: petRect,
         petRenderScale: 1,
         screenVisibleFrame: screenRect
     )
     guard abs(frame.width - quotaLightstickBaseSize.width) < 0.01,
           abs(frame.height - quotaLightstickBaseSize.height) < 0.01,
           abs(frame.minX - (petRect.midX + quotaLightstickOriginXFromOverlayCenter)) < 0.01,
-          abs(frame.minY - (petRect.maxY + quotaLightstickOriginYFromOverlayTop)) < 0.01
+          abs(frame.minY - (petRect.maxY + quotaLightstickOriginYFromOverlayTop)) < 0.01,
+          frame.maxY < petRect.maxY
     else {
         fputs("lightstick placement failed: \(frame)\n", stderr)
         exit(1)
     }
     let approvedRuntimeFrame = quotaLightstickFrame(
-        petOverlayRect: petRect,
+        petVisibleRect: petRect,
         petRenderScale: quotaLightstickPetRenderScaleFactor,
         screenVisibleFrame: screenRect
     )
@@ -4717,7 +4896,7 @@ private func runQuotaLightstickSelfTest() -> Never {
     }
 
     let edgeFrame = quotaLightstickFrame(
-        petOverlayRect: NSRect(x: 2, y: 2, width: 163, height: 177),
+        petVisibleRect: NSRect(x: 2, y: 2, width: 163, height: 177),
         petRenderScale: 1,
         screenVisibleFrame: screenRect
     )
@@ -4738,7 +4917,7 @@ private func runQuotaLightstickSelfTest() -> Never {
     }
 
     let airplaneFrame = quotaAirplaneFrame(
-        petOverlayRect: petRect,
+        petVisibleRect: petRect,
         petRenderScale: 1,
         screenVisibleFrame: screenRect
     )
@@ -4746,6 +4925,7 @@ private func runQuotaLightstickSelfTest() -> Never {
           abs(airplaneFrame.height - quotaAirplaneBaseSize.height) < 0.01,
           abs(airplaneFrame.minX - (petRect.midX + quotaAirplaneOriginXFromOverlayCenter)) < 0.01,
           abs(airplaneFrame.minY - (petRect.maxY + quotaAirplaneOriginYFromOverlayTop)) < 0.01,
+          airplaneFrame.maxY < petRect.maxY,
           let airplaneAssets = QuotaAirplaneAssets.shared,
           airplaneAssets.material.size.width >= 342,
           airplaneAssets.material.size.height >= 284,
