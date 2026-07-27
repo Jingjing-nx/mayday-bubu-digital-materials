@@ -14,6 +14,9 @@ PLIST_DEST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG_PATH="$HOME/Library/Logs/橙色卜卜额度面板.log"
 HEALTH_DIR="$HOME/Library/Caches/io.github.mayday-materials.orange-bubu-quota-panel"
 HEALTH_PATH="$HEALTH_DIR/panel-health.json"
+LEGACY_LABEL="io.github.mayday-materials.bubu-quota-panel"
+LEGACY_PLIST="$HOME/Library/LaunchAgents/$LEGACY_LABEL.plist"
+LEGACY_RESTORE_MARKER="$HEALTH_DIR/restore-legacy-panel-on-uninstall"
 CONFIG="${CODEX_HOME:-$HOME/.codex}/config.toml"
 STATE_PATH="${CODEX_HOME:-$HOME/.codex}/.codex-global-state.json"
 DOMAIN="gui/$(id -u)"
@@ -57,6 +60,24 @@ panel_health_is_current() {
   [[ -s "$HEALTH_PATH" ]] \
     && /usr/bin/grep -q '"version":"'"$PANEL_VERSION"'"' "$HEALTH_PATH" 2>/dev/null \
     && /usr/bin/grep -q '"marketPricesEnabled":'"$MARKET_PRICES_ENABLED" "$HEALTH_PATH" 2>/dev/null
+}
+
+legacy_panel_is_disabled() {
+  /bin/launchctl print-disabled "$DOMAIN" 2>/dev/null \
+    | /usr/bin/grep -Fq '"'"$LEGACY_LABEL"'" => true'
+}
+
+pause_legacy_panel() {
+  if [[ ! -f "$LEGACY_PLIST" ]] \
+    && ! /bin/launchctl print "$DOMAIN/$LEGACY_LABEL" >/dev/null 2>&1; then
+    return
+  fi
+
+  if ! legacy_panel_is_disabled; then
+    /usr/bin/touch "$LEGACY_RESTORE_MARKER"
+  fi
+  /bin/launchctl disable "$DOMAIN/$LEGACY_LABEL" 2>/dev/null || true
+  /bin/launchctl bootout "$DOMAIN/$LEGACY_LABEL" 2>/dev/null || true
 }
 
 wait_for_panel_health() {
@@ -174,8 +195,10 @@ for PET_ID in "${PET_IDS[@]}"; do
   /usr/bin/ditto "$PET_SOURCE" "$PET_DEST"
 done
 
-# Only manage this project's own launch agent. Other Bubu projects are left
-# untouched even when they use a similar executable name.
+# Keep project files isolated, but hand off the single visible quota-panel slot
+# from the legacy blue service to Orange Bubu so two panels never overlap.
+pause_legacy_panel
+/bin/launchctl enable "$DOMAIN/$LABEL" 2>/dev/null || true
 /bin/launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 for _ in {1..20}; do
   /bin/launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || break

@@ -27,6 +27,7 @@
 - App：`~/Applications/橙色卜卜额度面板.app`
 - 启动项：`io.github.mayday-materials.orange-bubu-quota-panel`
 - 宠物目录：`~/.codex/pets/bubu-orange`
-- 卸载器只移除以上橙色项目文件，不触碰其他宠物项目。
+- 安装器会暂停旧蓝色面板的登录服务，避免黑色旧面板与橙色水纹面板重叠，但不会删除或覆盖蓝色项目文件。
+- 卸载器只移除以上橙色项目文件；如果安装时暂停了蓝色面板，卸载时会恢复它。
 
 不需要管理员权限或 API Key。`Codex-Only` 版不显示、也不请求 BTC 行情。
