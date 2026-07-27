@@ -43,9 +43,9 @@ private enum OrangeBubuRuntimeGeometry {
 
     static let accessoryScaleFactor: CGFloat = 0.785
     static let lightstickBaseSize = NSSize(width: 38, height: 102)
-    // Approved v28 chair-side position: the product rests against the outer
-    // edge of the left chair rail without a separate visual gap.
-    static let lightstickOriginXFromOverlayCenter: CGFloat = -91
+    // The whole product remains visible, with its right edge lightly resting
+    // against the outside of the left chair rail.
+    static let lightstickOriginXFromOverlayCenter: CGFloat = -100
     static let lightstickOriginYFromOverlayTop: CGFloat = -206
     static let lightstickGuitarXFromOverlayCenter: CGFloat = 54
     static let lightstickProductOffsetX: CGFloat = 8.4
@@ -4773,7 +4773,7 @@ private func runRuntimeGeometryLockSelfTest() -> Never {
           // one above the panel.
           lightstick.maxY < petRect.maxY,
           airplane.maxY < petRect.maxY,
-          matches(quotaLightstickOriginXFromOverlayCenter, -91),
+          matches(quotaLightstickOriginXFromOverlayCenter, -100),
           matches(quotaLightstickOriginYFromOverlayTop, -206),
           matches(quotaLightstickGuitarXFromOverlayCenter, 54),
           matches(quotaAirplaneOriginXFromOverlayCenter, -130),
@@ -4891,7 +4891,7 @@ private func runQuotaLightstickSelfTest() -> Never {
         fputs("lightstick no longer matches the approved 30x80 runtime proportion\n", stderr)
         exit(1)
     }
-    let preservedProductX = petRect.midX - 91 + 8.4
+    let preservedProductX = petRect.midX - 100 + 8.4
     guard abs(frame.minX + quotaLightstickLeftProductOffsetX - preservedProductX) < 0.01 else {
         fputs("airplane canvas moved the approved product anchor\n", stderr)
         exit(1)

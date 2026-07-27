@@ -39,9 +39,9 @@ $script:RuntimeGeometryLock = [ordered]@{
     LightstickBaseWidth = 38.0
     LightstickBaseHeight = 102.0
     AccessoryScaleFactor = 0.785
-    # Approved v28 chair-side position: rest against the outer edge of the
-    # left chair rail without creating a separate visual gap.
-    LightstickChairX = -91.0
+    # Keep the full physical product visible while its right edge lightly
+    # rests against the outside of the left chair rail.
+    LightstickChairX = -100.0
     LightstickGuitarX = 54.0
     LightstickTop = 104.0
     LightstickChairTilt = 12.0
@@ -147,7 +147,7 @@ if ($ValidateRuntimeGeometry) {
         [Math]::Abs($lightstickHeight - 80.07) -le 0.02,
         [Math]::Abs($airplaneWidth - 61.23) -le 0.02,
         [Math]::Abs($airplaneHeight - 51.025) -le 0.02,
-        [Math]::Abs($script:QuotaLightstickOriginXFromOverlayCenter - (-91.0)) -le 0.001,
+        [Math]::Abs($script:QuotaLightstickOriginXFromOverlayCenter - (-100.0)) -le 0.001,
         (-not $script:RewindLightsticksEnabled),
         [Math]::Abs($script:RewindTicketStartXFromOverlayCenter - 96.0) -le 0.001,
         [Math]::Abs($script:RewindTicketDurationSeconds - 0.8) -le 0.001,
