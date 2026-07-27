@@ -79,7 +79,7 @@
     "the orange pet and complete chair stay one atlas-backed unit",
     "panel is centered above the visible pet with a 14-point gap",
     "panel, lightstick, and airplane preserve their approved aspect ratios",
-    "lightstick and airplane positions are derived from the pet overlay rather than their fuzzy alpha bounds",
+    "lightstick and airplane positions are derived from the calibrated visible pet-and-chair anchor, shared with the panel",
     "left-drag rewind uses no lightsticks; its airplane ticket crosses right-to-left once in 0.8 seconds",
     "right-drag chairside Live uses an atlas-baked mounted microphone and five base LEDs; it shows no external lightstick or airplane",
     "a 2x pet scale produces exactly 2x panel and accessory sizes"

@@ -196,7 +196,7 @@ private func rewindTicketXFromOverlayCenter(progress: CGFloat) -> CGFloat {
 }
 
 private func quotaLightstickFrame(
-    petOverlayRect: NSRect,
+    petVisibleRect: NSRect,
     petRenderScale: CGFloat,
     screenVisibleFrame: NSRect,
     originXFromOverlayCenter: CGFloat = quotaLightstickOriginXFromOverlayCenter
@@ -204,8 +204,8 @@ private func quotaLightstickFrame(
     let safeScale = normalizedPanelScale(petRenderScale)
     let size = scaledPanelSize(quotaLightstickBaseSize, scale: safeScale)
     let desiredOrigin = NSPoint(
-        x: petOverlayRect.midX + originXFromOverlayCenter * safeScale,
-        y: petOverlayRect.maxY + quotaLightstickOriginYFromOverlayTop * safeScale
+        x: petVisibleRect.midX + originXFromOverlayCenter * safeScale,
+        y: petVisibleRect.maxY + quotaLightstickOriginYFromOverlayTop * safeScale
     )
     let maximumX = max(screenVisibleFrame.minX, screenVisibleFrame.maxX - size.width)
     let maximumY = max(screenVisibleFrame.minY, screenVisibleFrame.maxY - size.height)
@@ -218,7 +218,7 @@ private func quotaLightstickFrame(
 }
 
 private func quotaAirplaneFrame(
-    petOverlayRect: NSRect,
+    petVisibleRect: NSRect,
     petRenderScale: CGFloat,
     screenVisibleFrame: NSRect,
     originXFromOverlayCenter: CGFloat = quotaAirplaneOriginXFromOverlayCenter
@@ -226,8 +226,8 @@ private func quotaAirplaneFrame(
     let safeScale = normalizedPanelScale(petRenderScale)
     let size = scaledPanelSize(quotaAirplaneBaseSize, scale: safeScale)
     let desiredOrigin = NSPoint(
-        x: petOverlayRect.midX + originXFromOverlayCenter * safeScale,
-        y: petOverlayRect.maxY + quotaAirplaneOriginYFromOverlayTop * safeScale
+        x: petVisibleRect.midX + originXFromOverlayCenter * safeScale,
+        y: petVisibleRect.maxY + quotaAirplaneOriginYFromOverlayTop * safeScale
     )
     let maximumX = max(screenVisibleFrame.minX, screenVisibleFrame.maxX - size.width)
     let maximumY = max(screenVisibleFrame.minY, screenVisibleFrame.maxY - size.height)
@@ -3904,7 +3904,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             let primaryOriginX = quotaLightstickOriginXFromOverlayCenter
             quotaLightstickView.tiltDegrees = OrangeBubuRuntimeGeometry.lightstickChairTiltDegrees
             let lightstickFrame = quotaLightstickFrame(
-                petOverlayRect: pet.overlayRect,
+                petVisibleRect: pet.visibleRect,
                 petRenderScale: lightstickPetScale,
                 screenVisibleFrame: pet.screen.visibleFrame,
                 originXFromOverlayCenter: primaryOriginX
@@ -3943,7 +3943,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             } ?? quotaAirplaneOriginXFromOverlayCenter
             quotaAirplaneView.isFlying = activeRewindTicketProgress != nil
             let airplaneFrame = quotaAirplaneFrame(
-                petOverlayRect: pet.overlayRect,
+                petVisibleRect: pet.visibleRect,
                 petRenderScale: lightstickPetScale,
                 screenVisibleFrame: pet.screen.visibleFrame,
                 originXFromOverlayCenter: originX
@@ -4752,12 +4752,12 @@ private func runRuntimeGeometryLockSelfTest() -> Never {
     let screenRect = NSRect(x: 0, y: 0, width: 2_000, height: 1_200)
     let accessoryScale = quotaLightstickPetRenderScaleFactor
     let lightstick = quotaLightstickFrame(
-        petOverlayRect: petRect,
+        petVisibleRect: petRect,
         petRenderScale: accessoryScale,
         screenVisibleFrame: screenRect
     )
     let airplane = quotaAirplaneFrame(
-        petOverlayRect: petRect,
+        petVisibleRect: petRect,
         petRenderScale: accessoryScale,
         screenVisibleFrame: screenRect
     )
@@ -4766,6 +4766,11 @@ private func runRuntimeGeometryLockSelfTest() -> Never {
           matches(lightstick.height, 80.07),
           matches(airplane.width, 61.23),
           matches(airplane.height, 51.025),
+          // Both accessories sit beside the visible chair, below Bubu's
+          // visible top. A transparent Electron overlay must not lift either
+          // one above the panel.
+          lightstick.maxY < petRect.maxY,
+          airplane.maxY < petRect.maxY,
           matches(quotaLightstickOriginXFromOverlayCenter, -91),
           matches(quotaLightstickOriginYFromOverlayTop, -206),
           matches(quotaLightstickGuitarXFromOverlayCenter, 54),
@@ -4779,12 +4784,12 @@ private func runRuntimeGeometryLockSelfTest() -> Never {
     }
 
     let lightstickAtTwoX = quotaLightstickFrame(
-        petOverlayRect: petRect,
+        petVisibleRect: petRect,
         petRenderScale: accessoryScale * 2,
         screenVisibleFrame: screenRect
     )
     let airplaneAtTwoX = quotaAirplaneFrame(
-        petOverlayRect: petRect,
+        petVisibleRect: petRect,
         petRenderScale: accessoryScale * 2,
         screenVisibleFrame: screenRect
     )
@@ -4806,12 +4811,12 @@ private func runRuntimeGeometryLockSelfTest() -> Never {
     let dragDelta = NSPoint(x: 181, y: -117)
     let draggedPetRect = petRect.offsetBy(dx: dragDelta.x, dy: dragDelta.y)
     let draggedLightstick = quotaLightstickFrame(
-        petOverlayRect: draggedPetRect,
+        petVisibleRect: draggedPetRect,
         petRenderScale: accessoryScale,
         screenVisibleFrame: screenRect
     )
     let draggedAirplane = quotaAirplaneFrame(
-        petOverlayRect: draggedPetRect,
+        petVisibleRect: draggedPetRect,
         petRenderScale: accessoryScale,
         screenVisibleFrame: screenRect
     )
@@ -4860,20 +4865,21 @@ private func runQuotaLightstickSelfTest() -> Never {
     let petRect = NSRect(x: 400, y: 260, width: 163, height: 177)
     let screenRect = NSRect(x: 0, y: 0, width: 1200, height: 800)
     let frame = quotaLightstickFrame(
-        petOverlayRect: petRect,
+        petVisibleRect: petRect,
         petRenderScale: 1,
         screenVisibleFrame: screenRect
     )
     guard abs(frame.width - quotaLightstickBaseSize.width) < 0.01,
           abs(frame.height - quotaLightstickBaseSize.height) < 0.01,
           abs(frame.minX - (petRect.midX + quotaLightstickOriginXFromOverlayCenter)) < 0.01,
-          abs(frame.minY - (petRect.maxY + quotaLightstickOriginYFromOverlayTop)) < 0.01
+          abs(frame.minY - (petRect.maxY + quotaLightstickOriginYFromOverlayTop)) < 0.01,
+          frame.maxY < petRect.maxY
     else {
         fputs("lightstick placement failed: \(frame)\n", stderr)
         exit(1)
     }
     let approvedRuntimeFrame = quotaLightstickFrame(
-        petOverlayRect: petRect,
+        petVisibleRect: petRect,
         petRenderScale: quotaLightstickPetRenderScaleFactor,
         screenVisibleFrame: screenRect
     )
@@ -4890,7 +4896,7 @@ private func runQuotaLightstickSelfTest() -> Never {
     }
 
     let edgeFrame = quotaLightstickFrame(
-        petOverlayRect: NSRect(x: 2, y: 2, width: 163, height: 177),
+        petVisibleRect: NSRect(x: 2, y: 2, width: 163, height: 177),
         petRenderScale: 1,
         screenVisibleFrame: screenRect
     )
@@ -4911,7 +4917,7 @@ private func runQuotaLightstickSelfTest() -> Never {
     }
 
     let airplaneFrame = quotaAirplaneFrame(
-        petOverlayRect: petRect,
+        petVisibleRect: petRect,
         petRenderScale: 1,
         screenVisibleFrame: screenRect
     )
@@ -4919,6 +4925,7 @@ private func runQuotaLightstickSelfTest() -> Never {
           abs(airplaneFrame.height - quotaAirplaneBaseSize.height) < 0.01,
           abs(airplaneFrame.minX - (petRect.midX + quotaAirplaneOriginXFromOverlayCenter)) < 0.01,
           abs(airplaneFrame.minY - (petRect.maxY + quotaAirplaneOriginYFromOverlayTop)) < 0.01,
+          airplaneFrame.maxY < petRect.maxY,
           let airplaneAssets = QuotaAirplaneAssets.shared,
           airplaneAssets.material.size.width >= 342,
           airplaneAssets.material.size.height >= 284,
