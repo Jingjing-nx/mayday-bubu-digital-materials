@@ -53,6 +53,13 @@ jobs:
           unzip -tq dist/Orange-Bubu-macOS-Universal-Codex-Only-28.zip
           ./scripts/privacy-audit.sh
       - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh
+      - name: Verify macOS panel service handoff
+        run: |
+          grep -F 'LEGACY_LABEL="io.github.mayday-materials.bubu-quota-panel"' macos/BubuQuotaPanel/scripts/install.sh
+          grep -F 'launchctl disable "$DOMAIN/$LEGACY_LABEL"' macos/BubuQuotaPanel/scripts/install.sh
+          grep -F 'launchctl enable "$DOMAIN/$LEGACY_LABEL"' macos/BubuQuotaPanel/scripts/uninstall.sh
+          grep -F 'launchctl disable "$DOMAIN/$LEGACY_LABEL"' macos/package/安装卜卜.command
+          grep -F 'launchctl enable "$DOMAIN/$LEGACY_LABEL"' macos/package/卸载卜卜.command
       - uses: actions/upload-artifact@v4
         with:
           name: orange-bubu-macos-28

@@ -22,9 +22,34 @@ fi
 if rg -n --hidden \
   --glob '!CHECKSUMS-SHA256.txt' \
   --glob '!ORANGE-BUBU-PROJECT.txt' \
-  'bubu-office|custom:bubu-office|io\.github\.mayday-materials\.bubu-quota-panel|Mayday-Bubu-' \
+  'bubu-office|custom:bubu-office|Mayday-Bubu-' \
   "$TARGET" >/dev/null; then
   fail "blue/generic project identifier leaked into target"
+fi
+
+# The two macOS lifecycle commands may name the legacy service solely to pause
+# and later restore it. No other Orange Bubu file may depend on that identifier.
+if rg -n --hidden \
+  --glob '!CHECKSUMS-SHA256.txt' \
+  --glob '!ORANGE-BUBU-PROJECT.txt' \
+  --glob '!安装卜卜-macOS.command' \
+  --glob '!卸载卜卜-macOS.command' \
+  'io\.github\.mayday-materials\.bubu-quota-panel' \
+  "$TARGET" >/dev/null; then
+  fail "legacy panel identifier escaped the approved macOS handoff commands"
+fi
+
+MAC_INSTALLER="$TARGET/安装卜卜-macOS.command"
+MAC_UNINSTALLER="$TARGET/卸载卜卜-macOS.command"
+if [[ -f "$MAC_INSTALLER" || -f "$MAC_UNINSTALLER" ]]; then
+  [[ -f "$MAC_INSTALLER" && -f "$MAC_UNINSTALLER" ]] \
+    || fail "macOS panel handoff command pair is incomplete"
+  /usr/bin/grep -Fq 'LEGACY_LABEL="io.github.mayday-materials.bubu-quota-panel"' "$MAC_INSTALLER" \
+    || fail "macOS installer legacy handoff label missing"
+  /usr/bin/grep -Fq 'launchctl disable "$DOMAIN/$LEGACY_LABEL"' "$MAC_INSTALLER" \
+    || fail "macOS installer does not pause the legacy panel"
+  /usr/bin/grep -Fq 'launchctl enable "$DOMAIN/$LEGACY_LABEL"' "$MAC_UNINSTALLER" \
+    || fail "macOS uninstaller does not restore the legacy panel"
 fi
 
 print "orange-project-isolation: PASS target=$TARGET pet=bubu-orange-only"
