@@ -651,14 +651,15 @@ private struct TaskProgressSnapshot: Equatable {
     )])
 
     static func displaying(_ sourceItems: [TaskProgressItem]) -> TaskProgressSnapshot {
-        let activeItems = sourceItems.filter { $0.kind != .completed }
-        guard !activeItems.isEmpty else { return .idle }
+        // Terminal rows reach this view only while Codex marks their threads
+        // unread, so retain them to mirror Codex's blue unread dot.
+        guard !sourceItems.isEmpty else { return .idle }
 
         // Recurring Codex tasks create a new thread on every run. Multiple
         // rows with the same title are indistinguishable in this compact view,
         // so show the highest-priority/newest sorted instance only.
         var seenTitles = Set<String>()
-        let deduplicated = activeItems.filter { item in
+        let deduplicated = sourceItems.filter { item in
             let key = item.title
                 .components(separatedBy: .whitespacesAndNewlines)
                 .filter { !$0.isEmpty }
@@ -941,8 +942,7 @@ private final class CodexTaskProgressReader {
         unreadState: UnreadThreadState,
         fallbackVisibility: TimeInterval = 2 * 60
     ) -> Bool {
-        if kind == .completed { return false }
-        guard kind == .failed else { return true }
+        guard kind == .completed || kind == .failed else { return true }
         if unreadState.isAvailable, let threadID {
             return unreadState.ids.contains(threadID)
         }
@@ -4570,7 +4570,7 @@ private func runTaskProgressSelfTest() -> Never {
         isAvailable: false
     )
     let completedVisibilityCases = [
-        !CodexTaskProgressReader.shouldDisplay(
+        CodexTaskProgressReader.shouldDisplay(
             kind: .completed,
             threadID: indexedThreadID,
             modificationDate: now.addingTimeInterval(-3600),
@@ -4584,7 +4584,7 @@ private func runTaskProgressSelfTest() -> Never {
             now: now,
             unreadState: readState
         ),
-        !CodexTaskProgressReader.shouldDisplay(
+        CodexTaskProgressReader.shouldDisplay(
             kind: .completed,
             threadID: indexedThreadID,
             modificationDate: now,
@@ -4670,15 +4670,21 @@ private func runTaskProgressSelfTest() -> Never {
         TaskProgressItem(title: "相同标题的实时任务", kind: .running, startedAt: now),
         TaskProgressItem(title: "相同标题的实时任务", kind: .running, startedAt: now),
     ])
-    guard completedFiltering.items.count == 1,
-          completedFiltering.items[0].kind == .running,
-          completedFiltering.items[0].title == "相同标题的实时任务"
+    let completedOnly = TaskProgressSnapshot.displaying([
+        TaskProgressItem(title: "未读的完成任务", kind: .completed, startedAt: now)
+    ])
+    guard completedFiltering.items.count == 2,
+          completedFiltering.items[0].kind == .completed,
+          completedFiltering.items[0].title == "AI 观点运营台 · Codex Chrome 单条发布与回复",
+          completedFiltering.items[1].kind == .running,
+          completedFiltering.items[1].title == "相同标题的实时任务",
+          completedOnly.items.first?.kind == .completed
     else {
         fputs("task presentation deduplication failed\n", stderr)
         exit(1)
     }
 
-    print("task-progress-self-test: lifecycle=7/7; title=1/1; index=1/1; completed-hidden=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; task-dedup=pass")
+    print("task-progress-self-test: lifecycle=7/7; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; task-dedup=pass")
     exit(0)
 }
 

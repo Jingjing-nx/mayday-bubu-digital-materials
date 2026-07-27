@@ -1828,7 +1828,9 @@ function Set-TaskProgressRowCount([int]$rowCount) {
 }
 
 function Set-TaskProgressUI([object[]]$tasks) {
-    $visibleTasks = @($tasks | Where-Object { [string]$_.Kind -ne "completed" })
+    # Terminal rows arrive here only while their Codex threads are unread.
+    # Retaining them mirrors the sidebar blue dot until the task is opened.
+    $visibleTasks = @($tasks)
     if ($visibleTasks.Count -eq 0) {
         $visibleTasks = @([PSCustomObject]@{
             Title = "暂无进行中的任务"
@@ -2197,8 +2199,7 @@ function Test-TaskShouldDisplay(
     [DateTime]$now,
     $unreadState
 ) {
-    if ($kind -eq 'completed') { return $false }
-    if ($kind -ne 'failed') { return $true }
+    if ($kind -ne 'completed' -and $kind -ne 'failed') { return $true }
     if ($unreadState -and $unreadState.Available -and $threadId) {
         return [bool]$unreadState.Ids.ContainsKey($threadId.ToLowerInvariant())
     }
@@ -3873,12 +3874,12 @@ if ($ValidateTaskProgress) {
         Available = $false
     }
     $completedVisibilityCases = @(
-        (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
-            -modificationDate ($now.AddHours(-1)) -now $now -unreadState $unreadState)),
+        (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
+            -modificationDate ($now.AddHours(-1)) -now $now -unreadState $unreadState),
         (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
             -modificationDate $now -now $now -unreadState $readState)),
-        (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
-            -modificationDate $now -now $now -unreadState $unavailableState)),
+        (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
+            -modificationDate $now -now $now -unreadState $unavailableState),
         (-not (Test-TaskShouldDisplay -kind 'completed' -threadId $indexedThreadId `
             -modificationDate ($now.AddMinutes(-3)) -now $now -unreadState $unavailableState)),
         (Test-TaskShouldDisplay -kind 'failed' -threadId $indexedThreadId `
@@ -3889,7 +3890,7 @@ if ($ValidateTaskProgress) {
     if (@($completedVisibilityCases | Where-Object { -not $_ }).Count -ne 0 -or
         -not (Test-TaskShouldDisplay -kind 'running' -threadId $indexedThreadId `
             -modificationDate $now -now $now -unreadState $readState)) {
-        throw "Completed task filtering failed."
+        throw "Unread terminal task visibility failed."
     }
 
     $topLevelMetadata = '{"type":"session_meta","payload":{"thread_source":"user","source":{"cli":{}}}}'
@@ -3931,16 +3932,17 @@ if ($ValidateTaskProgress) {
         [PSCustomObject]@{ Title = "失败任务"; Kind = "failed"; Status = "执行失败"; StartedAt = $now }
     )
     Set-TaskProgressUI $completedUiFixture
-    if ($script:LastTaskItems.Count -ne 3 -or
+    if ($script:LastTaskItems.Count -ne 4 -or
         $script:LastTaskItems[0].Title -ne "保留的活动任务" -or
-        $script:LastTaskItems[2].Title -ne "失败任务" -or
+        $script:LastTaskItems[2].Title -ne "保留的已完成任务" -or
+        $script:LastTaskItems[3].Title -ne "失败任务" -or
         $script:RunningBadgeFrames.Count -ne 12 -or
         $script:RunningBadgeImages.Count -ne 1 -or
         $script:TaskBadgeFrameTimer.Interval.TotalMilliseconds -ne 100) {
         throw "Task status icon UI rendering failed."
     }
 
-    Write-Output "task-progress-validation: lifecycle=7/7; title=1/1; index=1/1; completed-hidden=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=3/3; running-gif=12x100ms"
+    Write-Output "task-progress-validation: lifecycle=7/7; title=1/1; index=1/1; completed-unread=pass; read-state=6/6; top-level-filter=5/5; list=5-truncated; status-icons=4/4; running-gif=12x100ms"
     $script:Window.Close()
     exit 0
 }
