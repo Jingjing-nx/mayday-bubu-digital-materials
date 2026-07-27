@@ -35,11 +35,11 @@
     "composition_scale_factor": 0.785,
     "product_offset_x_inside_canvas": 8.4,
     "macos_anchor_before_composition_scale": {
-      "chair": [-91, -206],
+      "chair": [-107, -206],
       "guitar_x": 54
     },
     "windows_anchor_before_composition_scale": {
-      "chair_x": -91,
+      "chair_x": -107,
       "top_from_overlay_top": 104,
       "guitar_x": 54
     },
