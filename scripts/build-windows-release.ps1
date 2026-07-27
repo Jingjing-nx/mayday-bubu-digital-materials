@@ -4,7 +4,7 @@
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = "28"
+$Version = "29"
 $StageRoot = Join-Path $Root "build\release"
 $FullStage = Join-Path $StageRoot "橙色卜卜-Windows"
 $CodexOnlyStage = Join-Path $StageRoot "橙色卜卜-Windows-仅Codex额度"
@@ -30,7 +30,7 @@ function New-ReleasePackage {
     @("pet.json", "spritesheet.webp", "validation.json") | ForEach-Object {
         Copy-Item -LiteralPath (Join-Path $Root "shared\pet\bubu-orange\$_") -Destination $petStage
     }
-    Copy-Item -LiteralPath (Join-Path $Root "shared\pet\bubu-orange\qa\release-freeze-v28.json") -Destination $petStage
+    Copy-Item -LiteralPath (Join-Path $Root "shared\pet\bubu-orange\qa\release-freeze-v29.json") -Destination $petStage
     $previewStage = Join-Path $Stage "preview"
     New-Item -ItemType Directory -Force -Path $previewStage | Out-Null
     @(

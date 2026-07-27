@@ -7,7 +7,7 @@ import QuartzCore
 private let refreshInterval: TimeInterval = 5 * 60
 private let btcRefreshInterval: TimeInterval = 5
 private let taskProgressRefreshInterval: TimeInterval = 2
-private let panelVersion = "36"
+private let panelVersion = "37"
 private let marketPricesEnabled: Bool = {
     guard let rawValue = ProcessInfo.processInfo.environment["BUBU_SHOW_MARKET_PRICES"] else {
         return true

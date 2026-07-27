@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "release": 29,
+  "panel_version": 37,
+  "pet_id": "bubu-orange",
+  "display_name": "橙色卜卜",
+  "platforms": ["macOS 12.3+ Universal 2", "Windows 10/11 x64 and ARM64"],
+  "variants": {
+    "web3": "Codex quota, task progress and BTC price",
+    "standard": "Codex quota and task progress; BTC UI and network request disabled"
+  },
+  "atlas": {
+    "format": "Codex pet sprite v2",
+    "pixel_size": [1536, 2288],
+    "grid": [8, 11],
+    "cell_size": [192, 208],
+    "sha256": "9b179850352e7ff69040c55d5d0d87f06247e8651c465a0f2a13df9e97ff866d"
+  },
+  "actions": [
+    {"row": 0, "state": "idle", "frames": 6, "effect": "front-facing office idle; breathing and blinking"},
+    {"row": 1, "state": "running-right", "frames": 8, "effect": "right drag chairside lead vocal Live; mounted microphone and five blue LEDs; no external accessories"},
+    {"row": 2, "state": "running-left", "frames": 8, "effect": "left drag Return to That Day; head and gaze turn left; ticket flies right-to-left once in 0.8 seconds; no lightstick"},
+    {"row": 3, "state": "waving", "frames": 4, "effect": "wave greeting"},
+    {"row": 4, "state": "jumping", "frames": 5, "effect": "chair rocking while Bubu keeps holding the laptop"},
+    {"row": 5, "state": "failed", "frames": 8, "effect": "sad failed posture"},
+    {"row": 6, "state": "waiting", "frames": 6, "effect": "look upward while waiting for user"},
+    {"row": 7, "state": "running", "frames": 6, "effect": "focused working loop"},
+    {"row": 8, "state": "review", "frames": 6, "effect": "review with left-right head and eye movement"},
+    {"row": 9, "state": "look-000-157.5", "frames": 8, "effect": "first eight gaze directions"},
+    {"row": 10, "state": "look-180-337.5", "frames": 8, "effect": "remaining eight gaze directions"}
+  ],
+  "interaction_contract": {
+    "hover": "coffee animation from the host pet runtime; no resize or jump",
+    "double_click": "toggle quota panel visibility repeatedly",
+    "panel_follow": "real-time, horizontally centered, 14 logical points above visible pet",
+    "scaling": "uniform; pet, panel and accessories preserve the locked proportions",
+    "finished_tasks": "unread completed and failed tasks mirror the Codex sidebar; rows disappear after the task is opened",
+    "task_spinner": "32x32 transparent GIF, 12 frames, 100 ms per frame; animation stops when hidden or exiting"
+  },
+  "geometry_contract": "qa/runtime-geometry-lock.json"
+}

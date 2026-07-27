@@ -46,6 +46,10 @@ fi
 
 BLUE_URL="https://github.com/$REPOSITORY/releases/download/$BLUE_VERSION"
 ORANGE_URL="https://github.com/$REPOSITORY/releases/download/$ORANGE_VERSION"
+# Orange Bubu's released packages keep the visual singing action but do not
+# bundle the optional singing audio. Do not relabel them on README regeneration.
+ORANGE_RELEASED_SINGING_LABEL="不唱歌版"
+ORANGE_PENDING_SINGING_LABEL="唱歌版"
 
 BLOCK="$START
 <table>
@@ -88,23 +92,23 @@ BLOCK="$START
       <td rowspan=\"4\"><strong>橙色卜卜</strong></td>
       <td rowspan=\"4\" align=\"center\"><img src=\"shared/preview/orange-bubu-static.png\" alt=\"橙色卜卜完整效果示意图\" width=\"280\"></td>
       <td rowspan=\"2\">Web3 版</td>
-      <td>唱歌版</td>
+      <td>$ORANGE_RELEASED_SINGING_LABEL</td>
       <td><a href=\"$ORANGE_URL/Orange-Bubu-macOS-Universal-$ORANGE_VERSION.zip\">版本 $ORANGE_VERSION 下载</a></td>
       <td><a href=\"$ORANGE_URL/Orange-Bubu-Windows-10-11-$ORANGE_VERSION.zip\">版本 $ORANGE_VERSION 下载</a></td>
     </tr>
     <tr>
-      <td>不唱歌版</td>
+      <td>$ORANGE_PENDING_SINGING_LABEL</td>
       <td>制作中</td>
       <td>制作中</td>
     </tr>
     <tr>
       <td rowspan=\"2\">普通版</td>
-      <td>唱歌版</td>
+      <td>$ORANGE_RELEASED_SINGING_LABEL</td>
       <td><a href=\"$ORANGE_URL/Orange-Bubu-macOS-Universal-Codex-Only-$ORANGE_VERSION.zip\">版本 $ORANGE_VERSION 下载</a></td>
       <td><a href=\"$ORANGE_URL/Orange-Bubu-Windows-10-11-Codex-Only-$ORANGE_VERSION.zip\">版本 $ORANGE_VERSION 下载</a></td>
     </tr>
     <tr>
-      <td>不唱歌版</td>
+      <td>$ORANGE_PENDING_SINGING_LABEL</td>
       <td>制作中</td>
       <td>制作中</td>
     </tr>

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-VERSION="28"
+VERSION="29"
 CODEX_ONLY_RELEASE="false"
 if [[ "${1:-}" == "--codex-only" ]]; then
   CODEX_ONLY_RELEASE="true"
@@ -33,7 +33,7 @@ stage_package() {
   /bin/cp "$ROOT/shared/pet/bubu-orange/pet.json" "$stage/pet/bubu-orange/"
   /bin/cp "$ROOT/shared/pet/bubu-orange/spritesheet.webp" "$stage/pet/bubu-orange/"
   /bin/cp "$ROOT/shared/pet/bubu-orange/validation.json" "$stage/pet/bubu-orange/"
-  /bin/cp "$ROOT/shared/pet/bubu-orange/qa/release-freeze-v28.json" "$stage/pet/bubu-orange/"
+  /bin/cp "$ROOT/shared/pet/bubu-orange/qa/release-freeze-v29.json" "$stage/pet/bubu-orange/"
   local preview_name
   for preview_name in \
     "orange-bubu-static.png" \

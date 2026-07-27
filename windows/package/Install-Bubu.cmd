@@ -5,14 +5,14 @@ chcp 65001 >nul 2>&1
 set "ROOT=%~dp0"
 if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 set "LOG=%TEMP%\OrangeBubuPet-install.log"
-set "PET_SPRITE=spritesheet-win-28.webp"
+set "PET_SPRITE=spritesheet-win-29.webp"
 
 if defined CODEX_HOME (
   set "CODEX_DIR=%CODEX_HOME%"
 ) else (
   set "CODEX_DIR=%USERPROFILE%\.codex"
 )
->"%LOG%" echo Orange Bubu Windows installer open-source 28
+>"%LOG%" echo Orange Bubu Windows installer open-source 29
 >>"%LOG%" echo Started: %DATE% %TIME%
 >>"%LOG%" echo OS: %OS%
 >>"%LOG%" echo Architecture: %PROCESSOR_ARCHITECTURE%
@@ -20,7 +20,7 @@ if defined CODEX_HOME (
 >>"%LOG%" echo Codex home: configured for current user
 
 echo.
-echo Orange Bubu Windows installer 28
+echo Orange Bubu Windows installer 29
 echo ----------------------
 if exist "%ROOT%\CODEX-ONLY.txt" (
   echo Panel: Codex quota only ^(no BTC^)

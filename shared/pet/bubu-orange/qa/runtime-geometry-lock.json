@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "release_version": 28,
-  "panel_version": 36,
+  "release_version": 29,
+  "panel_version": 37,
   "project": "orange-bubu",
   "pet_id": "bubu-orange",
   "units": "logical points at pet scale 1.0",

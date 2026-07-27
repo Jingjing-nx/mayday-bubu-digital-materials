@@ -71,8 +71,8 @@
       <td rowspan="4" align="center"><img src="shared/preview/orange-bubu-static.png" alt="橙色卜卜完整效果示意图" width="280"></td>
       <td rowspan="2">Web3 版</td>
       <td>不唱歌版</td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/28/Orange-Bubu-macOS-Universal-28.zip">版本 28 下载</a></td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/28/Orange-Bubu-Windows-10-11-28.zip">版本 28 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/29/Orange-Bubu-macOS-Universal-29.zip">版本 29 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/29/Orange-Bubu-Windows-10-11-29.zip">版本 29 下载</a></td>
     </tr>
     <tr>
       <td>唱歌版</td>
@@ -82,8 +82,8 @@
     <tr>
       <td rowspan="2">普通版</td>
       <td>不唱歌版</td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/28/Orange-Bubu-macOS-Universal-Codex-Only-28.zip">版本 28 下载</a></td>
-      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/28/Orange-Bubu-Windows-10-11-Codex-Only-28.zip">版本 28 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/29/Orange-Bubu-macOS-Universal-Codex-Only-29.zip">版本 29 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/29/Orange-Bubu-Windows-10-11-Codex-Only-29.zip">版本 29 下载</a></td>
     </tr>
     <tr>
       <td>唱歌版</td>
@@ -97,8 +97,7 @@
 - **普通版**：保留 Codex 额度和任务进度，不显示、也不请求 BTC 行情。
 - **唱歌版**：向左拖动时保留唱歌画面动作，并播放 27.5 秒音乐。
 - **不唱歌版**：只删除唱歌 MP3 音效；唱歌画面动作、持续时间和其他功能完全相同。
-- 橙色卜卜当前已发布的版本 28（Web3、普通版、macOS、Windows）均为**不唱歌版**；唱歌版仍在制作中。
-- 蓝色卜卜当前正式版为 **46**；橙色卜卜当前正式版为 **28**，两套项目和安装目录彼此隔离。
+- 蓝色卜卜当前正式版为 **46**；橙色卜卜当前正式版为 **29**，两套项目和安装目录彼此隔离。
 <!-- DOWNLOAD_TABLE:END -->
 
 macOS 支持 12.3+、Apple 芯片与 Intel Mac；Windows 支持 Windows 10/11、x64 与 ARM64。压缩包的系统和版本不能混用。

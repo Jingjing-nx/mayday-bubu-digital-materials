@@ -10,7 +10,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$script:PanelVersion = "36"
+$script:PanelVersion = "37"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $script:MarketPricesEnabled = $true

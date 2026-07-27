@@ -1,10 +1,10 @@
 # 橙色卜卜 Windows 版
 
-这是橙色卜卜独立项目的版本 28。安装包只包含 `bubu-orange`，不会安装、替换或卸载蓝色卜卜。
+这是橙色卜卜独立项目的版本 29。安装包只包含 `bubu-orange`，不会安装、替换或卸载蓝色卜卜。
 
 ## 安装
 
-1. 完整解压 `Orange-Bubu-Windows-10-11-28.zip` 或 `Orange-Bubu-Windows-10-11-Codex-Only-28.zip`。
+1. 完整解压 `Orange-Bubu-Windows-10-11-29.zip` 或 `Orange-Bubu-Windows-10-11-Codex-Only-29.zip`。
 2. 双击 `安装卜卜-Windows.cmd`。
 3. 安装器会关闭 Codex/ChatGPT；完成后重新打开即可。
 

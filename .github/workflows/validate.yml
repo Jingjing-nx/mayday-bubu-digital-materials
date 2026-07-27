@@ -18,8 +18,8 @@ jobs:
       - name: Verify frozen release contract
         run: |
           test "$(shasum -a 256 shared/pet/bubu-orange/spritesheet.webp | cut -d' ' -f1)" = "9b179850352e7ff69040c55d5d0d87f06247e8651c465a0f2a13df9e97ff866d"
-          jq -e '.release == 28 and .panel_version == 36 and (.actions | length) == 11' shared/pet/bubu-orange/qa/release-freeze-v28.json
-          jq -e '.release_version == 28 and .panel_version == 36 and .panel.gap_above_visible_pet == 14' shared/pet/bubu-orange/qa/runtime-geometry-lock.json
+          jq -e '.release == 29 and .panel_version == 37 and (.actions | length) == 11' shared/pet/bubu-orange/qa/release-freeze-v29.json
+          jq -e '.release_version == 29 and .panel_version == 37 and .panel.gap_above_visible_pet == 14' shared/pet/bubu-orange/qa/runtime-geometry-lock.json
       - run: ./macos/BubuQuotaPanel/scripts/build.sh
       - name: Verify macOS Universal 2 app and behavior
         run: |
@@ -27,11 +27,11 @@ jobs:
           BIN="$APP/Contents/MacOS/OrangeBubuQuotaPanel"
           lipo "$BIN" -verify_arch arm64 x86_64
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist")" = "12.3"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")" = "36"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")" = "37"
           test "$(vtool -show-build "$BIN" | grep -c 'minos 12.3')" -eq 2
           codesign --verify --deep --strict "$APP"
-          "$BIN" --print-panel-config | grep 'version=36 marketPricesEnabled=true width=224 height=75'
-          BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config | grep 'version=36 marketPricesEnabled=false width=224 height=53'
+          "$BIN" --print-panel-config | grep 'version=37 marketPricesEnabled=true width=224 height=75'
+          BUBU_SHOW_MARKET_PRICES=false "$BIN" --print-panel-config | grep 'version=37 marketPricesEnabled=false width=224 height=53'
           "$BIN" --self-test-placement | grep 'realtime-follow=2/2.*gap=14.0; centerError=0.0'
           "$BIN" --self-test-lifecycle | grep 'pet-double-click=3/3'
           "$BIN" --self-test-task-progress | grep 'completed-unread=pass.*list=5-truncated'
@@ -41,16 +41,16 @@ jobs:
       - name: Build and inspect macOS variants
         run: |
           ./scripts/build-macos-release.sh
-          test -f dist/Orange-Bubu-macOS-Universal-28.zip
-          test -f dist/Orange-Bubu-macOS-Universal-Codex-Only-28.zip
+          test -f dist/Orange-Bubu-macOS-Universal-29.zip
+          test -f dist/Orange-Bubu-macOS-Universal-Codex-Only-29.zip
           test ! -e build/release/橙色卜卜-macOS/CODEX-ONLY.txt
           test -e build/release/橙色卜卜-macOS-仅Codex额度/CODEX-ONLY.txt
           test -e build/release/橙色卜卜-macOS/pet/bubu-orange/spritesheet.webp
           test ! -e build/release/橙色卜卜-macOS/pet/bubu-office
           ./scripts/validate-orange-isolation.sh build/release/橙色卜卜-macOS
           ./scripts/validate-orange-isolation.sh build/release/橙色卜卜-macOS-仅Codex额度
-          unzip -tq dist/Orange-Bubu-macOS-Universal-28.zip
-          unzip -tq dist/Orange-Bubu-macOS-Universal-Codex-Only-28.zip
+          unzip -tq dist/Orange-Bubu-macOS-Universal-29.zip
+          unzip -tq dist/Orange-Bubu-macOS-Universal-Codex-Only-29.zip
           ./scripts/privacy-audit.sh
       - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh
       - name: Verify macOS panel service handoff
@@ -65,8 +65,8 @@ jobs:
           name: orange-bubu-macos-28
           if-no-files-found: error
           path: |
-            dist/Orange-Bubu-macOS-Universal-28.zip
-            dist/Orange-Bubu-macOS-Universal-Codex-Only-28.zip
+            dist/Orange-Bubu-macOS-Universal-29.zip
+            dist/Orange-Bubu-macOS-Universal-Codex-Only-29.zip
 
   orange-windows:
     runs-on: windows-latest
@@ -95,7 +95,7 @@ jobs:
         run: |
           $panel = ".\windows\BubuQuotaPanel\BubuQuotaPanel.ps1"
           $full = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
-          if ($LASTEXITCODE -ne 0 -or $full -notmatch 'version=36 marketPricesEnabled=true width=224 height=75') { throw "Unexpected Web3 config: $full" }
+          if ($LASTEXITCODE -ne 0 -or $full -notmatch 'version=37 marketPricesEnabled=true width=224 height=75') { throw "Unexpected Web3 config: $full" }
           $fullXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
           if ($LASTEXITCODE -ne 0 -or $fullXaml -notmatch 'height=75 marketRows=Visible.*lightstick=True.*independentDefaultOnly=True') { throw "Web3 XAML validation failed: $fullXaml" }
           $geometry = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateRuntimeGeometry
@@ -108,7 +108,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $skin -notmatch 'project=orange orange=True') { throw "Skin validation failed: $skin" }
           $env:BUBU_SHOW_MARKET_PRICES = 'false'
           $standard = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
-          if ($LASTEXITCODE -ne 0 -or $standard -notmatch 'version=36 marketPricesEnabled=false width=224 height=53') { throw "Unexpected standard config: $standard" }
+          if ($LASTEXITCODE -ne 0 -or $standard -notmatch 'version=37 marketPricesEnabled=false width=224 height=53') { throw "Unexpected standard config: $standard" }
           $standardXaml = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateXaml
           if ($LASTEXITCODE -ne 0 -or $standardXaml -notmatch 'height=53 marketRows=Collapsed') { throw "Standard XAML validation failed: $standardXaml" }
           Remove-Item Env:BUBU_SHOW_MARKET_PRICES
@@ -116,9 +116,9 @@ jobs:
         shell: powershell
         run: |
           .\scripts\build-windows-release.ps1
-          $web3Zip = 'dist\Orange-Bubu-Windows-10-11-28.zip'
-          $standardZip = 'dist\Orange-Bubu-Windows-10-11-Codex-Only-28.zip'
-          if (-not (Test-Path $web3Zip) -or -not (Test-Path $standardZip)) { throw 'Windows v28 ZIP missing' }
+          $web3Zip = 'dist\Orange-Bubu-Windows-10-11-29.zip'
+          $standardZip = 'dist\Orange-Bubu-Windows-10-11-Codex-Only-29.zip'
+          if (-not (Test-Path $web3Zip) -or -not (Test-Path $standardZip)) { throw 'Windows v29 ZIP missing' }
           $extractRoot = Join-Path $env:RUNNER_TEMP 'orange-bubu-v28'
           Expand-Archive -LiteralPath $standardZip -DestinationPath $extractRoot -Force
           # The Actions runner materializes `run:` as a UTF-8 temporary
@@ -149,5 +149,5 @@ jobs:
           name: orange-bubu-windows-28
           if-no-files-found: error
           path: |
-            dist/Orange-Bubu-Windows-10-11-28.zip
-            dist/Orange-Bubu-Windows-10-11-Codex-Only-28.zip
+            dist/Orange-Bubu-Windows-10-11-29.zip
+            dist/Orange-Bubu-Windows-10-11-Codex-Only-29.zip

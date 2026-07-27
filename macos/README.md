@@ -1,10 +1,10 @@
 # 橙色卜卜 macOS 版
 
-这是橙色卜卜独立项目的版本 28。安装包只包含 `bubu-orange`，不会安装、替换或卸载蓝色卜卜。
+这是橙色卜卜独立项目的版本 29。安装包只包含 `bubu-orange`，不会安装、替换或卸载蓝色卜卜。
 
 ## 安装
 
-1. 完整解压 `Orange-Bubu-macOS-Universal-28.zip` 或 `Orange-Bubu-macOS-Universal-Codex-Only-28.zip`。
+1. 完整解压 `Orange-Bubu-macOS-Universal-29.zip` 或 `Orange-Bubu-macOS-Universal-Codex-Only-29.zip`。
 2. 双击 `安装卜卜-macOS.command`。
 3. 重新打开 Codex；安装器会自动选择橙色卜卜。
 
