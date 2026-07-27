@@ -2623,6 +2623,24 @@ private final class PetWindowLocator {
     private var storedOverlayLocations: [StoredOverlayLocation] = []
     private(set) var overlayOpen: Bool?
 
+    /// A display add/remove or primary-display change invalidates every cached
+    /// coordinate source at once. Quartz window coordinates, AppKit screen
+    /// frames and Electron's persisted per-display anchors no longer share the
+    /// same origin after a topology change, so retaining even one old cache can
+    /// put an attachment on the former screen.
+    func invalidateDisplayTopology() {
+        cachedWindowID = nil
+        cachedMascotMetrics = nil
+        cachedOverlaySize = nil
+        cachedVisualMetrics = nil
+        cachedVisualOverlaySize = nil
+        cachedVisualWindowID = nil
+        lastVisualProbeAt = 0
+        lastOverlayStateReadAt = 0
+        storedOverlayLocations.removeAll()
+        overlayOpen = nil
+    }
+
     func locate(
         allowVisualProbe: Bool = true,
         refreshStoredState: Bool = true,
@@ -3373,6 +3391,43 @@ private final class PetWindowLocator {
         }
         return true
     }
+
+    func displayTopologyInvalidationSelfTest() -> Bool {
+        let metrics = StoredMascotMetrics(
+            left: 12,
+            top: 7,
+            width: canonicalPetSpriteSize.width,
+            height: canonicalPetSpriteSize.height,
+            topPadding: petSpriteTopPaddingInsideAnchor,
+            source: "self-test"
+        )
+        cachedWindowID = 11
+        cachedMascotMetrics = metrics
+        cachedOverlaySize = CGSize(width: 356, height: 320)
+        cachedVisualMetrics = metrics
+        cachedVisualOverlaySize = CGSize(width: 356, height: 320)
+        cachedVisualWindowID = 12
+        lastVisualProbeAt = 100
+        lastOverlayStateReadAt = 100
+        storedOverlayLocations = [StoredOverlayLocation(
+            rect: CGRect(x: 100, y: 200, width: 356, height: 320),
+            mascot: metrics,
+            isPrimary: true
+        )]
+        overlayOpen = true
+
+        invalidateDisplayTopology()
+        return cachedWindowID == nil
+            && cachedMascotMetrics == nil
+            && cachedOverlaySize == nil
+            && cachedVisualMetrics == nil
+            && cachedVisualOverlaySize == nil
+            && cachedVisualWindowID == nil
+            && lastVisualProbeAt == 0
+            && lastOverlayStateReadAt == 0
+            && storedOverlayLocations.isEmpty
+            && overlayOpen == nil
+    }
 }
 
 private final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -3403,6 +3458,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var followTimer: Timer?
     private var globalMouseMonitor: Any?
     private var workspaceLifecycleObservers: [NSObjectProtocol] = []
+    private var screenConfigurationObserver: NSObjectProtocol?
     private var petDragStart: NSPoint?
     private var fastFollowUntil: CFAbsoluteTime = 0
     private var quotaLightstickMode: QuotaLightstickMode = .chair
@@ -3432,6 +3488,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         makeQuotaLightstickPanel()
         makeStatusItem()
         startCodexLifecycleObserver()
+        startScreenConfigurationObserver()
         startPetDoubleClickMonitor()
         healthWriter.write(status: "started", panelVisible: false, locationSource: nil, force: true)
         followPet()
@@ -3465,6 +3522,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         followTimer?.invalidate()
         quotaView.setPanelAnimationVisible(false)
         stopCodexLifecycleObserver()
+        stopScreenConfigurationObserver()
         if let globalMouseMonitor {
             NSEvent.removeMonitor(globalMouseMonitor)
         }
@@ -3552,6 +3610,39 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             quotaLightstickMode = .chair
             rewindTicketStartedAt = nil
         }
+    }
+
+    private func startScreenConfigurationObserver() {
+        guard screenConfigurationObserver == nil else { return }
+        screenConfigurationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleScreenConfigurationChange()
+        }
+    }
+
+    private func stopScreenConfigurationObserver() {
+        if let screenConfigurationObserver {
+            NotificationCenter.default.removeObserver(screenConfigurationObserver)
+        }
+        screenConfigurationObserver = nil
+    }
+
+    private func handleScreenConfigurationChange() {
+        // Do not let detached windows spend even one more frame on geometry
+        // derived from a removed display. The next follow pass re-reads both
+        // the new AppKit screen list and Codex's current per-display anchor.
+        locator.invalidateDisplayTopology()
+        cachedSavedAnchor = nil
+        lastSavedAnchorReadAt = 0
+        petAnchorCalibration = nil
+        lastLocatedPet = nil
+        lastLocatedAt = 0
+        hidePetAttachmentWindows(resetGestureState: true)
+        followPet()
+        scheduleNextFollow()
     }
 
     private func makePanel() {
@@ -4309,8 +4400,13 @@ private func runPlacementSelfTest() -> Never {
         }
     }
 
-    guard PetWindowLocator().scalingSelfTest() else {
+    let locatorSelfTest = PetWindowLocator()
+    guard locatorSelfTest.scalingSelfTest() else {
         fputs("mascot scaling self-test failed\n", stderr)
+        exit(1)
+    }
+    guard locatorSelfTest.displayTopologyInvalidationSelfTest() else {
+        fputs("display topology cache invalidation failed\n", stderr)
         exit(1)
     }
 
@@ -4380,7 +4476,7 @@ private func runPlacementSelfTest() -> Never {
         exit(1)
     }
 
-    print("placement-self-test: 6/6 passed; realtime-follow=2/2; recent-live-hold=4/4; live-source-gate=3/3; mascot-scaling=6/6; visual-scaling=6/6; panel-scaling=6/6; gap=14.0; centerError=0.0")
+    print("placement-self-test: 6/6 passed; realtime-follow=2/2; recent-live-hold=4/4; live-source-gate=3/3; mascot-scaling=6/6; visual-scaling=6/6; screen-topology=pass; panel-scaling=6/6; gap=14.0; centerError=0.0")
     exit(0)
 }
 

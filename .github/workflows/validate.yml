@@ -132,7 +132,7 @@ jobs:
           if (-not (Test-Path (Join-Path $stage 'CODEX-ONLY.txt'))) { throw 'Codex-only marker missing' }
           if (Test-Path (Join-Path $stage 'pet\bubu-office')) { throw 'Blue pet leaked into Orange package' }
           $manifest = Get-Content -Raw (Join-Path $pet 'pet.json') | ConvertFrom-Json
-          if ($manifest.id -ne 'bubu-orange' -or $manifest.spritesheetPath -ne 'spritesheet-win-28.webp') { throw 'Orange manifest mismatch' }
+          if ($manifest.id -ne 'bubu-orange' -or $manifest.spritesheetPath -ne 'spritesheet-win-29.webp') { throw 'Orange manifest mismatch' }
           $atlas = Join-Path $pet $manifest.spritesheetPath
           if ((Get-FileHash -Algorithm SHA256 $atlas).Hash.ToLowerInvariant() -ne '9b179850352e7ff69040c55d5d0d87f06247e8651c465a0f2a13df9e97ff866d') { throw 'Atlas fingerprint mismatch' }
           $testHome = Join-Path $env:RUNNER_TEMP 'orange-bubu-codex-home'
