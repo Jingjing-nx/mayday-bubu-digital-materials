@@ -38,7 +38,7 @@ jobs:
           "$BIN" --self-test-skin-selection | grep 'project=orange orange=pass'
           "$BIN" --self-test-runtime-geometry | grep 'panel=224x75 gap=14.*uniform-2x=pass'
           "$BIN" --self-test-quota-lightstick | grep 'rewind-no-lightsticks=pass.*chairside-live-no-external-accessories=pass'
-          "$BIN" --self-test-vocabulary | grep 'library=pass.*remember=pass.*later=pass.*daily-limit=pass.*mastery-summary=pass.*laptop-hit=pass.*projection-anchor=pass'
+          "$BIN" --self-test-vocabulary | grep 'library=pass.*remember=pass.*later=pass.*daily-limit=pass.*mastery-summary=pass.*laptop-hit=pass.*projection-anchor=pass.*edge-fallback=pass'
           "$BIN" --render-vocabulary-preview /tmp/orange-bubu-vocabulary.png
           test -s /tmp/orange-bubu-vocabulary.png
           "$BIN" --render-vocabulary-preview /tmp/orange-bubu-vocabulary-completed.png --vocabulary-completed
@@ -112,7 +112,7 @@ jobs:
           $skin = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateSkinSelection
           if ($LASTEXITCODE -ne 0 -or $skin -notmatch 'project=orange orange=True') { throw "Skin validation failed: $skin" }
           $vocabulary = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateVocabulary
-          if ($LASTEXITCODE -ne 0 -or $vocabulary -notmatch 'library=pass.*remember=pass.*later=pass.*daily-limit=pass.*mastery-summary=pass.*laptop-hit=pass.*projection-anchor=pass') { throw "Vocabulary validation failed: $vocabulary" }
+          if ($LASTEXITCODE -ne 0 -or $vocabulary -notmatch 'library=pass.*remember=pass.*later=pass.*daily-limit=pass.*mastery-summary=pass.*laptop-hit=pass.*projection-anchor=pass.*edge-fallback=pass') { throw "Vocabulary validation failed: $vocabulary" }
           $env:BUBU_SHOW_MARKET_PRICES = 'false'
           $standard = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
           if ($LASTEXITCODE -ne 0 -or $standard -notmatch 'version=37 marketPricesEnabled=false width=224 height=53') { throw "Unexpected standard config: $standard" }

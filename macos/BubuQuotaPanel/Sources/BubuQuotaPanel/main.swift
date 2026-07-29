@@ -507,34 +507,48 @@ private func vocabularyLaptopHoverRect(for petVisibleRect: NSRect) -> NSRect {
     )
 }
 
-private func vocabularyProjectionFrame(
+private enum VocabularyProjectionSide: Equatable {
+    case right
+    case left
+}
+
+private struct VocabularyProjectionPlacement {
+    let frame: NSRect
+    let side: VocabularyProjectionSide
+}
+
+private func vocabularyProjectionPlacement(
     petVisibleRect: NSRect,
     petRenderScale: CGFloat,
     screenVisibleFrame: NSRect
-) -> NSRect? {
+) -> VocabularyProjectionPlacement? {
     let scale = normalizedPanelScale(petRenderScale)
     let cardSize = scaledPanelSize(vocabularyCardBaseSize, scale: scale)
     let reach = vocabularyProjectionReach * scale
     let laptop = vocabularyLaptopHoverRect(for: petVisibleRect)
-    let sourceX = laptop.maxX - vocabularyProjectionSourceInset * scale
     let size = NSSize(width: reach + cardSize.width, height: cardSize.height)
-    // Start inside the laptop's right rim. At canonical size the ticket begins
-    // about one quarter of a Bubu-width after the chair rail.
-    let origin = NSPoint(
-        x: sourceX,
-        y: laptop.midY - size.height / 2
-    )
-    let frame = NSRect(origin: origin, size: size)
     let margin: CGFloat = 6 * scale
-    guard frame.minY >= screenVisibleFrame.minY + margin,
-          frame.maxY <= screenVisibleFrame.maxY - margin,
-          frame.maxX <= screenVisibleFrame.maxX - margin
-    else {
-        // Do not move the ticket onto Bubu's left-side props at a screen edge.
-        // The hover card simply waits until the pet has a usable right zone.
-        return nil
+    let originY = laptop.midY - size.height / 2
+    func candidate(originX: CGFloat, side: VocabularyProjectionSide)
+        -> VocabularyProjectionPlacement?
+    {
+        let frame = NSRect(x: originX, y: originY, width: size.width, height: size.height)
+        guard frame.minX >= screenVisibleFrame.minX + margin,
+              frame.maxX <= screenVisibleFrame.maxX - margin,
+              frame.minY >= screenVisibleFrame.minY + margin,
+              frame.maxY <= screenVisibleFrame.maxY - margin
+        else { return nil }
+        return VocabularyProjectionPlacement(frame: frame, side: side)
     }
-    return frame
+
+    // Keep the approved right-side composition whenever it fits. At a display
+    // edge, mirror the physical projection to the left instead of silently
+    // suppressing the vocabulary card.
+    let sourceInset = vocabularyProjectionSourceInset * scale
+    if let right = candidate(originX: laptop.maxX - sourceInset, side: .right) {
+        return right
+    }
+    return candidate(originX: laptop.minX + sourceInset - size.width, side: .left)
 }
 
 private final class RuntimeHealthWriter {
@@ -2057,10 +2071,19 @@ private final class VocabularyLearningStore {
 }
 
 private final class VocabularyProjectionView: NSView {
-    var word: VocabularyWord? { didSet { needsDisplay = true } }
-    var dailyCompletedCount = 0 { didSet { needsDisplay = true } }
-    var masteredWordCount = 0 { didSet { needsDisplay = true } }
-    var totalWordCount = 0 { didSet { needsDisplay = true } }
+    var word: VocabularyWord? { didSet { if oldValue != word { needsDisplay = true } } }
+    var dailyCompletedCount = 0 {
+        didSet { if oldValue != dailyCompletedCount { needsDisplay = true } }
+    }
+    var masteredWordCount = 0 {
+        didSet { if oldValue != masteredWordCount { needsDisplay = true } }
+    }
+    var totalWordCount = 0 {
+        didSet { if oldValue != totalWordCount { needsDisplay = true } }
+    }
+    var projectionSide: VocabularyProjectionSide = .right {
+        didSet { if oldValue != projectionSide { needsDisplay = true } }
+    }
     var onAction: ((VocabularyAction) -> Void)?
 
     override var isFlipped: Bool { true }
@@ -2071,7 +2094,7 @@ private final class VocabularyProjectionView: NSView {
 
     private var cardRect: NSRect {
         NSRect(
-            x: vocabularyProjectionReach,
+            x: projectionSide == .right ? vocabularyProjectionReach : 0,
             y: 0,
             width: vocabularyCardBaseSize.width,
             height: vocabularyCardBaseSize.height
@@ -2171,31 +2194,36 @@ private final class VocabularyProjectionView: NSView {
     }
 
     private func drawProjectionBeam() {
-        let impact = NSPoint(x: cardRect.minX + 3, y: cardRect.midY)
+        let direction: CGFloat = projectionSide == .right ? 1 : -1
+        let sourceX: CGFloat = projectionSide == .right ? 0 : bounds.maxX
+        let impact = NSPoint(
+            x: projectionSide == .right ? cardRect.minX + 3 : cardRect.maxX - 3,
+            y: cardRect.midY
+        )
         let wideBeam = NSBezierPath()
-        wideBeam.move(to: NSPoint(x: 0, y: bounds.midY))
-        wideBeam.line(to: NSPoint(x: impact.x + 11, y: impact.y - 54))
-        wideBeam.line(to: NSPoint(x: impact.x + 11, y: impact.y + 54))
+        wideBeam.move(to: NSPoint(x: sourceX, y: bounds.midY))
+        wideBeam.line(to: NSPoint(x: impact.x + direction * 11, y: impact.y - 54))
+        wideBeam.line(to: NSPoint(x: impact.x + direction * 11, y: impact.y + 54))
         wideBeam.close()
         NSGradient(
             starting: NSColor(calibratedRed: 0.45, green: 0.94, blue: 1.00, alpha: 0.20),
             ending: NSColor(calibratedRed: 0.52, green: 0.95, blue: 1.00, alpha: 0.018)
-        )!.draw(in: wideBeam, angle: 0)
+        )!.draw(in: wideBeam, angle: projectionSide == .right ? 0 : 180)
 
         let innerBeam = NSBezierPath()
-        innerBeam.move(to: NSPoint(x: 0, y: bounds.midY))
-        innerBeam.line(to: NSPoint(x: impact.x + 8, y: impact.y - 21))
-        innerBeam.line(to: NSPoint(x: impact.x + 8, y: impact.y + 21))
+        innerBeam.move(to: NSPoint(x: sourceX, y: bounds.midY))
+        innerBeam.line(to: NSPoint(x: impact.x + direction * 8, y: impact.y - 21))
+        innerBeam.line(to: NSPoint(x: impact.x + direction * 8, y: impact.y + 21))
         innerBeam.close()
         NSGradient(
             starting: NSColor(calibratedRed: 0.86, green: 0.99, blue: 1.00, alpha: 0.34),
             ending: NSColor(calibratedRed: 0.47, green: 0.93, blue: 1.00, alpha: 0.035)
-        )!.draw(in: innerBeam, angle: 0)
+        )!.draw(in: innerBeam, angle: projectionSide == .right ? 0 : 180)
 
         let core = NSBezierPath()
-        core.move(to: NSPoint(x: 0, y: bounds.midY))
-        core.line(to: NSPoint(x: impact.x + 4, y: impact.y - 4))
-        core.line(to: NSPoint(x: impact.x + 4, y: impact.y + 4))
+        core.move(to: NSPoint(x: sourceX, y: bounds.midY))
+        core.line(to: NSPoint(x: impact.x + direction * 4, y: impact.y - 4))
+        core.line(to: NSPoint(x: impact.x + direction * 4, y: impact.y + 4))
         core.close()
         NSColor(calibratedRed: 0.96, green: 1, blue: 1, alpha: 0.32).setFill()
         core.fill()
@@ -2207,12 +2235,43 @@ private final class VocabularyProjectionView: NSView {
                 x: impact.x - radius, y: impact.y - radius, width: radius * 2, height: radius * 2
             )).fill()
         }
-        drawProjectionGlyph("B", center: NSPoint(x: 36, y: bounds.midY - 22), angle: -0.20)
-        drawProjectionGlyph("a", center: NSPoint(x: 53, y: bounds.midY + 1), angle: 0.12)
-        drawProjectionGlyph("E", center: NSPoint(x: 71, y: bounds.midY + 28), angle: -0.16)
+        let glyphX: (CGFloat) -> CGFloat = { [projectionSide, bounds] x in
+            projectionSide == .right ? x : bounds.maxX - x
+        }
+        drawProjectionGlyph(
+            "B", center: NSPoint(x: glyphX(36), y: bounds.midY - 22),
+            angle: projectionSide == .right ? -0.20 : 0.20
+        )
+        drawProjectionGlyph(
+            "a", center: NSPoint(x: glyphX(53), y: bounds.midY + 1),
+            angle: projectionSide == .right ? 0.12 : -0.12
+        )
+        drawProjectionGlyph(
+            "E", center: NSPoint(x: glyphX(71), y: bounds.midY + 28),
+            angle: projectionSide == .right ? -0.16 : 0.16
+        )
     }
 
     private func ticketPath(in rect: NSRect) -> NSBezierPath {
+        let canonicalRect = projectionSide == .right
+            ? rect
+            : NSRect(
+                x: vocabularyProjectionReach,
+                y: rect.minY,
+                width: rect.width,
+                height: rect.height
+            )
+        let path = makeRightSideTicketPath(in: canonicalRect)
+        if projectionSide == .left {
+            var transform = AffineTransform()
+            transform.translate(x: bounds.width, y: 0)
+            transform.scale(x: -1, y: 1)
+            path.transform(using: transform)
+        }
+        return path
+    }
+
+    private func makeRightSideTicketPath(in rect: NSRect) -> NSBezierPath {
         let radius: CGFloat = 16
         let path = NSBezierPath()
         path.move(to: NSPoint(x: rect.minX + radius, y: rect.minY))
@@ -2289,7 +2348,9 @@ private final class VocabularyProjectionView: NSView {
     }
 
     private func drawTicketEdgeLight() {
-        let x = cardRect.minX - 0.4
+        let direction: CGFloat = projectionSide == .right ? 1 : -1
+        let edgeX = projectionSide == .right ? cardRect.minX : cardRect.maxX
+        let x = projectionSide == .right ? edgeX - 0.4 : edgeX - 2.6
         let accent = NSColor(calibratedRed: 0.28, green: 0.86, blue: 0.91, alpha: 0.78)
         for (y, height) in [(22.0, 12.0), (67.0, 11.0), (121.0, 12.0)] {
             let tab = NSBezierPath(
@@ -2305,13 +2366,13 @@ private final class VocabularyProjectionView: NSView {
             ).fill()
         }
         let rim = NSBezierPath()
-        rim.move(to: NSPoint(x: cardRect.minX + 0.9, y: 60))
-        rim.curve(to: NSPoint(x: cardRect.minX + 20, y: cardRect.midY),
-                  controlPoint1: NSPoint(x: cardRect.minX + 15, y: 65),
-                  controlPoint2: NSPoint(x: cardRect.minX + 20, y: cardRect.midY + 9))
-        rim.curve(to: NSPoint(x: cardRect.minX + 0.9, y: 94),
-                  controlPoint1: NSPoint(x: cardRect.minX + 20, y: cardRect.midY - 9),
-                  controlPoint2: NSPoint(x: cardRect.minX + 15, y: 89))
+        rim.move(to: NSPoint(x: edgeX + direction * 0.9, y: 60))
+        rim.curve(to: NSPoint(x: edgeX + direction * 20, y: cardRect.midY),
+                  controlPoint1: NSPoint(x: edgeX + direction * 15, y: 65),
+                  controlPoint2: NSPoint(x: edgeX + direction * 20, y: cardRect.midY + 9))
+        rim.curve(to: NSPoint(x: edgeX + direction * 0.9, y: 94),
+                  controlPoint1: NSPoint(x: edgeX + direction * 20, y: cardRect.midY - 9),
+                  controlPoint2: NSPoint(x: edgeX + direction * 15, y: 89))
         accent.setStroke()
         rim.lineWidth = 1.7
         rim.stroke()
@@ -4479,7 +4540,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !vocabularyDismissedUntilMouseLeaves,
               petDragStart == nil,
               quotaLightstickMode == .chair,
-              let frame = vocabularyProjectionFrame(
+              let placement = vocabularyProjectionPlacement(
                   petVisibleRect: pet.visibleRect,
                   petRenderScale: currentPanelScale,
                   screenVisibleFrame: pet.screen.visibleFrame
@@ -4505,6 +4566,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         vocabularyProjectionView.dailyCompletedCount = vocabularyStore.dailyCompletedCount
         vocabularyProjectionView.masteredWordCount = masterySummary.mastered
         vocabularyProjectionView.totalWordCount = masterySummary.total
+        vocabularyProjectionView.projectionSide = placement.side
+        let frame = placement.frame
         if !rectApproximatelyEqual(vocabularyProjectionPanel.frame, frame) {
             vocabularyProjectionPanel.setFrame(frame, display: false)
         }
@@ -5179,19 +5242,28 @@ private func runVocabularySelfTest() -> Never {
         let pet = NSRect(x: 420, y: 210, width: 163, height: 177)
         let laptop = vocabularyLaptopHoverRect(for: pet)
         guard laptop.contains(NSPoint(x: pet.midX, y: pet.minY + pet.height * 0.37)),
-              let card = vocabularyProjectionFrame(
+              let card = vocabularyProjectionPlacement(
                   petVisibleRect: pet,
                   petRenderScale: 1,
                   screenVisibleFrame: NSRect(x: 0, y: 0, width: 1_280, height: 720)
               ),
-              abs((card.minX + vocabularyProjectionReach) -
+              card.side == .right,
+              abs((card.frame.minX + vocabularyProjectionReach) -
                     (laptop.maxX - vocabularyProjectionSourceInset + vocabularyProjectionReach)) <= 0.01,
-              abs((card.minX + vocabularyProjectionReach) - (pet.maxX + pet.width * 0.25)) <= 1.0,
-              abs(card.midY - laptop.midY) <= 0.01,
-              abs(card.width - (vocabularyProjectionReach + vocabularyCardBaseSize.width)) <= 0.01,
-              abs(card.height - vocabularyCardBaseSize.height) <= 0.01
+              abs((card.frame.minX + vocabularyProjectionReach) - (pet.maxX + pet.width * 0.25)) <= 1.0,
+              abs(card.frame.midY - laptop.midY) <= 0.01,
+              abs(card.frame.width - (vocabularyProjectionReach + vocabularyCardBaseSize.width)) <= 0.01,
+              abs(card.frame.height - vocabularyCardBaseSize.height) <= 0.01,
+              let edgeCard = vocabularyProjectionPlacement(
+                  petVisibleRect: NSRect(x: 320, y: 210, width: 163, height: 177),
+                  petRenderScale: 1,
+                  screenVisibleFrame: NSRect(x: 0, y: 0, width: 500, height: 720)
+              ),
+              edgeCard.side == .left,
+              edgeCard.frame.minX >= 6,
+              edgeCard.frame.maxX <= 494
         else { throw NSError(domain: "Vocabulary", code: 3) }
-        print("vocabulary-self-test: library=pass remember=pass later=pass daily-limit=pass mastery-summary=pass laptop-hit=pass projection-anchor=pass")
+        print("vocabulary-self-test: library=pass remember=pass later=pass daily-limit=pass mastery-summary=pass laptop-hit=pass projection-anchor=pass edge-fallback=pass")
         exit(0)
     } catch {
         fputs("vocabulary self-test failed: \(error.localizedDescription)\n", stderr)
@@ -6024,7 +6096,8 @@ private func renderQuotaAirplanePreviewOnce(
 
 private func renderVocabularyProjectionPreviewOnce(
     to outputPath: String,
-    dailyCompletedCount: Int = 3
+    dailyCompletedCount: Int = 3,
+    projectionSide: VocabularyProjectionSide = .right
 ) -> Never {
     _ = NSApplication.shared
     let baseSize = NSSize(
@@ -6032,6 +6105,7 @@ private func renderVocabularyProjectionPreviewOnce(
         height: vocabularyCardBaseSize.height
     )
     let view = VocabularyProjectionView(frame: NSRect(origin: .zero, size: baseSize))
+    view.projectionSide = projectionSide
     if dailyCompletedCount < vocabularyDailyGoal {
         view.word = VocabularyWord(
             id: "serendipity",
@@ -6271,7 +6345,8 @@ if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-vocabulary-p
         to: CommandLine.arguments[previewFlag + 1],
         dailyCompletedCount: CommandLine.arguments.contains("--vocabulary-completed")
             ? vocabularyDailyGoal
-            : 3
+            : 3,
+        projectionSide: CommandLine.arguments.contains("--vocabulary-left") ? .left : .right
     )
 }
 

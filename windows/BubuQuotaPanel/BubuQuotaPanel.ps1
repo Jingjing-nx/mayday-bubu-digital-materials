@@ -786,6 +786,7 @@ $script:VocabularyCompletedDay = ""
 $script:VocabularyCompletedToday = 0
 $script:VocabularyCurrentWord = $null
 $script:VocabularyDismissedUntilMouseLeaves = $false
+$script:VocabularyProjectionSide = ""
 $script:VocabularyLibraryWrite = [DateTime]::MinValue
 $script:VocabularyWords = @(
     [PSCustomObject]@{ Id = "serendipity"; Word = "serendipity"; Phonetic = "/ˌserənˈdɪpəti/"; Meaning = "意外发现的美好"; Example = "A happy serendipity." },
@@ -1336,6 +1337,7 @@ $vocabularyXaml = @"
         </Style>
     </Window.Resources>
     <Canvas x:Name="VocabularyScaleRoot" Width="$($script:VocabularyBaseWidth)" Height="$($script:VocabularyBaseHeight)">
+      <Canvas x:Name="VocabularyMaterialRoot" Width="$($script:VocabularyBaseWidth)" Height="$($script:VocabularyBaseHeight)" RenderTransformOrigin="0.5,0.5">
         <!-- layered laptop projection: broad fan, bright inner cone, white core -->
         <Path Data="M0,77 L102,23 L102,131 Z">
             <Path.Fill><LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5"><GradientStop Color="#3373EDFF" Offset="0"/><GradientStop Color="#0573EDFF" Offset="1"/></LinearGradientBrush></Path.Fill>
@@ -1360,25 +1362,28 @@ $vocabularyXaml = @"
         <Border Canvas.Left="90.5" Canvas.Top="67" Width="3" Height="11" Background="#C946DFE8" CornerRadius="1.5"/>
         <Border Canvas.Left="90.5" Canvas.Top="121" Width="3" Height="12" Background="#C946DFE8" CornerRadius="1.5"/>
         <Path Data="M107,3 H293" Stroke="#BFFFFFFF" StrokeThickness="2"/>
+      </Canvas>
 
-        <TextBlock Canvas.Left="155" Canvas.Top="15" Width="100" Height="14" Text="✿  今日单词" TextAlignment="Center"
+      <Canvas x:Name="VocabularyContentRoot" Canvas.Left="91" Width="218" Height="$($script:VocabularyBaseHeight)">
+        <TextBlock Canvas.Left="64" Canvas.Top="15" Width="100" Height="14" Text="✿  今日单词" TextAlignment="Center"
                    FontFamily="Microsoft YaHei UI" FontSize="8.5" FontWeight="Medium" Foreground="#DE308F96"/>
-        <TextBlock x:Name="VocabularyWordText" Canvas.Left="121" Canvas.Top="35" Width="160" Height="28" Text="serendipity"
+        <TextBlock x:Name="VocabularyWordText" Canvas.Left="30" Canvas.Top="35" Width="160" Height="28" Text="serendipity"
                    TextAlignment="Center" TextTrimming="CharacterEllipsis" FontFamily="Segoe UI" FontSize="20.5" FontWeight="SemiBold" Foreground="#F0128A91"/>
-        <TextBlock x:Name="VocabularyPhoneticText" Canvas.Left="125" Canvas.Top="65" Width="152" Height="17" Text="/ˌserənˈdɪpəti/"
+        <TextBlock x:Name="VocabularyPhoneticText" Canvas.Left="34" Canvas.Top="65" Width="152" Height="17" Text="/ˌserənˈdɪpəti/"
                    TextAlignment="Center" TextTrimming="CharacterEllipsis" FontFamily="Segoe UI" FontSize="11" Foreground="#E42F9299"/>
-        <TextBlock x:Name="VocabularyMeaningText" Canvas.Left="126" Canvas.Top="88" Width="148" Height="18" Text="意外发现的美好"
+        <TextBlock x:Name="VocabularyMeaningText" Canvas.Left="35" Canvas.Top="88" Width="148" Height="18" Text="意外发现的美好"
                    TextAlignment="Center" TextTrimming="CharacterEllipsis" FontFamily="Microsoft YaHei UI" FontSize="12.5" FontWeight="SemiBold" Foreground="#F0242424"/>
-        <Button x:Name="VocabularyRememberButton" Canvas.Left="135" Canvas.Top="110" Width="58" Height="25" Content="记住啦"
+        <Button x:Name="VocabularyRememberButton" Canvas.Left="44" Canvas.Top="110" Width="58" Height="25" Content="记住啦"
                 Style="{StaticResource VocabularyTicketButton}" FontFamily="Microsoft YaHei UI" FontSize="10.5" FontWeight="SemiBold"
                 Foreground="White" BorderThickness="0" Cursor="Hand"><Button.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#FF0A9FA9" Offset="0"/><GradientStop Color="#F82AB8BF" Offset="1"/></LinearGradientBrush></Button.Background></Button>
-        <Button x:Name="VocabularyLaterButton" Canvas.Left="204" Canvas.Top="110" Width="75" Height="25" Content="等会再学"
+        <Button x:Name="VocabularyLaterButton" Canvas.Left="113" Canvas.Top="110" Width="75" Height="25" Content="等会再学"
                 Style="{StaticResource VocabularyTicketButton}" FontFamily="Microsoft YaHei UI" FontSize="10" FontWeight="Medium"
                 Foreground="#F012858D" Background="Transparent" BorderBrush="#C00C9EA6" BorderThickness="1.35" Cursor="Hand"/>
-        <TextBlock x:Name="VocabularyMasteryText" Canvas.Left="109" Canvas.Top="141" Width="128" Height="10" Text="已掌握 0 / 5"
+        <TextBlock x:Name="VocabularyMasteryText" Canvas.Left="18" Canvas.Top="141" Width="128" Height="10" Text="已掌握 0 / 5"
                    FontFamily="Segoe UI" FontSize="8.2" FontWeight="Medium" Foreground="#D9329198"/>
-        <TextBlock x:Name="VocabularyDailyText" Canvas.Left="263" Canvas.Top="141" Width="32" Height="10" Text="0 / 10"
+        <TextBlock x:Name="VocabularyDailyText" Canvas.Left="172" Canvas.Top="141" Width="32" Height="10" Text="0 / 10"
                    TextAlignment="Right" FontFamily="Consolas" FontSize="8.5" FontWeight="SemiBold" Foreground="#DE329198"/>
+      </Canvas>
     </Canvas>
 </Window>
 "@
@@ -1397,6 +1402,8 @@ function New-VocabularyProjectionVisual {
         Window = $window
         Handle = $handle
         ScaleRoot = $window.FindName("VocabularyScaleRoot")
+        MaterialRoot = $window.FindName("VocabularyMaterialRoot")
+        ContentRoot = $window.FindName("VocabularyContentRoot")
         WordText = $window.FindName("VocabularyWordText")
         PhoneticText = $window.FindName("VocabularyPhoneticText")
         MeaningText = $window.FindName("VocabularyMeaningText")
@@ -1529,6 +1536,8 @@ if ($ValidateXaml) {
         -not $script:QuotaAirplane.PercentText -or
         -not $script:QuotaAirplane.ProgressFill -or
         -not $script:VocabularyWindow -or
+        -not $script:VocabularyProjection.MaterialRoot -or
+        -not $script:VocabularyProjection.ContentRoot -or
         -not $script:VocabularyProjection.WordText -or
         -not $script:VocabularyProjection.MasteryText -or
         -not $script:VocabularyProjection.RememberButton -or
@@ -3239,17 +3248,58 @@ function Get-VocabularyLaptopRectFromPet($anchor, $visualMetrics, [double]$petSc
     }
 }
 
-function Get-VocabularyProjectionPlacement($laptop, $nativeWindow) {
+function Get-VocabularyProjectionPlacement($laptop, $nativeWindow, $workArea = $null) {
     if (-not $laptop -or -not $nativeWindow) { return $null }
     $sourceInset = [double]$nativeWindow.Width * $script:VocabularyProjectionSourceInset / $script:VocabularyBaseWidth
     $reach = [double]$nativeWindow.Width * $script:VocabularyProjectionReach / $script:VocabularyBaseWidth
-    $left = [Math]::Round([double]$laptop.Right - $sourceInset)
-    return [PSCustomObject]@{
-        Left = $left
-        Top = [Math]::Round([double]$laptop.CenterY - [double]$nativeWindow.Height / 2.0)
-        TicketLeft = $left + $reach
-        ProjectionReach = $reach
+    $top = [Math]::Round([double]$laptop.CenterY - [double]$nativeWindow.Height / 2.0)
+    $margin = 6.0
+    $fits = {
+        param([double]$left)
+        if (-not $workArea) { return $true }
+        return $left -ge [double]$workArea.Left + $margin -and
+            $left + [double]$nativeWindow.Width -le [double]$workArea.Right - $margin -and
+            $top -ge [double]$workArea.Top + $margin -and
+            $top + [double]$nativeWindow.Height -le [double]$workArea.Bottom - $margin
     }
+
+    $rightLeft = [Math]::Round([double]$laptop.Right - $sourceInset)
+    if (& $fits $rightLeft) {
+        return [PSCustomObject]@{
+            Left = $rightLeft
+            Top = $top
+            TicketLeft = $rightLeft + $reach
+            ProjectionReach = $reach
+            Side = "right"
+        }
+    }
+
+    $leftSideLeft = [Math]::Round(
+        [double]$laptop.Left + $sourceInset - [double]$nativeWindow.Width
+    )
+    if (& $fits $leftSideLeft) {
+        return [PSCustomObject]@{
+            Left = $leftSideLeft
+            Top = $top
+            TicketLeft = $leftSideLeft
+            ProjectionReach = $reach
+            Side = "left"
+        }
+    }
+    return $null
+}
+
+function Set-VocabularyProjectionSide([string]$side) {
+    if ($script:VocabularyProjectionSide -eq $side) { return }
+    $script:VocabularyProjectionSide = $side
+    $showOnLeft = $side -eq "left"
+    $script:VocabularyProjection.MaterialRoot.RenderTransform = [Windows.Media.ScaleTransform]::new(
+        $(if ($showOnLeft) { -1.0 } else { 1.0 }), 1.0
+    )
+    [Windows.Controls.Canvas]::SetLeft(
+        $script:VocabularyProjection.ContentRoot,
+        $(if ($showOnLeft) { 0.0 } else { $script:VocabularyProjectionReach })
+    )
 }
 
 function Update-VocabularyProjectionText {
@@ -3326,19 +3376,14 @@ function Update-VocabularyProjectionAtPet($anchor, $visualMetrics, [double]$petS
     # The window starts inside the laptop rim, then carries the entire long
     # cyan projection before the physical ticket. This is intentionally not a
     # compact tooltip attached to the chair edge.
-    $placement = Get-VocabularyProjectionPlacement $laptop $nativeWindow
-    if (-not $placement) { return }
-    $left = $placement.Left
-    $top = $placement.Top
-    $margin = 6.0
-    if ($workArea -and ($left + $nativeWindow.Width -gt $workArea.Right - $margin -or
-            $top -lt $workArea.Top + $margin -or $top + $nativeWindow.Height -gt $workArea.Bottom - $margin)) {
-        # The learning ticket never flips into the left-side ticket/lightstick
-        # zone. At a tight right display edge it stays hidden until there is
-        # room for its intended composition.
+    $placement = Get-VocabularyProjectionPlacement $laptop $nativeWindow $workArea
+    if (-not $placement) {
         Hide-VocabularyProjectionWindow
         return
     }
+    Set-VocabularyProjectionSide ([string]$placement.Side)
+    $left = $placement.Left
+    $top = $placement.Top
     if ([Math]::Abs([double]$nativeWindow.Left - $left) -gt 1 -or
         [Math]::Abs([double]$nativeWindow.Top - $top) -gt 1) {
         [void][BubuPanel.NativeWindows]::MoveWindowNoActivate(
@@ -4352,12 +4397,22 @@ if ($ValidateVocabulary) {
         $hoverPoint = [Drawing.Point]::new([int][Math]::Round(($laptop.Left + $laptop.Right) / 2.0), [int][Math]::Round(($laptop.Top + $laptop.Bottom) / 2.0))
         if (-not (Test-PointInsidePetRect $hoverPoint ([PSCustomObject]@{
             Left = $laptop.Left; Top = $laptop.Top; Right = $laptop.Right; Bottom = $laptop.Bottom
-        })) -or -not $projection -or
+        })) -or -not $projection -or $projection.Side -ne "right" -or
             [Math]::Abs([double]$projection.TicketLeft -
                 ([double]$anchor.CenterX + $script:CanonicalPetWidth * 0.5 + $script:CanonicalPetWidth * 0.25)) -gt 1.0) {
             throw "Vocabulary laptop hit or projection anchor failed."
         }
-        Write-Output "vocabulary-validation: library=pass remember=pass later=pass daily-limit=pass mastery-summary=pass laptop-hit=pass projection-anchor=pass"
+        $edgeAnchor = [PSCustomObject]@{ CenterX = 400.0; Top = 200.0 }
+        $edgeLaptop = Get-VocabularyLaptopRectFromPet $edgeAnchor $null 1.0 96.0
+        $edgeProjection = Get-VocabularyProjectionPlacement $edgeLaptop ([PSCustomObject]@{
+            Width = $script:VocabularyBaseWidth; Height = $script:VocabularyBaseHeight
+        }) ([PSCustomObject]@{ Left = 0.0; Top = 0.0; Right = 500.0; Bottom = 720.0 })
+        if (-not $edgeProjection -or $edgeProjection.Side -ne "left" -or
+            $edgeProjection.Left -lt 6.0 -or
+            $edgeProjection.Left + $script:VocabularyBaseWidth -gt 494.0) {
+            throw "Vocabulary display-edge fallback failed."
+        }
+        Write-Output "vocabulary-validation: library=pass remember=pass later=pass daily-limit=pass mastery-summary=pass laptop-hit=pass projection-anchor=pass edge-fallback=pass"
     } finally {
         Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
         $script:Window.Close()
