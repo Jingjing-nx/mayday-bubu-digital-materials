@@ -56,12 +56,13 @@ private enum OrangeBubuRuntimeGeometry {
     static let airplaneOriginXFromOverlayCenter: CGFloat = -130
     static let airplaneOriginYFromOverlayTop: CGFloat = -105
 
-    // Hovering Bubu's laptop projects a compact vocabulary ticket into the
-    // deliberately empty right-hand interaction zone. These values are in the
-    // same logical point coordinate system as the panel and its accessories.
-    static let vocabularyCardSize = NSSize(width: 172, height: 112)
-    static let vocabularyProjectionBeamWidth: CGFloat = 24
-    static let vocabularyCardGapFromPet: CGFloat = 18
+    // The vocabulary scene intentionally keeps a long physical projection
+    // between Bubu's laptop and its ticket. The reference composition is not
+    // a tooltip: it is a large, warm paper ticket suspended in a cyan beam.
+    // Values are base logical points and scale with Bubu as one composition.
+    static let vocabularyCardSize = NSSize(width: 218, height: 154)
+    static let vocabularyProjectionReach: CGFloat = 132
+    static let vocabularyProjectionSourceInset: CGFloat = 6
 }
 
 private let taskProgressRowHeight = OrangeBubuRuntimeGeometry.taskProgressRowHeight
@@ -171,8 +172,8 @@ private let quotaAirplaneBaseSize = OrangeBubuRuntimeGeometry.airplaneBaseSize
 private let quotaAirplaneOriginXFromOverlayCenter = OrangeBubuRuntimeGeometry.airplaneOriginXFromOverlayCenter
 private let quotaAirplaneOriginYFromOverlayTop = OrangeBubuRuntimeGeometry.airplaneOriginYFromOverlayTop
 private let vocabularyCardBaseSize = OrangeBubuRuntimeGeometry.vocabularyCardSize
-private let vocabularyProjectionBeamWidth = OrangeBubuRuntimeGeometry.vocabularyProjectionBeamWidth
-private let vocabularyCardGapFromPet = OrangeBubuRuntimeGeometry.vocabularyCardGapFromPet
+private let vocabularyProjectionReach = OrangeBubuRuntimeGeometry.vocabularyProjectionReach
+private let vocabularyProjectionSourceInset = OrangeBubuRuntimeGeometry.vocabularyProjectionSourceInset
 private let rewindTicketDuration: CFTimeInterval = 0.8
 private let rewindTicketStartXFromOverlayCenter: CGFloat = 96
 
@@ -509,14 +510,17 @@ private func vocabularyProjectionFrame(
     screenVisibleFrame: NSRect
 ) -> NSRect? {
     let scale = normalizedPanelScale(petRenderScale)
-    let beamWidth = vocabularyProjectionBeamWidth * scale
     let cardSize = scaledPanelSize(vocabularyCardBaseSize, scale: scale)
-    let size = NSSize(width: beamWidth + cardSize.width, height: cardSize.height)
-    // The ticket itself begins 18 logical points right of Bubu's visible
-    // chair/body bounds; the beam may overlap the laptop edge by a few points.
+    let reach = vocabularyProjectionReach * scale
+    let laptop = vocabularyLaptopHoverRect(for: petVisibleRect)
+    let sourceX = laptop.maxX - vocabularyProjectionSourceInset * scale
+    let size = NSSize(width: reach + cardSize.width, height: cardSize.height)
+    // Start inside the laptop's right rim and allow the projection to travel
+    // across the deliberately empty space beside the chair. At canonical size
+    // the ticket begins about half a Bubu-width after the chair rail.
     let origin = NSPoint(
-        x: petVisibleRect.maxX + vocabularyCardGapFromPet * scale - beamWidth,
-        y: petVisibleRect.midY - size.height / 2
+        x: sourceX,
+        y: laptop.midY - size.height / 2
     )
     let frame = NSRect(origin: origin, size: size)
     let margin: CGFloat = 6 * scale
@@ -2033,9 +2037,13 @@ private final class VocabularyProjectionView: NSView {
 
     override var isFlipped: Bool { true }
 
+    // A static, deterministic grain avoids a "flat UI card" look without
+    // creating a per-frame texture workload while Bubu is being followed.
+    private let paperGrain = VocabularyProjectionView.makePaperGrain()
+
     private var cardRect: NSRect {
         NSRect(
-            x: vocabularyProjectionBeamWidth,
+            x: vocabularyProjectionReach,
             y: 0,
             width: vocabularyCardBaseSize.width,
             height: vocabularyCardBaseSize.height
@@ -2043,11 +2051,11 @@ private final class VocabularyProjectionView: NSView {
     }
 
     private var rememberButtonRect: NSRect {
-        NSRect(x: cardRect.minX + 56, y: cardRect.minY + 75, width: 48, height: 21)
+        NSRect(x: cardRect.minX + 44, y: cardRect.minY + 110, width: 58, height: 25)
     }
 
     private var laterButtonRect: NSRect {
-        NSRect(x: cardRect.minX + 110, y: cardRect.minY + 75, width: 52, height: 21)
+        NSRect(x: cardRect.minX + 113, y: cardRect.minY + 110, width: 75, height: 25)
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -2067,77 +2075,86 @@ private final class VocabularyProjectionView: NSView {
 
         drawProjectionBeam()
         let ticket = ticketPath(in: cardRect)
-        NSGraphicsContext.current?.saveGraphicsState()
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor(calibratedWhite: 0.12, alpha: 0.18)
-        shadow.shadowBlurRadius = 8
-        shadow.shadowOffset = NSSize(width: 0, height: 3)
-        shadow.set()
-        NSColor(calibratedRed: 1.00, green: 0.995, blue: 0.975, alpha: 0.97).setFill()
-        ticket.fill()
-        NSGraphicsContext.current?.restoreGraphicsState()
+        drawTicketMaterial(ticket)
+        drawTicketEdgeLight()
 
-        // Only the ticket notches receive cyan light; the card intentionally
-        // has no enclosing neon outline.
-        let accent = NSBezierPath()
-        accent.move(to: NSPoint(x: cardRect.minX + 0.7, y: 16))
-        accent.line(to: NSPoint(x: cardRect.minX + 0.7, y: 32))
-        accent.move(to: NSPoint(x: cardRect.minX + 0.7, y: 80))
-        accent.line(to: NSPoint(x: cardRect.minX + 0.7, y: 96))
-        NSColor(calibratedRed: 0.27, green: 0.87, blue: 0.94, alpha: 0.82).setStroke()
-        accent.lineWidth = 1.4
-        accent.stroke()
+        let teal = NSColor(calibratedRed: 0.07, green: 0.54, blue: 0.57, alpha: 0.97)
+        let mutedTeal = NSColor(calibratedRed: 0.19, green: 0.58, blue: 0.61, alpha: 0.87)
+        drawText("✿  今日单词", in: NSRect(x: cardRect.minX + 64, y: 15, width: 100, height: 14),
+                 font: .systemFont(ofSize: 8.5, weight: .medium), color: mutedTeal, alignment: .center)
+        drawFittedText(word.word, in: NSRect(x: cardRect.minX + 30, y: 35, width: 160, height: 28),
+                       preferredSize: 20.5, minimumSize: 16, weight: .semibold, color: teal, alignment: .center)
+        drawText(word.phonetic ?? "", in: NSRect(x: cardRect.minX + 34, y: 65, width: 152, height: 17),
+                 font: .systemFont(ofSize: 11, weight: .regular), color: mutedTeal, alignment: .center)
+        drawFittedText(word.meaning, in: NSRect(x: cardRect.minX + 35, y: 88, width: 148, height: 18),
+                       preferredSize: 12.5, minimumSize: 10, weight: .semibold,
+                       color: NSColor(calibratedWhite: 0.15, alpha: 0.94), alignment: .center)
 
-        drawText("✦  今日单词", in: NSRect(x: cardRect.minX + 38, y: 14, width: 90, height: 14),
-                 font: .systemFont(ofSize: 8.5, weight: .medium),
-                 color: NSColor(calibratedRed: 0.26, green: 0.54, blue: 0.57, alpha: 0.85))
-        drawText(word.word, in: NSRect(x: cardRect.minX + 38, y: 31, width: 122, height: 24),
-                 font: .systemFont(ofSize: 18, weight: .semibold),
-                 color: NSColor(calibratedRed: 0.05, green: 0.55, blue: 0.59, alpha: 0.96))
-        drawText(word.phonetic ?? "", in: NSRect(x: cardRect.minX + 38, y: 56, width: 122, height: 14),
-                 font: .systemFont(ofSize: 9.5, weight: .regular),
-                 color: NSColor(calibratedRed: 0.10, green: 0.57, blue: 0.62, alpha: 0.90))
-        drawText(word.meaning, in: NSRect(x: cardRect.minX + 38, y: 68, width: 122, height: 16),
-                 font: .systemFont(ofSize: 10.5, weight: .medium),
-                 color: NSColor(calibratedWhite: 0.18, alpha: 0.92))
+        let rememberedPath = NSBezierPath(roundedRect: rememberButtonRect, xRadius: 12.5, yRadius: 12.5)
+        NSGradient(
+            starting: NSColor(calibratedRed: 0.06, green: 0.63, blue: 0.67, alpha: 0.98),
+            ending: NSColor(calibratedRed: 0.16, green: 0.73, blue: 0.75, alpha: 0.94)
+        )!.draw(in: rememberedPath, angle: 0)
+        drawCenteredText("记住啦", in: rememberButtonRect,
+                         font: .systemFont(ofSize: 10.5, weight: .semibold), color: .white)
 
-        let rememberedPath = NSBezierPath(roundedRect: rememberButtonRect, xRadius: 10.5, yRadius: 10.5)
-        NSColor(calibratedRed: 0.05, green: 0.64, blue: 0.68, alpha: 0.92).setFill()
-        rememberedPath.fill()
-        drawCenteredText("记住啦", in: rememberButtonRect, font: .systemFont(ofSize: 9.5, weight: .semibold), color: .white)
-
-        let laterPath = NSBezierPath(roundedRect: laterButtonRect, xRadius: 10.5, yRadius: 10.5)
-        NSColor(calibratedRed: 0.05, green: 0.60, blue: 0.66, alpha: 0.72).setStroke()
-        laterPath.lineWidth = 0.9
+        let laterPath = NSBezierPath(roundedRect: laterButtonRect, xRadius: 12.5, yRadius: 12.5)
+        NSColor(calibratedRed: 0.05, green: 0.60, blue: 0.66, alpha: 0.76).setStroke()
+        laterPath.lineWidth = 1.35
         laterPath.stroke()
-        drawCenteredText("等会再学", in: laterButtonRect, font: .systemFont(ofSize: 8.7, weight: .medium),
-                         color: NSColor(calibratedRed: 0.06, green: 0.50, blue: 0.56, alpha: 0.92))
+        drawCenteredText("等会再学", in: laterButtonRect,
+                         font: .systemFont(ofSize: 10, weight: .medium), color: teal)
 
-        drawText("\(dailyCompletedCount) / 10", in: NSRect(x: cardRect.maxX - 34, y: 99, width: 27, height: 10),
-                 font: .monospacedDigitSystemFont(ofSize: 7.5, weight: .medium),
-                 color: NSColor(calibratedRed: 0.07, green: 0.55, blue: 0.60, alpha: 0.84), alignment: .right)
+        drawText("No. 20240520", in: NSRect(x: cardRect.minX + 32, y: 141, width: 86, height: 10),
+                 font: .systemFont(ofSize: 8.2, weight: .medium), color: mutedTeal)
+        drawText("\(dailyCompletedCount) / 10", in: NSRect(x: cardRect.maxX - 46, y: 141, width: 32, height: 10),
+                 font: .monospacedDigitSystemFont(ofSize: 8.5, weight: .semibold), color: mutedTeal, alignment: .right)
     }
 
     private func drawProjectionBeam() {
-        let beam = NSBezierPath()
-        beam.move(to: NSPoint(x: 0, y: bounds.midY))
-        beam.line(to: NSPoint(x: vocabularyProjectionBeamWidth + 3, y: bounds.midY - 24))
-        beam.line(to: NSPoint(x: vocabularyProjectionBeamWidth + 3, y: bounds.midY + 24))
-        beam.close()
-        NSColor(calibratedRed: 0.22, green: 0.90, blue: 1.00, alpha: 0.16).setFill()
-        beam.fill()
+        let impact = NSPoint(x: cardRect.minX + 3, y: cardRect.midY)
+        let wideBeam = NSBezierPath()
+        wideBeam.move(to: NSPoint(x: 0, y: bounds.midY))
+        wideBeam.line(to: NSPoint(x: impact.x + 11, y: impact.y - 54))
+        wideBeam.line(to: NSPoint(x: impact.x + 11, y: impact.y + 54))
+        wideBeam.close()
+        NSGradient(
+            starting: NSColor(calibratedRed: 0.45, green: 0.94, blue: 1.00, alpha: 0.42),
+            ending: NSColor(calibratedRed: 0.52, green: 0.95, blue: 1.00, alpha: 0.045)
+        )!.draw(in: wideBeam, angle: 0)
 
-        for (index, yOffset) in [-13.0, 0.0, 13.0].enumerated() {
-            let dot = NSBezierPath(ovalIn: NSRect(x: 7 + CGFloat(index) * 5, y: bounds.midY + yOffset, width: 2.6, height: 2.6))
-            NSColor(calibratedRed: 0.45, green: 0.94, blue: 1.00, alpha: 0.76 - CGFloat(index) * 0.12).setFill()
-            dot.fill()
+        let innerBeam = NSBezierPath()
+        innerBeam.move(to: NSPoint(x: 0, y: bounds.midY))
+        innerBeam.line(to: NSPoint(x: impact.x + 8, y: impact.y - 21))
+        innerBeam.line(to: NSPoint(x: impact.x + 8, y: impact.y + 21))
+        innerBeam.close()
+        NSGradient(
+            starting: NSColor(calibratedRed: 0.86, green: 0.99, blue: 1.00, alpha: 0.78),
+            ending: NSColor(calibratedRed: 0.47, green: 0.93, blue: 1.00, alpha: 0.10)
+        )!.draw(in: innerBeam, angle: 0)
+
+        let core = NSBezierPath()
+        core.move(to: NSPoint(x: 0, y: bounds.midY))
+        core.line(to: NSPoint(x: impact.x + 4, y: impact.y - 4))
+        core.line(to: NSPoint(x: impact.x + 4, y: impact.y + 4))
+        core.close()
+        NSColor(calibratedRed: 0.96, green: 1, blue: 1, alpha: 0.75).setFill()
+        core.fill()
+
+        let glowRings: [(CGFloat, CGFloat)] = [(30, 0.045), (22, 0.08), (15, 0.14), (9, 0.25)]
+        for (radius, alpha) in glowRings {
+            NSColor(calibratedRed: 0.38, green: 0.92, blue: 1.00, alpha: alpha).setFill()
+            NSBezierPath(ovalIn: NSRect(
+                x: impact.x - radius, y: impact.y - radius, width: radius * 2, height: radius * 2
+            )).fill()
         }
+        drawProjectionGlyph("B", center: NSPoint(x: 55, y: bounds.midY - 22), angle: -0.20)
+        drawProjectionGlyph("a", center: NSPoint(x: 73, y: bounds.midY + 1), angle: 0.12)
+        drawProjectionGlyph("E", center: NSPoint(x: 96, y: bounds.midY + 28), angle: -0.16)
     }
 
     private func ticketPath(in rect: NSRect) -> NSBezierPath {
-        let radius: CGFloat = 11
-        let notchCenter = rect.midY
-        let notchRadius: CGFloat = 10
+        let radius: CGFloat = 16
         let path = NSBezierPath()
         path.move(to: NSPoint(x: rect.minX + radius, y: rect.minY))
         path.line(to: NSPoint(x: rect.maxX - radius, y: rect.minY))
@@ -2152,19 +2169,127 @@ private final class VocabularyProjectionView: NSView {
         path.curve(to: NSPoint(x: rect.minX, y: rect.maxY - radius),
                    controlPoint1: NSPoint(x: rect.minX + 3, y: rect.maxY),
                    controlPoint2: NSPoint(x: rect.minX, y: rect.maxY - 3))
-        path.line(to: NSPoint(x: rect.minX, y: notchCenter + notchRadius))
-        path.curve(to: NSPoint(x: rect.minX + notchRadius, y: notchCenter),
-                   controlPoint1: NSPoint(x: rect.minX + notchRadius, y: notchCenter + notchRadius),
-                   controlPoint2: NSPoint(x: rect.minX + notchRadius, y: notchCenter + 3))
-        path.curve(to: NSPoint(x: rect.minX, y: notchCenter - notchRadius),
-                   controlPoint1: NSPoint(x: rect.minX + notchRadius, y: notchCenter - 3),
-                   controlPoint2: NSPoint(x: rect.minX + notchRadius, y: notchCenter - notchRadius))
+        // This wide paper-punch opening accepts the laptop projection. Its
+        // physical silhouette is intentionally different from a UI tooltip.
+        path.line(to: NSPoint(x: rect.minX, y: rect.minY + 111))
+        path.curve(to: NSPoint(x: rect.minX + 5, y: rect.minY + 106),
+                   controlPoint1: NSPoint(x: rect.minX, y: rect.minY + 108),
+                   controlPoint2: NSPoint(x: rect.minX + 2, y: rect.minY + 106))
+        path.curve(to: NSPoint(x: rect.minX, y: rect.minY + 101),
+                   controlPoint1: NSPoint(x: rect.minX + 2, y: rect.minY + 106),
+                   controlPoint2: NSPoint(x: rect.minX, y: rect.minY + 104))
+        path.line(to: NSPoint(x: rect.minX, y: rect.minY + 95))
+        path.curve(to: NSPoint(x: rect.minX + 20, y: rect.midY),
+                   controlPoint1: NSPoint(x: rect.minX + 15, y: rect.minY + 89),
+                   controlPoint2: NSPoint(x: rect.minX + 20, y: rect.midY + 10))
+        path.curve(to: NSPoint(x: rect.minX, y: rect.minY + 59),
+                   controlPoint1: NSPoint(x: rect.minX + 20, y: rect.midY - 10),
+                   controlPoint2: NSPoint(x: rect.minX + 15, y: rect.minY + 65))
+        path.line(to: NSPoint(x: rect.minX, y: rect.minY + 51))
+        path.curve(to: NSPoint(x: rect.minX + 5, y: rect.minY + 46),
+                   controlPoint1: NSPoint(x: rect.minX, y: rect.minY + 48),
+                   controlPoint2: NSPoint(x: rect.minX + 2, y: rect.minY + 46))
+        path.curve(to: NSPoint(x: rect.minX, y: rect.minY + 41),
+                   controlPoint1: NSPoint(x: rect.minX + 2, y: rect.minY + 46),
+                   controlPoint2: NSPoint(x: rect.minX, y: rect.minY + 44))
         path.line(to: NSPoint(x: rect.minX, y: rect.minY + radius))
         path.curve(to: NSPoint(x: rect.minX + radius, y: rect.minY),
                    controlPoint1: NSPoint(x: rect.minX, y: rect.minY + 3),
                    controlPoint2: NSPoint(x: rect.minX + 3, y: rect.minY))
         path.close()
         return path
+    }
+
+    private func drawTicketMaterial(_ ticket: NSBezierPath) {
+        guard let context = NSGraphicsContext.current else { return }
+        context.saveGraphicsState()
+        let deepShadow = NSShadow()
+        deepShadow.shadowColor = NSColor(calibratedWhite: 0.17, alpha: 0.18)
+        deepShadow.shadowBlurRadius = 17
+        deepShadow.shadowOffset = NSSize(width: 0, height: 6)
+        deepShadow.set()
+        NSGradient(
+            starting: NSColor(calibratedRed: 1.0, green: 0.997, blue: 0.979, alpha: 0.99),
+            ending: NSColor(calibratedRed: 0.975, green: 0.953, blue: 0.914, alpha: 0.99)
+        )!.draw(in: ticket, angle: 90)
+        context.restoreGraphicsState()
+
+        context.saveGraphicsState()
+        ticket.addClip()
+        NSColor(patternImage: paperGrain).setFill()
+        NSRect(origin: .zero, size: bounds.size).fill()
+        NSGradient(
+            starting: NSColor.white.withAlphaComponent(0.40),
+            ending: NSColor.white.withAlphaComponent(0)
+        )!.draw(in: NSRect(x: cardRect.minX + 1, y: 2, width: cardRect.width - 2, height: 34), angle: 90)
+        context.restoreGraphicsState()
+
+        NSColor.white.withAlphaComponent(0.72).setStroke()
+        ticket.lineWidth = 1.0
+        ticket.stroke()
+    }
+
+    private func drawTicketEdgeLight() {
+        let x = cardRect.minX - 0.4
+        let accent = NSColor(calibratedRed: 0.28, green: 0.86, blue: 0.91, alpha: 0.78)
+        for (y, height) in [(22.0, 12.0), (67.0, 11.0), (121.0, 12.0)] {
+            let tab = NSBezierPath(
+                roundedRect: NSRect(x: x, y: y, width: 3.0, height: height), xRadius: 1.5, yRadius: 1.5
+            )
+            accent.setFill()
+            tab.fill()
+            NSColor.white.withAlphaComponent(0.84).setFill()
+            NSBezierPath(
+                roundedRect: NSRect(x: x + 1.0, y: y + 2, width: 1.0, height: height - 4),
+                xRadius: 0.5,
+                yRadius: 0.5
+            ).fill()
+        }
+        let rim = NSBezierPath()
+        rim.move(to: NSPoint(x: cardRect.minX + 0.9, y: 60))
+        rim.curve(to: NSPoint(x: cardRect.minX + 20, y: cardRect.midY),
+                  controlPoint1: NSPoint(x: cardRect.minX + 15, y: 65),
+                  controlPoint2: NSPoint(x: cardRect.minX + 20, y: cardRect.midY + 9))
+        rim.curve(to: NSPoint(x: cardRect.minX + 0.9, y: 94),
+                  controlPoint1: NSPoint(x: cardRect.minX + 20, y: cardRect.midY - 9),
+                  controlPoint2: NSPoint(x: cardRect.minX + 15, y: 89))
+        accent.setStroke()
+        rim.lineWidth = 1.7
+        rim.stroke()
+    }
+
+    private func drawProjectionGlyph(_ glyph: String, center: NSPoint, angle: CGFloat) {
+        guard let context = NSGraphicsContext.current else { return }
+        context.saveGraphicsState()
+        context.cgContext.translateBy(x: center.x, y: center.y)
+        context.cgContext.rotate(by: angle)
+        let rect = NSRect(x: -7, y: -7, width: 14, height: 14)
+        let tile = NSBezierPath(roundedRect: rect, xRadius: 3.5, yRadius: 3.5)
+        NSColor.white.withAlphaComponent(0.29).setFill()
+        tile.fill()
+        NSColor(calibratedRed: 0.20, green: 0.78, blue: 0.88, alpha: 0.88).setStroke()
+        tile.lineWidth = 0.8
+        tile.stroke()
+        drawCenteredText(glyph, in: rect, font: .systemFont(ofSize: 8.5, weight: .bold),
+                         color: NSColor.white.withAlphaComponent(0.92))
+        context.restoreGraphicsState()
+    }
+
+    private static func makePaperGrain() -> NSImage {
+        let image = NSImage(size: NSSize(width: 32, height: 32))
+        image.lockFocus()
+        var state: UInt64 = 0xB0B02026
+        for _ in 0..<92 {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            let x = CGFloat((state >> 12) & 31)
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            let y = CGFloat((state >> 12) & 31)
+            let opacity = 0.014 + CGFloat((state >> 40) & 7) * 0.003
+            NSColor(calibratedWhite: 0.42, alpha: opacity).setFill()
+            NSBezierPath(ovalIn: NSRect(x: x, y: y, width: 0.8, height: 0.8)).fill()
+        }
+        image.unlockFocus()
+        return image
     }
 
     private func drawText(
@@ -2182,6 +2307,25 @@ private final class VocabularyProjectionView: NSView {
             .foregroundColor: color,
             .paragraphStyle: style,
         ])
+    }
+
+    private func drawFittedText(
+        _ text: String,
+        in rect: NSRect,
+        preferredSize: CGFloat,
+        minimumSize: CGFloat,
+        weight: NSFont.Weight,
+        color: NSColor,
+        alignment: NSTextAlignment
+    ) {
+        var pointSize = preferredSize
+        while pointSize > minimumSize {
+            let font = NSFont.systemFont(ofSize: pointSize, weight: weight)
+            if text.size(withAttributes: [.font: font]).width <= rect.width { break }
+            pointSize -= 0.5
+        }
+        drawText(text, in: rect, font: .systemFont(ofSize: pointSize, weight: weight),
+                 color: color, alignment: alignment)
     }
 
     private func drawCenteredText(_ text: String, in rect: NSRect, font: NSFont, color: NSColor) {
@@ -3941,7 +4085,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         frame: NSRect(
             origin: .zero,
             size: NSSize(
-                width: vocabularyProjectionBeamWidth + vocabularyCardBaseSize.width,
+                width: vocabularyProjectionReach + vocabularyCardBaseSize.width,
                 height: vocabularyCardBaseSize.height
             )
         )
@@ -4303,7 +4447,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let viewBounds = NSRect(
             origin: .zero,
             size: NSSize(
-                width: vocabularyProjectionBeamWidth + vocabularyCardBaseSize.width,
+                width: vocabularyProjectionReach + vocabularyCardBaseSize.width,
                 height: vocabularyCardBaseSize.height
             )
         )
@@ -4961,9 +5105,12 @@ private func runVocabularySelfTest() -> Never {
                   petRenderScale: 1,
                   screenVisibleFrame: NSRect(x: 0, y: 0, width: 1_280, height: 720)
               ),
-              abs((card.minX + vocabularyProjectionBeamWidth) -
-                    (pet.maxX + vocabularyCardGapFromPet)) <= 0.01,
-              abs(card.midY - pet.midY) <= 0.01
+              abs((card.minX + vocabularyProjectionReach) -
+                    (laptop.maxX - vocabularyProjectionSourceInset + vocabularyProjectionReach)) <= 0.01,
+              abs((card.minX + vocabularyProjectionReach) - (pet.maxX + pet.width * 0.5)) <= 1.0,
+              abs(card.midY - laptop.midY) <= 0.01,
+              abs(card.width - (vocabularyProjectionReach + vocabularyCardBaseSize.width)) <= 0.01,
+              abs(card.height - vocabularyCardBaseSize.height) <= 0.01
         else { throw NSError(domain: "Vocabulary", code: 3) }
         print("vocabulary-self-test: library=pass remember=pass later=pass laptop-hit=pass projection-anchor=pass")
         exit(0)
@@ -5796,6 +5943,54 @@ private func renderQuotaAirplanePreviewOnce(
     }
 }
 
+private func renderVocabularyProjectionPreviewOnce(to outputPath: String) -> Never {
+    _ = NSApplication.shared
+    let baseSize = NSSize(
+        width: vocabularyProjectionReach + vocabularyCardBaseSize.width,
+        height: vocabularyCardBaseSize.height
+    )
+    let view = VocabularyProjectionView(frame: NSRect(origin: .zero, size: baseSize))
+    view.word = VocabularyWord(
+        id: "serendipity",
+        word: "serendipity",
+        phonetic: "/ˌserənˈdɪpəti/",
+        meaning: "意外发现的美好"
+    )
+    view.dailyCompletedCount = 3
+    view.layoutSubtreeIfNeeded()
+
+    let scale: CGFloat = 4
+    guard let bitmap = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: Int(baseSize.width * scale),
+        pixelsHigh: Int(baseSize.height * scale),
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ) else {
+        fputs("unable to create vocabulary preview canvas\n", stderr)
+        exit(1)
+    }
+    bitmap.size = baseSize
+    view.cacheDisplay(in: view.bounds, to: bitmap)
+    guard let png = bitmap.representation(using: .png, properties: [:]) else {
+        fputs("unable to encode vocabulary preview\n", stderr)
+        exit(1)
+    }
+    do {
+        try png.write(to: URL(fileURLWithPath: outputPath), options: .atomic)
+        print(outputPath)
+        exit(0)
+    } catch {
+        fputs("unable to write vocabulary preview: \(error.localizedDescription)\n", stderr)
+        exit(1)
+    }
+}
+
 private func renderPreviewOnce(to outputPath: String) -> Never {
     _ = NSApplication.shared
     var previewTaskTemplates = [
@@ -5981,6 +6176,12 @@ if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-airplane-pre
         remainingPercent: remaining,
         isFlying: CommandLine.arguments.contains("--flight")
     )
+}
+
+if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-vocabulary-preview"),
+   CommandLine.arguments.indices.contains(previewFlag + 1)
+{
+    renderVocabularyProjectionPreviewOnce(to: CommandLine.arguments[previewFlag + 1])
 }
 
 let application = NSApplication.shared

@@ -39,6 +39,8 @@ jobs:
           "$BIN" --self-test-runtime-geometry | grep 'panel=224x75 gap=14.*uniform-2x=pass'
           "$BIN" --self-test-quota-lightstick | grep 'rewind-no-lightsticks=pass.*chairside-live-no-external-accessories=pass'
           "$BIN" --self-test-vocabulary | grep 'library=pass.*remember=pass.*later=pass.*laptop-hit=pass.*projection-anchor=pass'
+          "$BIN" --render-vocabulary-preview /tmp/orange-bubu-vocabulary.png
+          test -s /tmp/orange-bubu-vocabulary.png
       - name: Build and inspect macOS variants
         run: |
           ./scripts/build-macos-release.sh
