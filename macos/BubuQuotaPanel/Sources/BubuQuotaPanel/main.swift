@@ -176,6 +176,7 @@ private let quotaAirplaneOriginYFromOverlayTop = OrangeBubuRuntimeGeometry.airpl
 private let vocabularyCardBaseSize = OrangeBubuRuntimeGeometry.vocabularyCardSize
 private let vocabularyProjectionReach = OrangeBubuRuntimeGeometry.vocabularyProjectionReach
 private let vocabularyProjectionSourceInset = OrangeBubuRuntimeGeometry.vocabularyProjectionSourceInset
+private let vocabularyDailyGoal = 10
 private let rewindTicketDuration: CFTimeInterval = 0.8
 private let rewindTicketStartXFromOverlayCenter: CGFloat = 96
 
@@ -1919,9 +1920,14 @@ private final class VocabularyLearningStore {
         reloadLibraryIfNeeded(force: true)
     }
 
-    var dailyCompletedCount: Int { state.completedToday }
+    var dailyCompletedCount: Int {
+        resetDailyCounterIfNeeded(now: Date())
+        return state.completedToday
+    }
 
     func nextWord(excluding excludedID: String? = nil, now: Date = Date()) -> VocabularyWord? {
+        resetDailyCounterIfNeeded(now: now)
+        guard state.completedToday < vocabularyDailyGoal else { return nil }
         reloadLibraryIfNeeded(force: false)
         let available = words.filter { word in
             guard let postponed = state.progressByID[word.id]?.postponedUntil else { return true }
@@ -1947,6 +1953,7 @@ private final class VocabularyLearningStore {
 
     func remember(_ word: VocabularyWord, now: Date = Date()) {
         resetDailyCounterIfNeeded(now: now)
+        guard state.completedToday < vocabularyDailyGoal else { return }
         var progress = state.progressByID[word.id] ?? VocabularyProgress()
         progress.masteryCount += 1
         progress.postponedUntil = nil
@@ -1957,7 +1964,7 @@ private final class VocabularyLearningStore {
             to: now
         )
         state.progressByID[word.id] = progress
-        state.completedToday += 1
+        state.completedToday = min(state.completedToday + 1, vocabularyDailyGoal)
         saveState()
     }
 
@@ -1974,9 +1981,12 @@ private final class VocabularyLearningStore {
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "yyyy-MM-dd"
         let day = formatter.string(from: now)
-        guard state.completedDay != day else { return }
-        state.completedDay = day
-        state.completedToday = 0
+        if state.completedDay != day {
+            state.completedDay = day
+            state.completedToday = 0
+        } else {
+            state.completedToday = min(max(state.completedToday, 0), vocabularyDailyGoal)
+        }
     }
 
     private func loadState() {
@@ -1985,7 +1995,12 @@ private final class VocabularyLearningStore {
         decoder.dateDecodingStrategy = .iso8601
         state = (try? decoder.decode(VocabularyLearningState.self, from: data))
             ?? VocabularyLearningState()
+        let loadedDay = state.completedDay
+        let loadedCount = state.completedToday
         resetDailyCounterIfNeeded(now: Date())
+        if state.completedDay != loadedDay || state.completedToday != loadedCount {
+            saveState()
+        }
     }
 
     private func saveState() {
@@ -2062,6 +2077,7 @@ private final class VocabularyProjectionView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
+        guard dailyCompletedCount < vocabularyDailyGoal else { return }
         let point = convert(event.locationInWindow, from: nil)
         if rememberButtonRect.contains(point) {
             onAction?(.remember)
@@ -2072,7 +2088,8 @@ private final class VocabularyProjectionView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard let word else { return }
+        let dailyGoalComplete = dailyCompletedCount >= vocabularyDailyGoal
+        guard word != nil || dailyGoalComplete else { return }
 
         drawProjectionBeam()
         let ticket = ticketPath(in: cardRect)
@@ -2083,6 +2100,25 @@ private final class VocabularyProjectionView: NSView {
         let mutedTeal = NSColor(calibratedRed: 0.19, green: 0.58, blue: 0.61, alpha: 0.87)
         drawText("✿  今日单词", in: NSRect(x: cardRect.minX + 64, y: 15, width: 100, height: 14),
                  font: .systemFont(ofSize: 8.5, weight: .medium), color: mutedTeal, alignment: .center)
+
+        if dailyGoalComplete {
+            drawFittedText("今日完成", in: NSRect(x: cardRect.minX + 30, y: 48, width: 160, height: 30),
+                           preferredSize: 22, minimumSize: 18, weight: .semibold,
+                           color: teal, alignment: .center)
+            drawText("\(vocabularyDailyGoal) / \(vocabularyDailyGoal)",
+                     in: NSRect(x: cardRect.minX + 34, y: 84, width: 152, height: 20),
+                     font: .monospacedDigitSystemFont(ofSize: 14, weight: .semibold),
+                     color: mutedTeal, alignment: .center)
+            drawText("No. 20240520", in: NSRect(x: cardRect.minX + 32, y: 141, width: 86, height: 10),
+                     font: .systemFont(ofSize: 8.2, weight: .medium), color: mutedTeal)
+            drawText("\(vocabularyDailyGoal) / \(vocabularyDailyGoal)",
+                     in: NSRect(x: cardRect.maxX - 46, y: 141, width: 32, height: 10),
+                     font: .monospacedDigitSystemFont(ofSize: 8.5, weight: .semibold),
+                     color: mutedTeal, alignment: .right)
+            return
+        }
+
+        guard let word else { return }
         drawFittedText(word.word, in: NSRect(x: cardRect.minX + 30, y: 35, width: 160, height: 28),
                        preferredSize: 20.5, minimumSize: 16, weight: .semibold, color: teal, alignment: .center)
         drawText(word.phonetic ?? "", in: NSRect(x: cardRect.minX + 34, y: 65, width: 152, height: 17),
@@ -2108,7 +2144,7 @@ private final class VocabularyProjectionView: NSView {
 
         drawText("No. 20240520", in: NSRect(x: cardRect.minX + 32, y: 141, width: 86, height: 10),
                  font: .systemFont(ofSize: 8.2, weight: .medium), color: mutedTeal)
-        drawText("\(dailyCompletedCount) / 10", in: NSRect(x: cardRect.maxX - 46, y: 141, width: 32, height: 10),
+        drawText("\(dailyCompletedCount) / \(vocabularyDailyGoal)", in: NSRect(x: cardRect.maxX - 46, y: 141, width: 32, height: 10),
                  font: .monospacedDigitSystemFont(ofSize: 8.5, weight: .semibold), color: mutedTeal, alignment: .right)
     }
 
@@ -4431,15 +4467,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        if currentVocabularyWord == nil {
+        let dailyGoalComplete = vocabularyStore.dailyCompletedCount >= vocabularyDailyGoal
+        if dailyGoalComplete {
+            currentVocabularyWord = nil
+        } else if currentVocabularyWord == nil {
             currentVocabularyWord = vocabularyStore.nextWord()
         }
-        guard let currentVocabularyWord else {
+        if !dailyGoalComplete && currentVocabularyWord == nil {
             vocabularyProjectionPanel.orderOut(nil)
             return
         }
 
-        vocabularyProjectionView.word = currentVocabularyWord
+        vocabularyProjectionView.word = dailyGoalComplete ? nil : currentVocabularyWord
         vocabularyProjectionView.dailyCompletedCount = vocabularyStore.dailyCompletedCount
         if !rectApproximatelyEqual(vocabularyProjectionPanel.frame, frame) {
             vocabularyProjectionPanel.setFrame(frame, display: false)
@@ -5097,6 +5136,14 @@ private func runVocabularySelfTest() -> Never {
               let second = store.nextWord(excluding: first.id), second.id != first.id
         else { throw NSError(domain: "Vocabulary", code: 2) }
         store.learnLater(second)
+        while store.dailyCompletedCount < vocabularyDailyGoal {
+            guard let next = store.nextWord() else { throw NSError(domain: "Vocabulary", code: 4) }
+            store.remember(next)
+        }
+        store.remember(first)
+        guard store.dailyCompletedCount == vocabularyDailyGoal,
+              store.nextWord() == nil
+        else { throw NSError(domain: "Vocabulary", code: 5) }
 
         let pet = NSRect(x: 420, y: 210, width: 163, height: 177)
         let laptop = vocabularyLaptopHoverRect(for: pet)
@@ -5113,7 +5160,7 @@ private func runVocabularySelfTest() -> Never {
               abs(card.width - (vocabularyProjectionReach + vocabularyCardBaseSize.width)) <= 0.01,
               abs(card.height - vocabularyCardBaseSize.height) <= 0.01
         else { throw NSError(domain: "Vocabulary", code: 3) }
-        print("vocabulary-self-test: library=pass remember=pass later=pass laptop-hit=pass projection-anchor=pass")
+        print("vocabulary-self-test: library=pass remember=pass later=pass daily-limit=pass laptop-hit=pass projection-anchor=pass")
         exit(0)
     } catch {
         fputs("vocabulary self-test failed: \(error.localizedDescription)\n", stderr)
@@ -5944,20 +5991,25 @@ private func renderQuotaAirplanePreviewOnce(
     }
 }
 
-private func renderVocabularyProjectionPreviewOnce(to outputPath: String) -> Never {
+private func renderVocabularyProjectionPreviewOnce(
+    to outputPath: String,
+    dailyCompletedCount: Int = 3
+) -> Never {
     _ = NSApplication.shared
     let baseSize = NSSize(
         width: vocabularyProjectionReach + vocabularyCardBaseSize.width,
         height: vocabularyCardBaseSize.height
     )
     let view = VocabularyProjectionView(frame: NSRect(origin: .zero, size: baseSize))
-    view.word = VocabularyWord(
-        id: "serendipity",
-        word: "serendipity",
-        phonetic: "/ˌserənˈdɪpəti/",
-        meaning: "意外发现的美好"
-    )
-    view.dailyCompletedCount = 3
+    if dailyCompletedCount < vocabularyDailyGoal {
+        view.word = VocabularyWord(
+            id: "serendipity",
+            word: "serendipity",
+            phonetic: "/ˌserənˈdɪpəti/",
+            meaning: "意外发现的美好"
+        )
+    }
+    view.dailyCompletedCount = dailyCompletedCount
     view.layoutSubtreeIfNeeded()
 
     let scale: CGFloat = 4
@@ -6182,7 +6234,12 @@ if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-airplane-pre
 if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-vocabulary-preview"),
    CommandLine.arguments.indices.contains(previewFlag + 1)
 {
-    renderVocabularyProjectionPreviewOnce(to: CommandLine.arguments[previewFlag + 1])
+    renderVocabularyProjectionPreviewOnce(
+        to: CommandLine.arguments[previewFlag + 1],
+        dailyCompletedCount: CommandLine.arguments.contains("--vocabulary-completed")
+            ? vocabularyDailyGoal
+            : 3
+    )
 }
 
 let application = NSApplication.shared

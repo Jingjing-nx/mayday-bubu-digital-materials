@@ -773,6 +773,7 @@ $script:VocabularyBaseWidth = 309.0
 $script:VocabularyBaseHeight = 154.0
 $script:VocabularyProjectionReach = 91.0
 $script:VocabularyProjectionSourceInset = 6.0
+$script:VocabularyDailyGoal = 10
 $script:VocabularyRoot = Join-Path $env:APPDATA "OrangeBubuQuotaPanel"
 $script:VocabularyProgressPath = Join-Path $script:VocabularyRoot "vocabulary-progress.json"
 $script:VocabularyLibraryPath = if ($env:BUBU_VOCABULARY_PATH) {
@@ -850,6 +851,9 @@ function Reset-VocabularyDailyCounter([DateTime]$now = [DateTime]::Now) {
         $script:VocabularyCompletedDay = $day
         $script:VocabularyCompletedToday = 0
     }
+    $script:VocabularyCompletedToday = [Math]::Max(
+        0, [Math]::Min($script:VocabularyDailyGoal, [int]$script:VocabularyCompletedToday)
+    )
 }
 
 function Get-VocabularyProgress([string]$id) {
@@ -868,7 +872,8 @@ function Load-VocabularyProgress {
     try {
         $raw = [IO.File]::ReadAllText($script:VocabularyProgressPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
         $script:VocabularyCompletedDay = [string]$raw.completedDay
-        $script:VocabularyCompletedToday = [int]$raw.completedToday
+        $loadedCompletedToday = [int]$raw.completedToday
+        $script:VocabularyCompletedToday = $loadedCompletedToday
         if ($raw.progressById) {
             foreach ($property in $raw.progressById.PSObject.Properties) {
                 $value = $property.Value
@@ -883,6 +888,9 @@ function Load-VocabularyProgress {
         Write-PanelLog ("VOCABULARY progress read failed=" + $_.Exception.Message)
     }
     Reset-VocabularyDailyCounter
+    if ($null -ne $loadedCompletedToday -and $script:VocabularyCompletedToday -ne $loadedCompletedToday) {
+        Save-VocabularyProgress
+    }
 }
 
 function Save-VocabularyProgress {
@@ -913,6 +921,8 @@ function ConvertTo-VocabularyDate($value) {
 }
 
 function Get-NextVocabularyWord([string]$excludingId = "", [DateTime]$now = [DateTime]::Now) {
+    Reset-VocabularyDailyCounter $now
+    if ($script:VocabularyCompletedToday -ge $script:VocabularyDailyGoal) { return $null }
     Import-VocabularyLibrary
     $available = @($script:VocabularyWords | Where-Object {
         $progress = Get-VocabularyProgress ([string]$_.Id)
@@ -939,13 +949,16 @@ function Get-NextVocabularyWord([string]$excludingId = "", [DateTime]$now = [Dat
 function Remember-VocabularyWord($word, [DateTime]$now = [DateTime]::Now) {
     if (-not $word) { return }
     Reset-VocabularyDailyCounter $now
+    if ($script:VocabularyCompletedToday -ge $script:VocabularyDailyGoal) { return }
     $progress = Get-VocabularyProgress ([string]$word.Id)
     $progress.masteryCount = [int]$progress.masteryCount + 1
     $progress.postponedUntil = $null
     $intervals = @(1, 3, 7, 30)
     $interval = $intervals[[Math]::Min([int]$progress.masteryCount - 1, $intervals.Count - 1)]
     $progress.nextReviewAt = $now.AddDays($interval).ToString("o", [Globalization.CultureInfo]::InvariantCulture)
-    $script:VocabularyCompletedToday++
+    $script:VocabularyCompletedToday = [Math]::Min(
+        $script:VocabularyDailyGoal, [int]$script:VocabularyCompletedToday + 1
+    )
     Save-VocabularyProgress
 }
 
@@ -3225,11 +3238,22 @@ function Get-VocabularyProjectionPlacement($laptop, $nativeWindow) {
 }
 
 function Update-VocabularyProjectionText {
+    $completed = [Math]::Min($script:VocabularyDailyGoal, [int]$script:VocabularyCompletedToday)
+    $script:VocabularyProjection.DailyText.Text = ([string]$completed + " / " + [string]$script:VocabularyDailyGoal)
+    if ($completed -ge $script:VocabularyDailyGoal) {
+        $script:VocabularyProjection.WordText.Text = "今日完成"
+        $script:VocabularyProjection.PhoneticText.Text = ([string]$script:VocabularyDailyGoal + " / " + [string]$script:VocabularyDailyGoal)
+        $script:VocabularyProjection.MeaningText.Text = ""
+        $script:VocabularyProjection.RememberButton.Visibility = [Windows.Visibility]::Collapsed
+        $script:VocabularyProjection.LaterButton.Visibility = [Windows.Visibility]::Collapsed
+        return
+    }
     if (-not $script:VocabularyCurrentWord) { return }
+    $script:VocabularyProjection.RememberButton.Visibility = [Windows.Visibility]::Visible
+    $script:VocabularyProjection.LaterButton.Visibility = [Windows.Visibility]::Visible
     $script:VocabularyProjection.WordText.Text = [string]$script:VocabularyCurrentWord.Word
     $script:VocabularyProjection.PhoneticText.Text = [string]$script:VocabularyCurrentWord.Phonetic
     $script:VocabularyProjection.MeaningText.Text = [string]$script:VocabularyCurrentWord.Meaning
-    $script:VocabularyProjection.DailyText.Text = ([string]$script:VocabularyCompletedToday + " / 10")
 }
 
 function Hide-VocabularyProjectionWindow {
@@ -3261,10 +3285,14 @@ function Update-VocabularyProjectionAtPet($anchor, $visualMetrics, [double]$petS
         Hide-VocabularyProjectionWindow
         return
     }
-    if (-not $script:VocabularyCurrentWord) {
+    Reset-VocabularyDailyCounter
+    $dailyGoalComplete = $script:VocabularyCompletedToday -ge $script:VocabularyDailyGoal
+    if ($dailyGoalComplete) {
+        $script:VocabularyCurrentWord = $null
+    } elseif (-not $script:VocabularyCurrentWord) {
         $script:VocabularyCurrentWord = Get-NextVocabularyWord
     }
-    if (-not $script:VocabularyCurrentWord) {
+    if (-not $dailyGoalComplete -and -not $script:VocabularyCurrentWord) {
         Hide-VocabularyProjectionWindow
         return
     }
@@ -4286,6 +4314,15 @@ if ($ValidateVocabulary) {
             throw "Vocabulary remember queue failed."
         }
         Postpone-VocabularyWord $second
+        while ($script:VocabularyCompletedToday -lt $script:VocabularyDailyGoal) {
+            $next = Get-NextVocabularyWord
+            if (-not $next) { throw "Vocabulary daily limit stopped too early." }
+            Remember-VocabularyWord $next
+        }
+        Remember-VocabularyWord $first
+        if ($script:VocabularyCompletedToday -ne $script:VocabularyDailyGoal -or (Get-NextVocabularyWord)) {
+            throw "Vocabulary daily limit failed."
+        }
         $anchor = [PSCustomObject]@{ CenterX = 500.0; Top = 200.0 }
         $laptop = Get-VocabularyLaptopRectFromPet $anchor $null 1.0 96.0
         $projection = Get-VocabularyProjectionPlacement $laptop ([PSCustomObject]@{
@@ -4299,7 +4336,7 @@ if ($ValidateVocabulary) {
                 ([double]$anchor.CenterX + $script:CanonicalPetWidth * 0.5 + $script:CanonicalPetWidth * 0.25)) -gt 1.0) {
             throw "Vocabulary laptop hit or projection anchor failed."
         }
-        Write-Output "vocabulary-validation: library=pass remember=pass later=pass laptop-hit=pass projection-anchor=pass"
+        Write-Output "vocabulary-validation: library=pass remember=pass later=pass daily-limit=pass laptop-hit=pass projection-anchor=pass"
     } finally {
         Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
         $script:Window.Close()
