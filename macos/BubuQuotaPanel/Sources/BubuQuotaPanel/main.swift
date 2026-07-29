@@ -55,6 +55,13 @@ private enum OrangeBubuRuntimeGeometry {
     static let airplaneBaseSize = NSSize(width: 78, height: 65)
     static let airplaneOriginXFromOverlayCenter: CGFloat = -130
     static let airplaneOriginYFromOverlayTop: CGFloat = -105
+
+    // Hovering Bubu's laptop projects a compact vocabulary ticket into the
+    // deliberately empty right-hand interaction zone. These values are in the
+    // same logical point coordinate system as the panel and its accessories.
+    static let vocabularyCardSize = NSSize(width: 172, height: 112)
+    static let vocabularyProjectionBeamWidth: CGFloat = 24
+    static let vocabularyCardGapFromPet: CGFloat = 18
 }
 
 private let taskProgressRowHeight = OrangeBubuRuntimeGeometry.taskProgressRowHeight
@@ -163,6 +170,9 @@ private let quotaLightstickRightProductOffsetX = OrangeBubuRuntimeGeometry.light
 private let quotaAirplaneBaseSize = OrangeBubuRuntimeGeometry.airplaneBaseSize
 private let quotaAirplaneOriginXFromOverlayCenter = OrangeBubuRuntimeGeometry.airplaneOriginXFromOverlayCenter
 private let quotaAirplaneOriginYFromOverlayTop = OrangeBubuRuntimeGeometry.airplaneOriginYFromOverlayTop
+private let vocabularyCardBaseSize = OrangeBubuRuntimeGeometry.vocabularyCardSize
+private let vocabularyProjectionBeamWidth = OrangeBubuRuntimeGeometry.vocabularyProjectionBeamWidth
+private let vocabularyCardGapFromPet = OrangeBubuRuntimeGeometry.vocabularyCardGapFromPet
 private let rewindTicketDuration: CFTimeInterval = 0.8
 private let rewindTicketStartXFromOverlayCenter: CGFloat = 96
 
@@ -479,6 +489,46 @@ private func shouldTogglePanelForPetDoubleClick(
     petVisibleRect: NSRect
 ) -> Bool {
     clickCount == 2 && petVisibleRect.contains(clickLocation)
+}
+
+/// The laptop is the only hover target. Keeping this sub-rect distinct from
+/// the rest of Bubu's body prevents a single or double click on the learning
+/// surface from starting a drag or toggling the quota panel.
+private func vocabularyLaptopHoverRect(for petVisibleRect: NSRect) -> NSRect {
+    NSRect(
+        x: petVisibleRect.minX + petVisibleRect.width * 0.27,
+        y: petVisibleRect.minY + petVisibleRect.height * 0.22,
+        width: petVisibleRect.width * 0.46,
+        height: petVisibleRect.height * 0.31
+    )
+}
+
+private func vocabularyProjectionFrame(
+    petVisibleRect: NSRect,
+    petRenderScale: CGFloat,
+    screenVisibleFrame: NSRect
+) -> NSRect? {
+    let scale = normalizedPanelScale(petRenderScale)
+    let beamWidth = vocabularyProjectionBeamWidth * scale
+    let cardSize = scaledPanelSize(vocabularyCardBaseSize, scale: scale)
+    let size = NSSize(width: beamWidth + cardSize.width, height: cardSize.height)
+    // The ticket itself begins 18 logical points right of Bubu's visible
+    // chair/body bounds; the beam may overlap the laptop edge by a few points.
+    let origin = NSPoint(
+        x: petVisibleRect.maxX + vocabularyCardGapFromPet * scale - beamWidth,
+        y: petVisibleRect.midY - size.height / 2
+    )
+    let frame = NSRect(origin: origin, size: size)
+    let margin: CGFloat = 6 * scale
+    guard frame.minY >= screenVisibleFrame.minY + margin,
+          frame.maxY <= screenVisibleFrame.maxY - margin,
+          frame.maxX <= screenVisibleFrame.maxX - margin
+    else {
+        // Do not move the ticket onto Bubu's left-side props at a screen edge.
+        // The hover card simply waits until the pet has a usable right zone.
+        return nil
+    }
+    return frame
 }
 
 private final class RuntimeHealthWriter {
@@ -1704,6 +1754,445 @@ private final class QuotaAirplaneView: NSView {
             fill.lineWidth = 0.95
             fill.stroke()
         }
+    }
+}
+
+// MARK: - Vocabulary learning projection
+
+/// The word-list format deliberately stays tiny so a user can replace it with
+/// a JSON file later without needing an account or network service. The
+/// supported root shape is either `[VocabularyWord]` or `{ "words": [...] }`.
+private struct VocabularyWord: Codable, Equatable {
+    let id: String
+    let word: String
+    let phonetic: String?
+    let meaning: String
+    let example: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, word, phonetic, meaning, definition, translation, example
+    }
+
+    init(
+        id: String,
+        word: String,
+        phonetic: String? = nil,
+        meaning: String,
+        example: String? = nil
+    ) {
+        self.id = id
+        self.word = word
+        self.phonetic = phonetic
+        self.meaning = meaning
+        self.example = example
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let rawWord = try container.decode(String.self, forKey: .word)
+        let normalizedWord = rawWord.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedWord.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .word,
+                in: container,
+                debugDescription: "Vocabulary word must not be empty."
+            )
+        }
+        word = normalizedWord
+        let importedID = try container.decodeIfPresent(String.self, forKey: .id)
+        id = importedID?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nonEmpty ?? normalizedWord.lowercased()
+        phonetic = try container.decodeIfPresent(String.self, forKey: .phonetic)
+        let directMeaning = try container.decodeIfPresent(String.self, forKey: .meaning)
+        let definition = try container.decodeIfPresent(String.self, forKey: .definition)
+        let translation = try container.decodeIfPresent(String.self, forKey: .translation)
+        meaning = directMeaning ?? definition ?? translation ?? ""
+        example = try container.decodeIfPresent(String.self, forKey: .example)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(word, forKey: .word)
+        try container.encodeIfPresent(phonetic, forKey: .phonetic)
+        try container.encode(meaning, forKey: .meaning)
+        try container.encodeIfPresent(example, forKey: .example)
+    }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
+}
+
+private struct VocabularyLibraryDocument: Codable {
+    let words: [VocabularyWord]
+}
+
+private struct VocabularyProgress: Codable {
+    var masteryCount = 0
+    var nextReviewAt: Date?
+    var postponedUntil: Date?
+}
+
+private struct VocabularyLearningState: Codable {
+    var schemaVersion = 1
+    var progressByID: [String: VocabularyProgress] = [:]
+    var completedDay = ""
+    var completedToday = 0
+}
+
+private enum VocabularyAction {
+    case remember
+    case later
+}
+
+/// A small local spaced-repetition queue. It first serves due reviews, then
+/// unseen words; "等会再学" only postpones the word and never records a failure.
+private final class VocabularyLearningStore {
+    private static let reviewIntervalsInDays = [1, 3, 7, 30]
+    private static let fallbackWords = [
+        VocabularyWord(
+            id: "serendipity",
+            word: "serendipity",
+            phonetic: "/ˌserənˈdɪpəti/",
+            meaning: "意外发现的美好",
+            example: "A happy serendipity."
+        ),
+        VocabularyWord(
+            id: "resilient",
+            word: "resilient",
+            phonetic: "/rɪˈzɪliənt/",
+            meaning: "有韧性的；能迅速恢复的"
+        ),
+        VocabularyWord(
+            id: "curious",
+            word: "curious",
+            phonetic: "/ˈkjʊəriəs/",
+            meaning: "好奇的"
+        ),
+        VocabularyWord(
+            id: "clarity",
+            word: "clarity",
+            phonetic: "/ˈklærəti/",
+            meaning: "清晰；明晰"
+        ),
+        VocabularyWord(
+            id: "journey",
+            word: "journey",
+            phonetic: "/ˈdʒɜːrni/",
+            meaning: "旅程；历程"
+        ),
+    ]
+
+    private let stateURL: URL
+    private let libraryURL: URL?
+    private var state = VocabularyLearningState()
+    private var words = VocabularyLearningStore.fallbackWords
+    private var lastLibraryModifiedAt: Date?
+
+    init(stateURL: URL? = nil, libraryURL: URL? = nil) {
+        let applicationSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? FileManager.default.homeDirectoryForCurrentUser
+        let root = applicationSupport
+            .appendingPathComponent("io.github.mayday-materials.orange-bubu-quota-panel")
+        self.stateURL = stateURL ?? root.appendingPathComponent("vocabulary-progress.json")
+
+        if let libraryURL {
+            self.libraryURL = libraryURL
+        } else if let override = ProcessInfo.processInfo.environment["BUBU_VOCABULARY_PATH"],
+                  !override.isEmpty
+        {
+            self.libraryURL = URL(fileURLWithPath: override)
+        } else {
+            self.libraryURL = root.appendingPathComponent("vocabulary.json")
+        }
+
+        loadState()
+        reloadLibraryIfNeeded(force: true)
+    }
+
+    var dailyCompletedCount: Int { state.completedToday }
+
+    func nextWord(excluding excludedID: String? = nil, now: Date = Date()) -> VocabularyWord? {
+        reloadLibraryIfNeeded(force: false)
+        let available = words.filter { word in
+            guard let postponed = state.progressByID[word.id]?.postponedUntil else { return true }
+            return postponed <= now
+        }
+        guard !available.isEmpty else { return nil }
+
+        let due = available.filter { word in
+            guard let progress = state.progressByID[word.id], progress.masteryCount > 0,
+                  let nextReviewAt = progress.nextReviewAt
+            else { return false }
+            return nextReviewAt <= now
+        }
+        let unseen = available.filter { state.progressByID[$0.id]?.masteryCount ?? 0 == 0 }
+        let pool = !due.isEmpty ? due : (!unseen.isEmpty ? unseen : available)
+        let sorted = pool.sorted { lhs, rhs in
+            let lhsDate = state.progressByID[lhs.id]?.nextReviewAt ?? .distantPast
+            let rhsDate = state.progressByID[rhs.id]?.nextReviewAt ?? .distantPast
+            return lhsDate == rhsDate ? lhs.word < rhs.word : lhsDate < rhsDate
+        }
+        return sorted.first(where: { $0.id != excludedID }) ?? sorted.first
+    }
+
+    func remember(_ word: VocabularyWord, now: Date = Date()) {
+        resetDailyCounterIfNeeded(now: now)
+        var progress = state.progressByID[word.id] ?? VocabularyProgress()
+        progress.masteryCount += 1
+        progress.postponedUntil = nil
+        let intervalIndex = min(progress.masteryCount - 1, Self.reviewIntervalsInDays.count - 1)
+        progress.nextReviewAt = Calendar.current.date(
+            byAdding: .day,
+            value: Self.reviewIntervalsInDays[intervalIndex],
+            to: now
+        )
+        state.progressByID[word.id] = progress
+        state.completedToday += 1
+        saveState()
+    }
+
+    func learnLater(_ word: VocabularyWord, now: Date = Date()) {
+        var progress = state.progressByID[word.id] ?? VocabularyProgress()
+        progress.postponedUntil = now.addingTimeInterval(15 * 60)
+        state.progressByID[word.id] = progress
+        saveState()
+    }
+
+    private func resetDailyCounterIfNeeded(now: Date) {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "yyyy-MM-dd"
+        let day = formatter.string(from: now)
+        guard state.completedDay != day else { return }
+        state.completedDay = day
+        state.completedToday = 0
+    }
+
+    private func loadState() {
+        guard let data = try? Data(contentsOf: stateURL) else { return }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        state = (try? decoder.decode(VocabularyLearningState.self, from: data))
+            ?? VocabularyLearningState()
+        resetDailyCounterIfNeeded(now: Date())
+    }
+
+    private func saveState() {
+        do {
+            try FileManager.default.createDirectory(
+                at: stateURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(state).write(to: stateURL, options: .atomic)
+        } catch {
+            NSLog("Orange Bubu vocabulary state could not be saved: \(error.localizedDescription)")
+        }
+    }
+
+    private func reloadLibraryIfNeeded(force: Bool) {
+        guard let libraryURL,
+              FileManager.default.fileExists(atPath: libraryURL.path)
+        else { return }
+        let modifiedAt = (try? libraryURL.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate
+        guard force || modifiedAt != lastLibraryModifiedAt else { return }
+        do {
+            let data = try Data(contentsOf: libraryURL)
+            let decoder = JSONDecoder()
+            let imported: [VocabularyWord]
+            if let document = try? decoder.decode(VocabularyLibraryDocument.self, from: data) {
+                imported = document.words
+            } else {
+                imported = try decoder.decode([VocabularyWord].self, from: data)
+            }
+            let unique = Dictionary(grouping: imported.filter { !$0.meaning.isEmpty }, by: \.id)
+                .compactMap { $0.value.first }
+            if !unique.isEmpty {
+                words = unique.sorted { $0.word < $1.word }
+                lastLibraryModifiedAt = modifiedAt
+            }
+        } catch {
+            NSLog("Orange Bubu vocabulary library could not be read: \(error.localizedDescription)")
+        }
+    }
+}
+
+private final class VocabularyProjectionView: NSView {
+    var word: VocabularyWord? { didSet { needsDisplay = true } }
+    var dailyCompletedCount = 0 { didSet { needsDisplay = true } }
+    var onAction: ((VocabularyAction) -> Void)?
+
+    override var isFlipped: Bool { true }
+
+    private var cardRect: NSRect {
+        NSRect(
+            x: vocabularyProjectionBeamWidth,
+            y: 0,
+            width: vocabularyCardBaseSize.width,
+            height: vocabularyCardBaseSize.height
+        )
+    }
+
+    private var rememberButtonRect: NSRect {
+        NSRect(x: cardRect.minX + 56, y: cardRect.minY + 75, width: 48, height: 21)
+    }
+
+    private var laterButtonRect: NSRect {
+        NSRect(x: cardRect.minX + 110, y: cardRect.minY + 75, width: 52, height: 21)
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if rememberButtonRect.contains(point) {
+            onAction?(.remember)
+        } else if laterButtonRect.contains(point) {
+            onAction?(.later)
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let word else { return }
+
+        drawProjectionBeam()
+        let ticket = ticketPath(in: cardRect)
+        NSGraphicsContext.current?.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor(calibratedWhite: 0.12, alpha: 0.18)
+        shadow.shadowBlurRadius = 8
+        shadow.shadowOffset = NSSize(width: 0, height: 3)
+        shadow.set()
+        NSColor(calibratedRed: 1.00, green: 0.995, blue: 0.975, alpha: 0.97).setFill()
+        ticket.fill()
+        NSGraphicsContext.current?.restoreGraphicsState()
+
+        // Only the ticket notches receive cyan light; the card intentionally
+        // has no enclosing neon outline.
+        let accent = NSBezierPath()
+        accent.move(to: NSPoint(x: cardRect.minX + 0.7, y: 16))
+        accent.line(to: NSPoint(x: cardRect.minX + 0.7, y: 32))
+        accent.move(to: NSPoint(x: cardRect.minX + 0.7, y: 80))
+        accent.line(to: NSPoint(x: cardRect.minX + 0.7, y: 96))
+        NSColor(calibratedRed: 0.27, green: 0.87, blue: 0.94, alpha: 0.82).setStroke()
+        accent.lineWidth = 1.4
+        accent.stroke()
+
+        drawText("✦  今日单词", in: NSRect(x: cardRect.minX + 38, y: 14, width: 90, height: 14),
+                 font: .systemFont(ofSize: 8.5, weight: .medium),
+                 color: NSColor(calibratedRed: 0.26, green: 0.54, blue: 0.57, alpha: 0.85))
+        drawText(word.word, in: NSRect(x: cardRect.minX + 38, y: 31, width: 122, height: 24),
+                 font: .systemFont(ofSize: 18, weight: .semibold),
+                 color: NSColor(calibratedRed: 0.05, green: 0.55, blue: 0.59, alpha: 0.96))
+        drawText(word.phonetic ?? "", in: NSRect(x: cardRect.minX + 38, y: 56, width: 122, height: 14),
+                 font: .systemFont(ofSize: 9.5, weight: .regular),
+                 color: NSColor(calibratedRed: 0.10, green: 0.57, blue: 0.62, alpha: 0.90))
+        drawText(word.meaning, in: NSRect(x: cardRect.minX + 38, y: 68, width: 122, height: 16),
+                 font: .systemFont(ofSize: 10.5, weight: .medium),
+                 color: NSColor(calibratedWhite: 0.18, alpha: 0.92))
+
+        let rememberedPath = NSBezierPath(roundedRect: rememberButtonRect, xRadius: 10.5, yRadius: 10.5)
+        NSColor(calibratedRed: 0.05, green: 0.64, blue: 0.68, alpha: 0.92).setFill()
+        rememberedPath.fill()
+        drawCenteredText("记住啦", in: rememberButtonRect, font: .systemFont(ofSize: 9.5, weight: .semibold), color: .white)
+
+        let laterPath = NSBezierPath(roundedRect: laterButtonRect, xRadius: 10.5, yRadius: 10.5)
+        NSColor(calibratedRed: 0.05, green: 0.60, blue: 0.66, alpha: 0.72).setStroke()
+        laterPath.lineWidth = 0.9
+        laterPath.stroke()
+        drawCenteredText("等会再学", in: laterButtonRect, font: .systemFont(ofSize: 8.7, weight: .medium),
+                         color: NSColor(calibratedRed: 0.06, green: 0.50, blue: 0.56, alpha: 0.92))
+
+        drawText("\(dailyCompletedCount) / 10", in: NSRect(x: cardRect.maxX - 34, y: 99, width: 27, height: 10),
+                 font: .monospacedDigitSystemFont(ofSize: 7.5, weight: .medium),
+                 color: NSColor(calibratedRed: 0.07, green: 0.55, blue: 0.60, alpha: 0.84), alignment: .right)
+    }
+
+    private func drawProjectionBeam() {
+        let beam = NSBezierPath()
+        beam.move(to: NSPoint(x: 0, y: bounds.midY))
+        beam.line(to: NSPoint(x: vocabularyProjectionBeamWidth + 3, y: bounds.midY - 24))
+        beam.line(to: NSPoint(x: vocabularyProjectionBeamWidth + 3, y: bounds.midY + 24))
+        beam.close()
+        NSColor(calibratedRed: 0.22, green: 0.90, blue: 1.00, alpha: 0.16).setFill()
+        beam.fill()
+
+        for (index, yOffset) in [-13.0, 0.0, 13.0].enumerated() {
+            let dot = NSBezierPath(ovalIn: NSRect(x: 7 + CGFloat(index) * 5, y: bounds.midY + yOffset, width: 2.6, height: 2.6))
+            NSColor(calibratedRed: 0.45, green: 0.94, blue: 1.00, alpha: 0.76 - CGFloat(index) * 0.12).setFill()
+            dot.fill()
+        }
+    }
+
+    private func ticketPath(in rect: NSRect) -> NSBezierPath {
+        let radius: CGFloat = 11
+        let notchCenter = rect.midY
+        let notchRadius: CGFloat = 10
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: rect.minX + radius, y: rect.minY))
+        path.line(to: NSPoint(x: rect.maxX - radius, y: rect.minY))
+        path.curve(to: NSPoint(x: rect.maxX, y: rect.minY + radius),
+                   controlPoint1: NSPoint(x: rect.maxX - 3, y: rect.minY),
+                   controlPoint2: NSPoint(x: rect.maxX, y: rect.minY + 3))
+        path.line(to: NSPoint(x: rect.maxX, y: rect.maxY - radius))
+        path.curve(to: NSPoint(x: rect.maxX - radius, y: rect.maxY),
+                   controlPoint1: NSPoint(x: rect.maxX, y: rect.maxY - 3),
+                   controlPoint2: NSPoint(x: rect.maxX - 3, y: rect.maxY))
+        path.line(to: NSPoint(x: rect.minX + radius, y: rect.maxY))
+        path.curve(to: NSPoint(x: rect.minX, y: rect.maxY - radius),
+                   controlPoint1: NSPoint(x: rect.minX + 3, y: rect.maxY),
+                   controlPoint2: NSPoint(x: rect.minX, y: rect.maxY - 3))
+        path.line(to: NSPoint(x: rect.minX, y: notchCenter + notchRadius))
+        path.curve(to: NSPoint(x: rect.minX + notchRadius, y: notchCenter),
+                   controlPoint1: NSPoint(x: rect.minX + notchRadius, y: notchCenter + notchRadius),
+                   controlPoint2: NSPoint(x: rect.minX + notchRadius, y: notchCenter + 3))
+        path.curve(to: NSPoint(x: rect.minX, y: notchCenter - notchRadius),
+                   controlPoint1: NSPoint(x: rect.minX + notchRadius, y: notchCenter - 3),
+                   controlPoint2: NSPoint(x: rect.minX + notchRadius, y: notchCenter - notchRadius))
+        path.line(to: NSPoint(x: rect.minX, y: rect.minY + radius))
+        path.curve(to: NSPoint(x: rect.minX + radius, y: rect.minY),
+                   controlPoint1: NSPoint(x: rect.minX, y: rect.minY + 3),
+                   controlPoint2: NSPoint(x: rect.minX + 3, y: rect.minY))
+        path.close()
+        return path
+    }
+
+    private func drawText(
+        _ text: String,
+        in rect: NSRect,
+        font: NSFont,
+        color: NSColor,
+        alignment: NSTextAlignment = .left
+    ) {
+        let style = NSMutableParagraphStyle()
+        style.alignment = alignment
+        style.lineBreakMode = .byTruncatingTail
+        text.draw(in: rect, withAttributes: [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: style,
+        ])
+    }
+
+    private func drawCenteredText(_ text: String, in rect: NSRect, font: NSFont, color: NSColor) {
+        let style = NSMutableParagraphStyle()
+        style.alignment = .center
+        style.lineBreakMode = .byClipping
+        let size = text.size(withAttributes: [.font: font])
+        text.draw(
+            in: NSRect(x: rect.minX, y: rect.midY - size.height / 2 - 0.5, width: rect.width, height: size.height + 2),
+            withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: style]
+        )
     }
 }
 
@@ -3437,6 +3926,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let locator = PetWindowLocator()
     private let healthWriter = RuntimeHealthWriter()
     private let petSelectionStore = PetSelectionStore()
+    private let vocabularyStore = VocabularyLearningStore()
     private let quotaView = QuotaPanelView(frame: NSRect(origin: .zero, size: expandedPanelSize))
     private let quotaLightstickView = QuotaLightstickView(
         frame: NSRect(origin: .zero, size: quotaLightstickBaseSize)
@@ -3447,10 +3937,20 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let quotaAirplaneView = QuotaAirplaneView(
         frame: NSRect(origin: .zero, size: quotaAirplaneBaseSize)
     )
+    private let vocabularyProjectionView = VocabularyProjectionView(
+        frame: NSRect(
+            origin: .zero,
+            size: NSSize(
+                width: vocabularyProjectionBeamWidth + vocabularyCardBaseSize.width,
+                height: vocabularyCardBaseSize.height
+            )
+        )
+    )
     private var panel: NSPanel!
     private var quotaLightstickPanel: NSPanel!
     private var secondaryQuotaLightstickPanel: NSPanel!
     private var quotaAirplanePanel: NSPanel!
+    private var vocabularyProjectionPanel: NSPanel!
     private var statusItem: NSStatusItem?
     private var refreshTimer: Timer?
     private var taskProgressTimer: Timer?
@@ -3475,6 +3975,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var currentPanelScale: CGFloat = 1
     private var currentBasePanelSize = expandedPanelSize
     private var isPanelHiddenByUser = false
+    private var currentVocabularyWord: VocabularyWord?
+    private var vocabularyDismissedUntilMouseLeaves = false
     private var cachedCodexDesktopRunning = false
     private var lastCodexDesktopCheckAt: CFAbsoluteTime = 0
 
@@ -3486,6 +3988,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         quotaView.selectedSkin = .orange
         makePanel()
         makeQuotaLightstickPanel()
+        makeVocabularyProjectionPanel()
         makeStatusItem()
         startCodexLifecycleObserver()
         startScreenConfigurationObserver()
@@ -3603,12 +4106,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         quotaLightstickPanel?.orderOut(nil)
         secondaryQuotaLightstickPanel?.orderOut(nil)
         quotaAirplanePanel?.orderOut(nil)
+        vocabularyProjectionPanel?.orderOut(nil)
         quotaAirplaneView.isFlying = false
         if resetGestureState {
             petDragStart = nil
             fastFollowUntil = 0
             quotaLightstickMode = .chair
             rewindTicketStartedAt = nil
+            currentVocabularyWord = nil
+            vocabularyDismissedUntilMouseLeaves = false
         }
     }
 
@@ -3729,6 +4235,106 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         ]
     }
 
+    private func makeVocabularyProjectionPanel() {
+        let baseSize = vocabularyProjectionView.bounds.size
+        vocabularyProjectionPanel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: baseSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        vocabularyProjectionPanel.contentView = vocabularyProjectionView
+        vocabularyProjectionPanel.isOpaque = false
+        vocabularyProjectionPanel.backgroundColor = .clear
+        vocabularyProjectionPanel.hasShadow = false
+        vocabularyProjectionPanel.level = .statusBar
+        vocabularyProjectionPanel.hidesOnDeactivate = false
+        vocabularyProjectionPanel.ignoresMouseEvents = false
+        vocabularyProjectionPanel.isMovable = false
+        vocabularyProjectionPanel.isReleasedWhenClosed = false
+        vocabularyProjectionPanel.isFloatingPanel = true
+        vocabularyProjectionPanel.becomesKeyOnlyIfNeeded = true
+        vocabularyProjectionPanel.collectionBehavior = [
+            .canJoinAllSpaces, .fullScreenAuxiliary, .stationary,
+        ]
+        vocabularyProjectionView.onAction = { [weak self] action in
+            self?.handleVocabularyAction(action)
+        }
+    }
+
+    private func updateVocabularyProjection(for pet: LocatedPet) {
+        let mouseLocation = NSEvent.mouseLocation
+        let laptopHovered = vocabularyLaptopHoverRect(for: pet.visibleRect).contains(mouseLocation)
+        let cardHovered = vocabularyProjectionPanel.isVisible
+            && vocabularyProjectionPanel.frame.contains(mouseLocation)
+
+        if !laptopHovered && !cardHovered {
+            vocabularyDismissedUntilMouseLeaves = false
+            vocabularyProjectionPanel.orderOut(nil)
+            return
+        }
+        guard !vocabularyDismissedUntilMouseLeaves,
+              petDragStart == nil,
+              quotaLightstickMode == .chair,
+              let frame = vocabularyProjectionFrame(
+                  petVisibleRect: pet.visibleRect,
+                  petRenderScale: currentPanelScale,
+                  screenVisibleFrame: pet.screen.visibleFrame
+              )
+        else {
+            vocabularyProjectionPanel.orderOut(nil)
+            return
+        }
+
+        if currentVocabularyWord == nil {
+            currentVocabularyWord = vocabularyStore.nextWord()
+        }
+        guard let currentVocabularyWord else {
+            vocabularyProjectionPanel.orderOut(nil)
+            return
+        }
+
+        vocabularyProjectionView.word = currentVocabularyWord
+        vocabularyProjectionView.dailyCompletedCount = vocabularyStore.dailyCompletedCount
+        if !rectApproximatelyEqual(vocabularyProjectionPanel.frame, frame) {
+            vocabularyProjectionPanel.setFrame(frame, display: false)
+        }
+        let viewFrame = NSRect(origin: .zero, size: frame.size)
+        let viewBounds = NSRect(
+            origin: .zero,
+            size: NSSize(
+                width: vocabularyProjectionBeamWidth + vocabularyCardBaseSize.width,
+                height: vocabularyCardBaseSize.height
+            )
+        )
+        if !rectApproximatelyEqual(vocabularyProjectionView.frame, viewFrame)
+            || !rectApproximatelyEqual(vocabularyProjectionView.bounds, viewBounds)
+        {
+            vocabularyProjectionView.frame = viewFrame
+            vocabularyProjectionView.bounds = viewBounds
+            vocabularyProjectionView.needsDisplay = true
+        }
+        if !vocabularyProjectionPanel.isVisible {
+            vocabularyProjectionPanel.orderFrontRegardless()
+        }
+    }
+
+    private func handleVocabularyAction(_ action: VocabularyAction) {
+        guard let currentVocabularyWord else { return }
+        switch action {
+        case .remember:
+            vocabularyStore.remember(currentVocabularyWord)
+            self.currentVocabularyWord = vocabularyStore.nextWord(excluding: currentVocabularyWord.id)
+            vocabularyProjectionView.word = self.currentVocabularyWord
+            vocabularyProjectionView.dailyCompletedCount = vocabularyStore.dailyCompletedCount
+        case .later:
+            vocabularyStore.learnLater(currentVocabularyWord)
+            self.currentVocabularyWord = nil
+            vocabularyDismissedUntilMouseLeaves = true
+            vocabularyProjectionPanel.orderOut(nil)
+        }
+    }
+
     private func selectSkin(_ skin: BubuSkin) -> Bool {
         guard petSelectionStore.select(skin) else { return false }
         quotaView.selectedSkin = skin
@@ -3802,7 +4408,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private func beginPetDragIfNeeded(at location: NSPoint) {
         let now = CFAbsoluteTimeGetCurrent()
         guard codexDesktopRunning(at: now), let pet = lastLocatedPet,
-              pet.visibleRect.contains(location)
+              pet.visibleRect.contains(location),
+              !vocabularyLaptopHoverRect(for: pet.visibleRect).contains(location)
         else {
             petDragStart = nil
             return
@@ -3847,6 +4454,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handlePetDoubleClick(at location: NSPoint, clickCount: Int) {
         let now = CFAbsoluteTimeGetCurrent()
         guard codexDesktopRunning(at: now), let pet = lastLocatedPet else { return }
+        guard !vocabularyLaptopHoverRect(for: pet.visibleRect).contains(location) else { return }
         guard shouldTogglePanelForPetDoubleClick(
             clickCount: clickCount,
             clickLocation: location,
@@ -4060,6 +4668,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             quotaAirplaneView.isFlying = false
             quotaAirplanePanel.orderOut(nil)
         }
+
+        // This remains available even when the user has hidden the quota
+        // panel: the laptop hover is a pet interaction, not a panel control.
+        updateVocabularyProjection(for: pet)
 
         if isPanelHiddenByUser {
             quotaView.setPanelAnimationVisible(false)
@@ -4316,6 +4928,49 @@ private func printPanelPlacementOnce(savedStateOnly: Bool = false) -> Never {
             + "centerError=\(String(format: "%.1f", placement.centerError))"
     )
     exit(0)
+}
+
+private func runVocabularySelfTest() -> Never {
+    let temporaryRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("orange-bubu-vocabulary-self-test-\(UUID().uuidString)")
+    let libraryURL = temporaryRoot.appendingPathComponent("vocabulary.json")
+    let stateURL = temporaryRoot.appendingPathComponent("progress.json")
+    defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+    do {
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        let words = VocabularyLibraryDocument(words: [
+            VocabularyWord(id: "one", word: "one", meaning: "一"),
+            VocabularyWord(id: "two", word: "two", meaning: "二"),
+        ])
+        let encoder = JSONEncoder()
+        try encoder.encode(words).write(to: libraryURL, options: .atomic)
+        let store = VocabularyLearningStore(stateURL: stateURL, libraryURL: libraryURL)
+        guard let first = store.nextWord() else { throw NSError(domain: "Vocabulary", code: 1) }
+        store.remember(first)
+        guard store.dailyCompletedCount == 1,
+              let second = store.nextWord(excluding: first.id), second.id != first.id
+        else { throw NSError(domain: "Vocabulary", code: 2) }
+        store.learnLater(second)
+
+        let pet = NSRect(x: 420, y: 210, width: 163, height: 177)
+        let laptop = vocabularyLaptopHoverRect(for: pet)
+        guard laptop.contains(NSPoint(x: pet.midX, y: pet.minY + pet.height * 0.37)),
+              let card = vocabularyProjectionFrame(
+                  petVisibleRect: pet,
+                  petRenderScale: 1,
+                  screenVisibleFrame: NSRect(x: 0, y: 0, width: 1_280, height: 720)
+              ),
+              abs((card.minX + vocabularyProjectionBeamWidth) -
+                    (pet.maxX + vocabularyCardGapFromPet)) <= 0.01,
+              abs(card.midY - pet.midY) <= 0.01
+        else { throw NSError(domain: "Vocabulary", code: 3) }
+        print("vocabulary-self-test: library=pass remember=pass later=pass laptop-hit=pass projection-anchor=pass")
+        exit(0)
+    } catch {
+        fputs("vocabulary self-test failed: \(error.localizedDescription)\n", stderr)
+        exit(1)
+    }
 }
 
 private func runPlacementSelfTest() -> Never {
@@ -5271,6 +5926,10 @@ if CommandLine.arguments.contains("--self-test-quota-lightstick") {
 
 if CommandLine.arguments.contains("--self-test-runtime-geometry") {
     runRuntimeGeometryLockSelfTest()
+}
+
+if CommandLine.arguments.contains("--self-test-vocabulary") {
+    runVocabularySelfTest()
 }
 
 if CommandLine.arguments.contains("--print-panel-config") {

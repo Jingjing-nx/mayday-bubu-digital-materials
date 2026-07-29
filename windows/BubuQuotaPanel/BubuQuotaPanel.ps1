@@ -5,6 +5,7 @@
     [switch]$ValidateTaskProgress,
     [switch]$ValidateSkinSelection,
     [switch]$ValidateRuntimeGeometry,
+    [switch]$ValidateVocabulary,
     [switch]$PrintTaskProgress
 )
 
@@ -227,7 +228,8 @@ function Write-PanelLog([string]$message) {
 trap {
     Write-PanelLog ("FATAL " + $_.Exception.ToString())
     $isValidationRun = $ValidateXaml -or $ValidateTrackingFilters -or
-        $ValidateTaskProgress -or $ValidateSkinSelection -or $PrintTaskProgress
+        $ValidateTaskProgress -or $ValidateSkinSelection -or $ValidateVocabulary -or
+        $PrintTaskProgress
     if ($isValidationRun) {
         [Console]::Error.WriteLine($_.Exception.ToString())
     } else {
@@ -763,6 +765,199 @@ test = true
 $script:SelectedSkin = "orange"
 [void](Set-BubuSkinSelection "orange")
 
+# Vocabulary learning is entirely local. Users can later place either a JSON
+# array or `{ "words": [...] }` at the configured path; each entry needs
+# `word` and `meaning` (or `definition` / `translation`), with optional id,
+# phonetic and example fields.
+$script:VocabularyBaseWidth = 196.0
+$script:VocabularyBaseHeight = 112.0
+$script:VocabularyBeamWidth = 24.0
+$script:VocabularyCardGap = 18.0
+$script:VocabularyRoot = Join-Path $env:APPDATA "OrangeBubuQuotaPanel"
+$script:VocabularyProgressPath = Join-Path $script:VocabularyRoot "vocabulary-progress.json"
+$script:VocabularyLibraryPath = if ($env:BUBU_VOCABULARY_PATH) {
+    [string]$env:BUBU_VOCABULARY_PATH
+} else {
+    Join-Path $script:VocabularyRoot "vocabulary.json"
+}
+$script:VocabularyProgressById = @{}
+$script:VocabularyCompletedDay = ""
+$script:VocabularyCompletedToday = 0
+$script:VocabularyCurrentWord = $null
+$script:VocabularyDismissedUntilMouseLeaves = $false
+$script:VocabularyLibraryWrite = [DateTime]::MinValue
+$script:VocabularyWords = @(
+    [PSCustomObject]@{ Id = "serendipity"; Word = "serendipity"; Phonetic = "/ˌserənˈdɪpəti/"; Meaning = "意外发现的美好"; Example = "A happy serendipity." },
+    [PSCustomObject]@{ Id = "resilient"; Word = "resilient"; Phonetic = "/rɪˈzɪliənt/"; Meaning = "有韧性的；能迅速恢复的"; Example = "" },
+    [PSCustomObject]@{ Id = "curious"; Word = "curious"; Phonetic = "/ˈkjʊəriəs/"; Meaning = "好奇的"; Example = "" },
+    [PSCustomObject]@{ Id = "clarity"; Word = "clarity"; Phonetic = "/ˈklærəti/"; Meaning = "清晰；明晰"; Example = "" },
+    [PSCustomObject]@{ Id = "journey"; Word = "journey"; Phonetic = "/ˈdʒɜːrni/"; Meaning = "旅程；历程"; Example = "" }
+)
+
+function Get-VocabularyValue($item, [string[]]$names) {
+    foreach ($name in $names) {
+        $property = $item.PSObject.Properties[$name]
+        if ($property -and -not [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+            return ([string]$property.Value).Trim()
+        }
+    }
+    return ""
+}
+
+function ConvertTo-VocabularyWord($item) {
+    if (-not $item) { return $null }
+    $word = Get-VocabularyValue $item @("word", "Word")
+    $meaning = Get-VocabularyValue $item @("meaning", "Meaning", "definition", "Definition", "translation", "Translation")
+    if ([string]::IsNullOrWhiteSpace($word) -or [string]::IsNullOrWhiteSpace($meaning)) { return $null }
+    $id = Get-VocabularyValue $item @("id", "Id")
+    if ([string]::IsNullOrWhiteSpace($id)) { $id = $word.ToLowerInvariant() }
+    return [PSCustomObject]@{
+        Id = $id
+        Word = $word
+        Phonetic = Get-VocabularyValue $item @("phonetic", "Phonetic")
+        Meaning = $meaning
+        Example = Get-VocabularyValue $item @("example", "Example")
+    }
+}
+
+function Import-VocabularyLibrary([bool]$force = $false) {
+    if (-not (Test-Path -LiteralPath $script:VocabularyLibraryPath -PathType Leaf)) { return }
+    $writeTime = [IO.File]::GetLastWriteTimeUtc($script:VocabularyLibraryPath)
+    if (-not $force -and $writeTime -eq $script:VocabularyLibraryWrite) { return }
+    try {
+        $parsed = [IO.File]::ReadAllText($script:VocabularyLibraryPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+        $items = if ($parsed -and $parsed.PSObject.Properties["words"]) { @($parsed.words) } else { @($parsed) }
+        $unique = @{}
+        foreach ($item in $items) {
+            $word = ConvertTo-VocabularyWord $item
+            if ($word -and -not $unique.ContainsKey([string]$word.Id)) {
+                $unique[[string]$word.Id] = $word
+            }
+        }
+        if ($unique.Count -gt 0) {
+            $script:VocabularyWords = @($unique.Values | Sort-Object Word)
+            $script:VocabularyLibraryWrite = $writeTime
+            Write-PanelLog ("VOCABULARY library=" + $script:VocabularyLibraryPath + " words=" + $script:VocabularyWords.Count)
+        }
+    } catch {
+        Write-PanelLog ("VOCABULARY library read failed=" + $_.Exception.Message)
+    }
+}
+
+function Reset-VocabularyDailyCounter([DateTime]$now = [DateTime]::Now) {
+    $day = $now.ToString("yyyy-MM-dd", [Globalization.CultureInfo]::InvariantCulture)
+    if ($script:VocabularyCompletedDay -ne $day) {
+        $script:VocabularyCompletedDay = $day
+        $script:VocabularyCompletedToday = 0
+    }
+}
+
+function Get-VocabularyProgress([string]$id) {
+    if (-not $script:VocabularyProgressById.ContainsKey($id)) {
+        $script:VocabularyProgressById[$id] = [ordered]@{
+            masteryCount = 0
+            nextReviewAt = $null
+            postponedUntil = $null
+        }
+    }
+    return $script:VocabularyProgressById[$id]
+}
+
+function Load-VocabularyProgress {
+    if (-not (Test-Path -LiteralPath $script:VocabularyProgressPath -PathType Leaf)) { return }
+    try {
+        $raw = [IO.File]::ReadAllText($script:VocabularyProgressPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+        $script:VocabularyCompletedDay = [string]$raw.completedDay
+        $script:VocabularyCompletedToday = [int]$raw.completedToday
+        if ($raw.progressById) {
+            foreach ($property in $raw.progressById.PSObject.Properties) {
+                $value = $property.Value
+                $script:VocabularyProgressById[$property.Name] = [ordered]@{
+                    masteryCount = [int]$value.masteryCount
+                    nextReviewAt = if ($value.nextReviewAt) { [string]$value.nextReviewAt } else { $null }
+                    postponedUntil = if ($value.postponedUntil) { [string]$value.postponedUntil } else { $null }
+                }
+            }
+        }
+    } catch {
+        Write-PanelLog ("VOCABULARY progress read failed=" + $_.Exception.Message)
+    }
+    Reset-VocabularyDailyCounter
+}
+
+function Save-VocabularyProgress {
+    try {
+        [IO.Directory]::CreateDirectory($script:VocabularyRoot) | Out-Null
+        $progress = [ordered]@{}
+        foreach ($id in $script:VocabularyProgressById.Keys) {
+            $progress[$id] = $script:VocabularyProgressById[$id]
+        }
+        $payload = [ordered]@{
+            schemaVersion = 1
+            progressById = $progress
+            completedDay = $script:VocabularyCompletedDay
+            completedToday = $script:VocabularyCompletedToday
+        }
+        $temporaryPath = $script:VocabularyProgressPath + ".tmp"
+        [IO.File]::WriteAllText($temporaryPath, ($payload | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $temporaryPath -Destination $script:VocabularyProgressPath -Force
+    } catch {
+        Write-PanelLog ("VOCABULARY progress write failed=" + $_.Exception.Message)
+    }
+}
+
+function ConvertTo-VocabularyDate($value) {
+    if ([string]::IsNullOrWhiteSpace([string]$value)) { return $null }
+    try { return [DateTime]::Parse([string]$value, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind) }
+    catch { return $null }
+}
+
+function Get-NextVocabularyWord([string]$excludingId = "", [DateTime]$now = [DateTime]::Now) {
+    Import-VocabularyLibrary
+    $available = @($script:VocabularyWords | Where-Object {
+        $progress = Get-VocabularyProgress ([string]$_.Id)
+        $postponed = ConvertTo-VocabularyDate $progress.postponedUntil
+        -not $postponed -or $postponed -le $now
+    })
+    if ($available.Count -eq 0) { return $null }
+    $due = @($available | Where-Object {
+        $progress = Get-VocabularyProgress ([string]$_.Id)
+        $review = ConvertTo-VocabularyDate $progress.nextReviewAt
+        [int]$progress.masteryCount -gt 0 -and $review -and $review -le $now
+    })
+    $unseen = @($available | Where-Object {
+        $progress = Get-VocabularyProgress ([string]$_.Id)
+        [int]$progress.masteryCount -eq 0
+    })
+    $pool = if ($due.Count -gt 0) { $due } elseif ($unseen.Count -gt 0) { $unseen } else { $available }
+    $ordered = @($pool | Sort-Object Word)
+    $alternate = @($ordered | Where-Object { $_.Id -ne $excludingId } | Select-Object -First 1)
+    if ($alternate.Count -gt 0) { return $alternate[0] }
+    return $ordered[0]
+}
+
+function Remember-VocabularyWord($word, [DateTime]$now = [DateTime]::Now) {
+    if (-not $word) { return }
+    Reset-VocabularyDailyCounter $now
+    $progress = Get-VocabularyProgress ([string]$word.Id)
+    $progress.masteryCount = [int]$progress.masteryCount + 1
+    $progress.postponedUntil = $null
+    $intervals = @(1, 3, 7, 30)
+    $interval = $intervals[[Math]::Min([int]$progress.masteryCount - 1, $intervals.Count - 1)]
+    $progress.nextReviewAt = $now.AddDays($interval).ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+    $script:VocabularyCompletedToday++
+    Save-VocabularyProgress
+}
+
+function Postpone-VocabularyWord($word, [DateTime]$now = [DateTime]::Now) {
+    if (-not $word) { return }
+    $progress = Get-VocabularyProgress ([string]$word.Id)
+    $progress.postponedUntil = $now.AddMinutes(15).ToString("o", [Globalization.CultureInfo]::InvariantCulture)
+    Save-VocabularyProgress
+}
+
+Load-VocabularyProgress
+
 $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -1090,9 +1285,76 @@ function New-QuotaAirplaneVisual {
     }
 }
 
+$vocabularyXaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Orange Bubu Vocabulary Projection"
+        Width="$($script:VocabularyBaseWidth)" Height="$($script:VocabularyBaseHeight)"
+        WindowStyle="None" ResizeMode="NoResize"
+        AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" ShowActivated="False"
+        Focusable="False" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display">
+    <Canvas x:Name="VocabularyScaleRoot" Width="$($script:VocabularyBaseWidth)" Height="$($script:VocabularyBaseHeight)">
+        <Polygon Points="0,56 27,31 27,81" Fill="#2922D8FF"/>
+        <Ellipse Canvas.Left="8" Canvas.Top="44" Width="3" Height="3" Fill="#C279F3FF"/>
+        <Ellipse Canvas.Left="14" Canvas.Top="55" Width="3" Height="3" Fill="#A875ECFF"/>
+        <Ellipse Canvas.Left="19" Canvas.Top="65" Width="3" Height="3" Fill="#7C72E6FF"/>
+        <Border Canvas.Left="24" Canvas.Top="0" Width="172" Height="112" CornerRadius="11"
+                Background="#F9FFFDFC" BorderBrush="#1806A4AD" BorderThickness="0.7">
+            <Border.Effect><DropShadowEffect Color="#35000000" BlurRadius="9" ShadowDepth="3"/></Border.Effect>
+            <Canvas>
+                <TextBlock Canvas.Left="38" Canvas.Top="14" Width="100" Height="14" Text="✦  今日单词"
+                           FontFamily="Microsoft YaHei UI" FontSize="8.5" FontWeight="Medium" Foreground="#D0478085"/>
+                <TextBlock x:Name="VocabularyWordText" Canvas.Left="38" Canvas.Top="31" Width="126" Height="25"
+                           Text="serendipity" FontFamily="Segoe UI" FontSize="18" FontWeight="SemiBold" Foreground="#F00E9099"/>
+                <TextBlock x:Name="VocabularyPhoneticText" Canvas.Left="38" Canvas.Top="56" Width="126" Height="14"
+                           Text="/ˌserənˈdɪpəti/" FontFamily="Segoe UI" FontSize="9.5" Foreground="#E010909D"/>
+                <TextBlock x:Name="VocabularyMeaningText" Canvas.Left="38" Canvas.Top="68" Width="126" Height="16"
+                           Text="意外发现的美好" FontFamily="Microsoft YaHei UI" FontSize="10.5" FontWeight="Medium" Foreground="#E82A2A2A"/>
+                <Button x:Name="VocabularyRememberButton" Canvas.Left="56" Canvas.Top="75" Width="48" Height="21"
+                        Content="记住啦" FontFamily="Microsoft YaHei UI" FontSize="9.5" FontWeight="SemiBold"
+                        Foreground="White" Background="#EA0AA4AE" BorderThickness="0" Cursor="Hand"/>
+                <Button x:Name="VocabularyLaterButton" Canvas.Left="110" Canvas.Top="75" Width="52" Height="21"
+                        Content="等会再学" FontFamily="Microsoft YaHei UI" FontSize="8.7"
+                        Foreground="#F00A7F88" Background="Transparent" BorderBrush="#B40A9AA3" BorderThickness="0.9" Cursor="Hand"/>
+                <TextBlock x:Name="VocabularyDailyText" Canvas.Left="136" Canvas.Top="99" Width="28" Height="10" Text="0 / 10"
+                           TextAlignment="Right" FontFamily="Consolas" FontSize="7.5" Foreground="#D00B8C96"/>
+            </Canvas>
+        </Border>
+        <Border Canvas.Left="23" Canvas.Top="16" Width="2" Height="16" Background="#BA46DFE8" CornerRadius="1"/>
+        <Border Canvas.Left="23" Canvas.Top="80" Width="2" Height="16" Background="#BA46DFE8" CornerRadius="1"/>
+    </Canvas>
+</Window>
+"@
+
+function New-VocabularyProjectionVisual {
+    $xml = New-Object Xml.XmlDocument
+    $xml.LoadXml($vocabularyXaml)
+    $reader = [Xml.XmlNodeReader]::new($xml)
+    $window = [Windows.Markup.XamlReader]::Load($reader)
+    $window.WindowStartupLocation = [Windows.WindowStartupLocation]::Manual
+    $window.Left = -32000
+    $window.Top = -32000
+    $handle = [Windows.Interop.WindowInteropHelper]::new($window).EnsureHandle()
+    [BubuPanel.NativeWindows]::ApplyNoActivateStyle($handle)
+    return [PSCustomObject]@{
+        Window = $window
+        Handle = $handle
+        ScaleRoot = $window.FindName("VocabularyScaleRoot")
+        WordText = $window.FindName("VocabularyWordText")
+        PhoneticText = $window.FindName("VocabularyPhoneticText")
+        MeaningText = $window.FindName("VocabularyMeaningText")
+        RememberButton = $window.FindName("VocabularyRememberButton")
+        LaterButton = $window.FindName("VocabularyLaterButton")
+        DailyText = $window.FindName("VocabularyDailyText")
+    }
+}
+
 $script:PrimaryLightstick = New-QuotaLightstickVisual
 $script:SecondaryLightstick = New-QuotaLightstickVisual
 $script:QuotaAirplane = New-QuotaAirplaneVisual
+$script:VocabularyProjection = New-VocabularyProjectionVisual
 $script:QuotaLightstickWindow = $script:PrimaryLightstick.Window
 $script:QuotaLightstickWindowHandle = $script:PrimaryLightstick.Handle
 $script:LightstickScaleRoot = $script:PrimaryLightstick.ScaleRoot
@@ -1110,6 +1372,8 @@ $script:SecondaryQuotaLightstickRotation = $script:SecondaryLightstick.Rotation
 $script:QuotaAirplaneWindow = $script:QuotaAirplane.Window
 $script:QuotaAirplaneWindowHandle = $script:QuotaAirplane.Handle
 $script:QuotaAirplaneScaleRoot = $script:QuotaAirplane.ScaleRoot
+$script:VocabularyWindow = $script:VocabularyProjection.Window
+$script:VocabularyWindowHandle = $script:VocabularyProjection.Handle
 $script:QuotaLightstickProductWidth = 17.22
 $script:QuotaLightstickProductTop = 3.0
 $script:QuotaLightstickTubeTop = 17.0 / 1221.0 * 96.0
@@ -1208,6 +1472,10 @@ if ($ValidateXaml) {
         -not $script:QuotaAirplane.MaterialImage -or
         -not $script:QuotaAirplane.PercentText -or
         -not $script:QuotaAirplane.ProgressFill -or
+        -not $script:VocabularyWindow -or
+        -not $script:VocabularyProjection.WordText -or
+        -not $script:VocabularyProjection.RememberButton -or
+        -not $script:VocabularyProjection.LaterButton -or
         $script:AirplaneMaterialBitmap.PixelWidth -lt 342 -or
         $script:AirplaneMaterialBitmap.PixelHeight -lt 284 -or
         $script:AirplaneFlightMaterialBitmap.PixelWidth -lt 342 -or
@@ -1220,7 +1488,7 @@ if ($ValidateXaml) {
         " width=" + [int]($script:Window.Width) +
         " height=" + [int]($script:Window.Height) +
         " marketRows=" + $script:MarketRows.Visibility +
-        " skinButtons=False lightstick=True airplaneMaterial=342x284 independentDefaultOnly=True"
+        " skinButtons=False lightstick=True airplaneMaterial=342x284 vocabulary=True independentDefaultOnly=True"
     )
     exit 0
 }
@@ -2817,6 +3085,7 @@ function Hide-QuotaLightstickWindow {
     if ($script:QuotaAirplaneWindow.IsVisible) {
         $script:QuotaAirplaneWindow.Hide()
     }
+    Hide-VocabularyProjectionWindow
 }
 
 function Set-PositionMode([string]$mode) {
@@ -2877,6 +3146,113 @@ function Set-QuotaLightstickScale([double]$scale) {
     $script:QuotaAirplaneWindow.Width = $script:QuotaAirplaneBaseWidth * $safeScale
     $script:QuotaAirplaneWindow.Height = $script:QuotaAirplaneBaseHeight * $safeScale
     return $safeScale
+}
+
+function Set-VocabularyProjectionScale([double]$scale) {
+    $safeScale = Limit-PanelScale $scale
+    $script:VocabularyProjection.ScaleRoot.LayoutTransform = [Windows.Media.ScaleTransform]::new(
+        $safeScale, $safeScale
+    )
+    $script:VocabularyWindow.Width = $script:VocabularyBaseWidth * $safeScale
+    $script:VocabularyWindow.Height = $script:VocabularyBaseHeight * $safeScale
+    return $safeScale
+}
+
+function Get-VocabularyLaptopRectFromPet($anchor, $visualMetrics, [double]$petScale, [double]$dpi) {
+    if (-not $anchor) { return $null }
+    $dpiScale = [Math]::Max(0.1, $dpi / 96.0)
+    $width = if ($visualMetrics -and [double]$visualMetrics.Width -gt 0) {
+        [double]$visualMetrics.Width
+    } else {
+        $script:CanonicalPetWidth * $petScale * $dpiScale
+    }
+    $height = if ($visualMetrics -and [double]$visualMetrics.Height -gt 0) {
+        [double]$visualMetrics.Height
+    } else {
+        $script:CanonicalPetHeight * $petScale * $dpiScale
+    }
+    $left = [double]$anchor.CenterX - $width / 2.0
+    $top = [double]$anchor.Top
+    return [PSCustomObject]@{
+        Left = $left + $width * 0.27
+        Top = $top + $height * 0.22
+        Right = $left + $width * 0.73
+        Bottom = $top + $height * 0.53
+        CenterY = $top + $height * 0.375
+    }
+}
+
+function Update-VocabularyProjectionText {
+    if (-not $script:VocabularyCurrentWord) { return }
+    $script:VocabularyProjection.WordText.Text = [string]$script:VocabularyCurrentWord.Word
+    $script:VocabularyProjection.PhoneticText.Text = [string]$script:VocabularyCurrentWord.Phonetic
+    $script:VocabularyProjection.MeaningText.Text = [string]$script:VocabularyCurrentWord.Meaning
+    $script:VocabularyProjection.DailyText.Text = ([string]$script:VocabularyCompletedToday + " / 10")
+}
+
+function Hide-VocabularyProjectionWindow {
+    if ($script:VocabularyWindow -and $script:VocabularyWindow.IsVisible) {
+        $script:VocabularyWindow.Hide()
+    }
+}
+
+function Update-VocabularyProjectionAtPet($anchor, $visualMetrics, [double]$petScale, [double]$dpi, $workArea = $null) {
+    $laptop = Get-VocabularyLaptopRectFromPet $anchor $visualMetrics $petScale $dpi
+    if (-not $laptop) {
+        Hide-VocabularyProjectionWindow
+        return
+    }
+    $cursor = [BubuPanel.NativeWindows]::GetCursorPosition()
+    $laptopHovered = Test-PointInsidePetRect $cursor ([PSCustomObject]@{
+        Left = $laptop.Left; Top = $laptop.Top; Right = $laptop.Right; Bottom = $laptop.Bottom
+    })
+    $nativeWindow = [BubuPanel.NativeWindows]::GetWindow($script:VocabularyWindowHandle)
+    $cardHovered = $nativeWindow -and $script:VocabularyWindow.IsVisible -and
+        [double]$cursor.X -ge [double]$nativeWindow.Left -and [double]$cursor.X -le ([double]$nativeWindow.Left + [double]$nativeWindow.Width) -and
+        [double]$cursor.Y -ge [double]$nativeWindow.Top -and [double]$cursor.Y -le ([double]$nativeWindow.Top + [double]$nativeWindow.Height)
+    if (-not $laptopHovered -and -not $cardHovered) {
+        $script:VocabularyDismissedUntilMouseLeaves = $false
+        Hide-VocabularyProjectionWindow
+        return
+    }
+    if ($script:VocabularyDismissedUntilMouseLeaves -or $script:QuotaLightstickMode -ne "chair") {
+        Hide-VocabularyProjectionWindow
+        return
+    }
+    if (-not $script:VocabularyCurrentWord) {
+        $script:VocabularyCurrentWord = Get-NextVocabularyWord
+    }
+    if (-not $script:VocabularyCurrentWord) {
+        Hide-VocabularyProjectionWindow
+        return
+    }
+
+    $safeScale = Set-VocabularyProjectionScale $petScale
+    if (-not $script:VocabularyWindow.IsVisible) {
+        $script:VocabularyWindow.Show()
+        $script:VocabularyWindow.UpdateLayout()
+    }
+    $nativeWindow = [BubuPanel.NativeWindows]::GetWindow($script:VocabularyWindowHandle)
+    if (-not $nativeWindow) { return }
+    $beamWidth = [double]$nativeWindow.Width * $script:VocabularyBeamWidth / $script:VocabularyBaseWidth
+    $left = [Math]::Round([double]$laptop.Right + $script:VocabularyCardGap * $safeScale - $beamWidth)
+    $top = [Math]::Round([double]$laptop.CenterY - [double]$nativeWindow.Height / 2.0)
+    $margin = 6.0
+    if ($workArea -and ($left + $nativeWindow.Width -gt $workArea.Right - $margin -or
+            $top -lt $workArea.Top + $margin -or $top + $nativeWindow.Height -gt $workArea.Bottom - $margin)) {
+        # The learning ticket never flips into the left-side ticket/lightstick
+        # zone. At a tight right display edge it stays hidden until there is
+        # room for its intended composition.
+        Hide-VocabularyProjectionWindow
+        return
+    }
+    if ([Math]::Abs([double]$nativeWindow.Left - $left) -gt 1 -or
+        [Math]::Abs([double]$nativeWindow.Top - $top) -gt 1) {
+        [void][BubuPanel.NativeWindows]::MoveWindowNoActivate(
+            $script:VocabularyWindowHandle, [int]$left, [int]$top
+        )
+    }
+    Update-VocabularyProjectionText
 }
 
 function Get-NativePetVisualMetrics($petWindow) {
@@ -3371,6 +3747,7 @@ function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
     }
     [void](Show-QuotaLightstickAtNativePet `
         $petWindow $anchor $visualMetrics $dpi $panelScale $workArea)
+    Update-VocabularyProjectionAtPet $anchor $visualMetrics $panelScale $dpi $workArea
     if ($script:IsPanelHiddenByUser) { return $true }
     $placement = Get-NativePanelPlacement `
         $petWindow $bounds $geometry $panelWindow $dpi $panelScale $workArea `
@@ -3416,6 +3793,7 @@ function Show-PanelAtHeuristicWindow($petWindow) {
     }
     [void](Show-QuotaLightstickAtNativePet `
         $petWindow $anchor $visualMetrics $dpi $panelScale $workArea)
+    Update-VocabularyProjectionAtPet $anchor $visualMetrics $panelScale $dpi $workArea
     if ($script:IsPanelHiddenByUser) { return $true }
     $placement = Get-NativePanelPlacement `
         $petWindow $estimatedBounds $estimatedGeometry $panelWindow $dpi $panelScale $workArea `
@@ -3440,6 +3818,7 @@ function Show-PanelAtSavedState($bounds, $geometry) {
     )
     $visualCenterX = [double]$bounds.x + $geometry.Left + $geometry.Width / 2.0
     $visualTop = [double]$bounds.y + $geometry.Top
+    $vocabularyAnchor = [PSCustomObject]@{ CenterX = $visualCenterX; Top = $visualTop }
     $overlayCenterX = [double]$bounds.x + [double]$bounds.width / 2.0
     $rewindProgress = Get-RewindTicketProgress
     if ($script:QuotaLightstickMode -ne "chair") {
@@ -3482,6 +3861,7 @@ function Show-PanelAtSavedState($bounds, $geometry) {
     } elseif ($script:QuotaAirplaneWindow.IsVisible) {
         $script:QuotaAirplaneWindow.Hide()
     }
+    Update-VocabularyProjectionAtPet $vocabularyAnchor $null $panelScale 96.0 $null
     if ($script:IsPanelHiddenByUser) { return }
     $left = $visualCenterX - $script:Window.Width / 2.0
     $top = $visualTop - $script:PanelPetGap - (
@@ -3738,6 +4118,19 @@ function Get-CurrentPetHitRect {
     }
 }
 
+function Get-CurrentVocabularyLaptopRect {
+    $pet = Get-CurrentPetHitRect
+    if (-not $pet) { return $null }
+    $width = [double]$pet.Right - [double]$pet.Left
+    $height = [double]$pet.Bottom - [double]$pet.Top
+    return [PSCustomObject]@{
+        Left = [double]$pet.Left + $width * 0.27
+        Top = [double]$pet.Top + $height * 0.22
+        Right = [double]$pet.Left + $width * 0.73
+        Bottom = [double]$pet.Top + $height * 0.53
+    }
+}
+
 $script:LeftMouseWasDown = $false
 $script:PetDragStartPoint = $null
 $script:LastPetClickAt = [DateTime]::MinValue
@@ -3783,7 +4176,9 @@ function Update-PetDoubleClickToggle {
 
     $point = [BubuPanel.NativeWindows]::GetCursorPosition()
     $petRect = Get-CurrentPetHitRect
-    if (-not (Test-PointInsidePetRect $point $petRect)) {
+    $laptopRect = Get-CurrentVocabularyLaptopRect
+    if (-not (Test-PointInsidePetRect $point $petRect) -or
+        (Test-PointInsidePetRect $point $laptopRect)) {
         $script:PetDragStartPoint = $null
         $script:LastPetClickAt = [DateTime]::MinValue
         $script:LastPetClickPoint = $null
@@ -3818,6 +4213,44 @@ if ($PrintTaskProgress) {
     }) -join " | "
     Write-Output ("task-progress: count=" + $script:LastTaskItems.Count + " " + $summary)
     $script:Window.Close()
+    exit 0
+}
+
+if ($ValidateVocabulary) {
+    $testRoot = Join-Path ([IO.Path]::GetTempPath()) ("orange-bubu-vocabulary-" + [Guid]::NewGuid().ToString("N"))
+    try {
+        [IO.Directory]::CreateDirectory($testRoot) | Out-Null
+        $script:VocabularyRoot = $testRoot
+        $script:VocabularyLibraryPath = Join-Path $testRoot "vocabulary.json"
+        $script:VocabularyProgressPath = Join-Path $testRoot "progress.json"
+        $script:VocabularyProgressById = @{}
+        $script:VocabularyCompletedDay = ""
+        $script:VocabularyCompletedToday = 0
+        $script:VocabularyLibraryWrite = [DateTime]::MinValue
+        @(
+            [PSCustomObject]@{ id = "one"; word = "one"; meaning = "一" },
+            [PSCustomObject]@{ id = "two"; word = "two"; definition = "二" }
+        ) | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $script:VocabularyLibraryPath -Encoding UTF8
+        Import-VocabularyLibrary $true
+        $first = Get-NextVocabularyWord
+        if (-not $first) { throw "Vocabulary library did not supply a first word." }
+        Remember-VocabularyWord $first
+        $second = Get-NextVocabularyWord ([string]$first.Id)
+        if (-not $second -or $second.Id -eq $first.Id -or $script:VocabularyCompletedToday -ne 1) {
+            throw "Vocabulary remember queue failed."
+        }
+        Postpone-VocabularyWord $second
+        $anchor = [PSCustomObject]@{ CenterX = 500.0; Top = 200.0 }
+        $laptop = Get-VocabularyLaptopRectFromPet $anchor $null 1.0 96.0
+        $hoverPoint = [Drawing.Point]::new([int][Math]::Round(($laptop.Left + $laptop.Right) / 2.0), [int][Math]::Round(($laptop.Top + $laptop.Bottom) / 2.0))
+        if (-not (Test-PointInsidePetRect $hoverPoint ([PSCustomObject]@{
+            Left = $laptop.Left; Top = $laptop.Top; Right = $laptop.Right; Bottom = $laptop.Bottom
+        }))) { throw "Vocabulary laptop hit area failed." }
+        Write-Output "vocabulary-validation: library=pass remember=pass later=pass laptop-hit=pass projection-anchor=pass"
+    } finally {
+        Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
+        $script:Window.Close()
+    }
     exit 0
 }
 
@@ -4284,6 +4717,22 @@ function Select-BubuSkinFromPanel([string]$skin) {
 
 $script:HideButton.Add_Click({ Set-PanelHiddenByUser $true })
 $script:ShowButton.Add_Click({ Set-PanelHiddenByUser $false })
+$script:VocabularyProjection.RememberButton.Add_Click({
+    if (-not $script:VocabularyCurrentWord) { return }
+    $remembered = $script:VocabularyCurrentWord
+    Remember-VocabularyWord $remembered
+    $script:VocabularyCurrentWord = Get-NextVocabularyWord ([string]$remembered.Id)
+    Update-VocabularyProjectionText
+    Write-PanelLog ("VOCABULARY remember=" + [string]$remembered.Id)
+})
+$script:VocabularyProjection.LaterButton.Add_Click({
+    if (-not $script:VocabularyCurrentWord) { return }
+    Postpone-VocabularyWord $script:VocabularyCurrentWord
+    Write-PanelLog ("VOCABULARY later=" + [string]$script:VocabularyCurrentWord.Id)
+    $script:VocabularyCurrentWord = $null
+    $script:VocabularyDismissedUntilMouseLeaves = $true
+    Hide-VocabularyProjectionWindow
+})
 $script:Window.Add_IsVisibleChanged({ Update-TaskBadgeAnimationState })
 $script:Window.Add_Closed({
     $script:LastPositionMode = "closed"
@@ -4296,6 +4745,9 @@ $script:Window.Add_Closed({
     }
     if ($script:QuotaAirplaneWindow -and $script:QuotaAirplaneWindow.IsVisible) {
         $script:QuotaAirplaneWindow.Close()
+    }
+    if ($script:VocabularyWindow -and $script:VocabularyWindow.IsVisible) {
+        $script:VocabularyWindow.Close()
     }
     Write-PanelHealth $true
     Write-PanelLog "STOP window closed"

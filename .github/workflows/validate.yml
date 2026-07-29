@@ -38,6 +38,7 @@ jobs:
           "$BIN" --self-test-skin-selection | grep 'project=orange orange=pass'
           "$BIN" --self-test-runtime-geometry | grep 'panel=224x75 gap=14.*uniform-2x=pass'
           "$BIN" --self-test-quota-lightstick | grep 'rewind-no-lightsticks=pass.*chairside-live-no-external-accessories=pass'
+          "$BIN" --self-test-vocabulary | grep 'library=pass.*remember=pass.*later=pass.*laptop-hit=pass.*projection-anchor=pass'
       - name: Build and inspect macOS variants
         run: |
           ./scripts/build-macos-release.sh
@@ -106,6 +107,8 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $tasks -notmatch 'completed-unread=pass.*list=5-truncated.*running-gif=12x100ms') { throw "Task validation failed: $tasks" }
           $skin = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateSkinSelection
           if ($LASTEXITCODE -ne 0 -or $skin -notmatch 'project=orange orange=True') { throw "Skin validation failed: $skin" }
+          $vocabulary = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateVocabulary
+          if ($LASTEXITCODE -ne 0 -or $vocabulary -notmatch 'library=pass.*remember=pass.*later=pass.*laptop-hit=pass.*projection-anchor=pass') { throw "Vocabulary validation failed: $vocabulary" }
           $env:BUBU_SHOW_MARKET_PRICES = 'false'
           $standard = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -PrintConfiguration
           if ($LASTEXITCODE -ne 0 -or $standard -notmatch 'version=37 marketPricesEnabled=false width=224 height=53') { throw "Unexpected standard config: $standard" }
