@@ -867,6 +867,19 @@ function Get-VocabularyProgress([string]$id) {
     return $script:VocabularyProgressById[$id]
 }
 
+function Get-VocabularyMasterySummary {
+    Import-VocabularyLibrary
+    $mastered = @($script:VocabularyWords | Where-Object {
+        $wordId = [string]$_.Id
+        $script:VocabularyProgressById.ContainsKey($wordId) -and
+        [int]$script:VocabularyProgressById[$wordId].masteryCount -gt 0
+    }).Count
+    return [PSCustomObject]@{
+        Mastered = $mastered
+        Total = @($script:VocabularyWords).Count
+    }
+}
+
 function Load-VocabularyProgress {
     if (-not (Test-Path -LiteralPath $script:VocabularyProgressPath -PathType Leaf)) { return }
     try {
@@ -1362,7 +1375,7 @@ $vocabularyXaml = @"
         <Button x:Name="VocabularyLaterButton" Canvas.Left="204" Canvas.Top="110" Width="75" Height="25" Content="等会再学"
                 Style="{StaticResource VocabularyTicketButton}" FontFamily="Microsoft YaHei UI" FontSize="10" FontWeight="Medium"
                 Foreground="#F012858D" Background="Transparent" BorderBrush="#C00C9EA6" BorderThickness="1.35" Cursor="Hand"/>
-        <TextBlock Canvas.Left="123" Canvas.Top="141" Width="86" Height="10" Text="No. 20240520"
+        <TextBlock x:Name="VocabularyMasteryText" Canvas.Left="109" Canvas.Top="141" Width="128" Height="10" Text="已掌握 0 / 5"
                    FontFamily="Segoe UI" FontSize="8.2" FontWeight="Medium" Foreground="#D9329198"/>
         <TextBlock x:Name="VocabularyDailyText" Canvas.Left="263" Canvas.Top="141" Width="32" Height="10" Text="0 / 10"
                    TextAlignment="Right" FontFamily="Consolas" FontSize="8.5" FontWeight="SemiBold" Foreground="#DE329198"/>
@@ -1387,6 +1400,7 @@ function New-VocabularyProjectionVisual {
         WordText = $window.FindName("VocabularyWordText")
         PhoneticText = $window.FindName("VocabularyPhoneticText")
         MeaningText = $window.FindName("VocabularyMeaningText")
+        MasteryText = $window.FindName("VocabularyMasteryText")
         RememberButton = $window.FindName("VocabularyRememberButton")
         LaterButton = $window.FindName("VocabularyLaterButton")
         DailyText = $window.FindName("VocabularyDailyText")
@@ -1516,6 +1530,7 @@ if ($ValidateXaml) {
         -not $script:QuotaAirplane.ProgressFill -or
         -not $script:VocabularyWindow -or
         -not $script:VocabularyProjection.WordText -or
+        -not $script:VocabularyProjection.MasteryText -or
         -not $script:VocabularyProjection.RememberButton -or
         -not $script:VocabularyProjection.LaterButton -or
         $script:AirplaneMaterialBitmap.PixelWidth -lt 342 -or
@@ -3239,6 +3254,10 @@ function Get-VocabularyProjectionPlacement($laptop, $nativeWindow) {
 
 function Update-VocabularyProjectionText {
     $completed = [Math]::Min($script:VocabularyDailyGoal, [int]$script:VocabularyCompletedToday)
+    $mastery = Get-VocabularyMasterySummary
+    $script:VocabularyProjection.MasteryText.Text = (
+        "已掌握 " + [string]$mastery.Mastered + " / " + [string]$mastery.Total
+    )
     $script:VocabularyProjection.DailyText.Text = ([string]$completed + " / " + [string]$script:VocabularyDailyGoal)
     if ($completed -ge $script:VocabularyDailyGoal) {
         $script:VocabularyProjection.WordText.Text = "今日完成"
@@ -4320,7 +4339,9 @@ if ($ValidateVocabulary) {
             Remember-VocabularyWord $next
         }
         Remember-VocabularyWord $first
-        if ($script:VocabularyCompletedToday -ne $script:VocabularyDailyGoal -or (Get-NextVocabularyWord)) {
+        $mastery = Get-VocabularyMasterySummary
+        if ($script:VocabularyCompletedToday -ne $script:VocabularyDailyGoal -or
+            (Get-NextVocabularyWord) -or $mastery.Mastered -ne 1 -or $mastery.Total -ne 2) {
             throw "Vocabulary daily limit failed."
         }
         $anchor = [PSCustomObject]@{ CenterX = 500.0; Top = 200.0 }
@@ -4336,7 +4357,7 @@ if ($ValidateVocabulary) {
                 ([double]$anchor.CenterX + $script:CanonicalPetWidth * 0.5 + $script:CanonicalPetWidth * 0.25)) -gt 1.0) {
             throw "Vocabulary laptop hit or projection anchor failed."
         }
-        Write-Output "vocabulary-validation: library=pass remember=pass later=pass daily-limit=pass laptop-hit=pass projection-anchor=pass"
+        Write-Output "vocabulary-validation: library=pass remember=pass later=pass daily-limit=pass mastery-summary=pass laptop-hit=pass projection-anchor=pass"
     } finally {
         Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
         $script:Window.Close()

@@ -1925,6 +1925,16 @@ private final class VocabularyLearningStore {
         return state.completedToday
     }
 
+    var masterySummary: (mastered: Int, total: Int) {
+        reloadLibraryIfNeeded(force: false)
+        let mastered = words.reduce(into: 0) { count, word in
+            if state.progressByID[word.id]?.masteryCount ?? 0 > 0 {
+                count += 1
+            }
+        }
+        return (mastered, words.count)
+    }
+
     func nextWord(excluding excludedID: String? = nil, now: Date = Date()) -> VocabularyWord? {
         resetDailyCounterIfNeeded(now: now)
         guard state.completedToday < vocabularyDailyGoal else { return nil }
@@ -2049,6 +2059,8 @@ private final class VocabularyLearningStore {
 private final class VocabularyProjectionView: NSView {
     var word: VocabularyWord? { didSet { needsDisplay = true } }
     var dailyCompletedCount = 0 { didSet { needsDisplay = true } }
+    var masteredWordCount = 0 { didSet { needsDisplay = true } }
+    var totalWordCount = 0 { didSet { needsDisplay = true } }
     var onAction: ((VocabularyAction) -> Void)?
 
     override var isFlipped: Bool { true }
@@ -2109,8 +2121,7 @@ private final class VocabularyProjectionView: NSView {
                      in: NSRect(x: cardRect.minX + 34, y: 84, width: 152, height: 20),
                      font: .monospacedDigitSystemFont(ofSize: 14, weight: .semibold),
                      color: mutedTeal, alignment: .center)
-            drawText("No. 20240520", in: NSRect(x: cardRect.minX + 32, y: 141, width: 86, height: 10),
-                     font: .systemFont(ofSize: 8.2, weight: .medium), color: mutedTeal)
+            drawMasterySummary(color: mutedTeal)
             drawText("\(vocabularyDailyGoal) / \(vocabularyDailyGoal)",
                      in: NSRect(x: cardRect.maxX - 46, y: 141, width: 32, height: 10),
                      font: .monospacedDigitSystemFont(ofSize: 8.5, weight: .semibold),
@@ -2142,10 +2153,21 @@ private final class VocabularyProjectionView: NSView {
         drawCenteredText("等会再学", in: laterButtonRect,
                          font: .systemFont(ofSize: 10, weight: .medium), color: teal)
 
-        drawText("No. 20240520", in: NSRect(x: cardRect.minX + 32, y: 141, width: 86, height: 10),
-                 font: .systemFont(ofSize: 8.2, weight: .medium), color: mutedTeal)
+        drawMasterySummary(color: mutedTeal)
         drawText("\(dailyCompletedCount) / \(vocabularyDailyGoal)", in: NSRect(x: cardRect.maxX - 46, y: 141, width: 32, height: 10),
                  font: .monospacedDigitSystemFont(ofSize: 8.5, weight: .semibold), color: mutedTeal, alignment: .right)
+    }
+
+    private func drawMasterySummary(color: NSColor) {
+        drawFittedText(
+            "已掌握 \(masteredWordCount) / \(totalWordCount)",
+            in: NSRect(x: cardRect.minX + 18, y: 141, width: 128, height: 10),
+            preferredSize: 8.2,
+            minimumSize: 6.5,
+            weight: .medium,
+            color: color,
+            alignment: .left
+        )
     }
 
     private func drawProjectionBeam() {
@@ -4478,8 +4500,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        let masterySummary = vocabularyStore.masterySummary
         vocabularyProjectionView.word = dailyGoalComplete ? nil : currentVocabularyWord
         vocabularyProjectionView.dailyCompletedCount = vocabularyStore.dailyCompletedCount
+        vocabularyProjectionView.masteredWordCount = masterySummary.mastered
+        vocabularyProjectionView.totalWordCount = masterySummary.total
         if !rectApproximatelyEqual(vocabularyProjectionPanel.frame, frame) {
             vocabularyProjectionPanel.setFrame(frame, display: false)
         }
@@ -4509,8 +4534,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         case .remember:
             vocabularyStore.remember(currentVocabularyWord)
             self.currentVocabularyWord = vocabularyStore.nextWord(excluding: currentVocabularyWord.id)
+            let masterySummary = vocabularyStore.masterySummary
             vocabularyProjectionView.word = self.currentVocabularyWord
             vocabularyProjectionView.dailyCompletedCount = vocabularyStore.dailyCompletedCount
+            vocabularyProjectionView.masteredWordCount = masterySummary.mastered
+            vocabularyProjectionView.totalWordCount = masterySummary.total
         case .later:
             vocabularyStore.learnLater(currentVocabularyWord)
             self.currentVocabularyWord = nil
@@ -5141,8 +5169,11 @@ private func runVocabularySelfTest() -> Never {
             store.remember(next)
         }
         store.remember(first)
+        let masterySummary = store.masterySummary
         guard store.dailyCompletedCount == vocabularyDailyGoal,
-              store.nextWord() == nil
+              store.nextWord() == nil,
+              masterySummary.mastered == 1,
+              masterySummary.total == 2
         else { throw NSError(domain: "Vocabulary", code: 5) }
 
         let pet = NSRect(x: 420, y: 210, width: 163, height: 177)
@@ -5160,7 +5191,7 @@ private func runVocabularySelfTest() -> Never {
               abs(card.width - (vocabularyProjectionReach + vocabularyCardBaseSize.width)) <= 0.01,
               abs(card.height - vocabularyCardBaseSize.height) <= 0.01
         else { throw NSError(domain: "Vocabulary", code: 3) }
-        print("vocabulary-self-test: library=pass remember=pass later=pass daily-limit=pass laptop-hit=pass projection-anchor=pass")
+        print("vocabulary-self-test: library=pass remember=pass later=pass daily-limit=pass mastery-summary=pass laptop-hit=pass projection-anchor=pass")
         exit(0)
     } catch {
         fputs("vocabulary self-test failed: \(error.localizedDescription)\n", stderr)
@@ -6010,6 +6041,8 @@ private func renderVocabularyProjectionPreviewOnce(
         )
     }
     view.dailyCompletedCount = dailyCompletedCount
+    view.masteredWordCount = 4
+    view.totalWordCount = 5
     view.layoutSubtreeIfNeeded()
 
     let scale: CGFloat = 4
