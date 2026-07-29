@@ -61,7 +61,9 @@ private enum OrangeBubuRuntimeGeometry {
     // a tooltip: it is a large, warm paper ticket suspended in a cyan beam.
     // Values are base logical points and scale with Bubu as one composition.
     static let vocabularyCardSize = NSSize(width: 218, height: 154)
-    static let vocabularyProjectionReach: CGFloat = 132
+    // Keeps the physical ticket about one quarter of a pet-width beyond the
+    // chair rail: half of the previous visible gap.
+    static let vocabularyProjectionReach: CGFloat = 91
     static let vocabularyProjectionSourceInset: CGFloat = 6
 }
 
@@ -515,9 +517,8 @@ private func vocabularyProjectionFrame(
     let laptop = vocabularyLaptopHoverRect(for: petVisibleRect)
     let sourceX = laptop.maxX - vocabularyProjectionSourceInset * scale
     let size = NSSize(width: reach + cardSize.width, height: cardSize.height)
-    // Start inside the laptop's right rim and allow the projection to travel
-    // across the deliberately empty space beside the chair. At canonical size
-    // the ticket begins about half a Bubu-width after the chair rail.
+    // Start inside the laptop's right rim. At canonical size the ticket begins
+    // about one quarter of a Bubu-width after the chair rail.
     let origin = NSPoint(
         x: sourceX,
         y: laptop.midY - size.height / 2
@@ -2119,8 +2120,8 @@ private final class VocabularyProjectionView: NSView {
         wideBeam.line(to: NSPoint(x: impact.x + 11, y: impact.y + 54))
         wideBeam.close()
         NSGradient(
-            starting: NSColor(calibratedRed: 0.45, green: 0.94, blue: 1.00, alpha: 0.42),
-            ending: NSColor(calibratedRed: 0.52, green: 0.95, blue: 1.00, alpha: 0.045)
+            starting: NSColor(calibratedRed: 0.45, green: 0.94, blue: 1.00, alpha: 0.20),
+            ending: NSColor(calibratedRed: 0.52, green: 0.95, blue: 1.00, alpha: 0.018)
         )!.draw(in: wideBeam, angle: 0)
 
         let innerBeam = NSBezierPath()
@@ -2129,8 +2130,8 @@ private final class VocabularyProjectionView: NSView {
         innerBeam.line(to: NSPoint(x: impact.x + 8, y: impact.y + 21))
         innerBeam.close()
         NSGradient(
-            starting: NSColor(calibratedRed: 0.86, green: 0.99, blue: 1.00, alpha: 0.78),
-            ending: NSColor(calibratedRed: 0.47, green: 0.93, blue: 1.00, alpha: 0.10)
+            starting: NSColor(calibratedRed: 0.86, green: 0.99, blue: 1.00, alpha: 0.34),
+            ending: NSColor(calibratedRed: 0.47, green: 0.93, blue: 1.00, alpha: 0.035)
         )!.draw(in: innerBeam, angle: 0)
 
         let core = NSBezierPath()
@@ -2138,19 +2139,19 @@ private final class VocabularyProjectionView: NSView {
         core.line(to: NSPoint(x: impact.x + 4, y: impact.y - 4))
         core.line(to: NSPoint(x: impact.x + 4, y: impact.y + 4))
         core.close()
-        NSColor(calibratedRed: 0.96, green: 1, blue: 1, alpha: 0.75).setFill()
+        NSColor(calibratedRed: 0.96, green: 1, blue: 1, alpha: 0.32).setFill()
         core.fill()
 
-        let glowRings: [(CGFloat, CGFloat)] = [(30, 0.045), (22, 0.08), (15, 0.14), (9, 0.25)]
+        let glowRings: [(CGFloat, CGFloat)] = [(30, 0.018), (22, 0.035), (15, 0.065), (9, 0.12)]
         for (radius, alpha) in glowRings {
             NSColor(calibratedRed: 0.38, green: 0.92, blue: 1.00, alpha: alpha).setFill()
             NSBezierPath(ovalIn: NSRect(
                 x: impact.x - radius, y: impact.y - radius, width: radius * 2, height: radius * 2
             )).fill()
         }
-        drawProjectionGlyph("B", center: NSPoint(x: 55, y: bounds.midY - 22), angle: -0.20)
-        drawProjectionGlyph("a", center: NSPoint(x: 73, y: bounds.midY + 1), angle: 0.12)
-        drawProjectionGlyph("E", center: NSPoint(x: 96, y: bounds.midY + 28), angle: -0.16)
+        drawProjectionGlyph("B", center: NSPoint(x: 36, y: bounds.midY - 22), angle: -0.20)
+        drawProjectionGlyph("a", center: NSPoint(x: 53, y: bounds.midY + 1), angle: 0.12)
+        drawProjectionGlyph("E", center: NSPoint(x: 71, y: bounds.midY + 28), angle: -0.16)
     }
 
     private func ticketPath(in rect: NSRect) -> NSBezierPath {
@@ -2265,13 +2266,13 @@ private final class VocabularyProjectionView: NSView {
         context.cgContext.rotate(by: angle)
         let rect = NSRect(x: -7, y: -7, width: 14, height: 14)
         let tile = NSBezierPath(roundedRect: rect, xRadius: 3.5, yRadius: 3.5)
-        NSColor.white.withAlphaComponent(0.29).setFill()
+        NSColor.white.withAlphaComponent(0.16).setFill()
         tile.fill()
-        NSColor(calibratedRed: 0.20, green: 0.78, blue: 0.88, alpha: 0.88).setStroke()
+        NSColor(calibratedRed: 0.20, green: 0.78, blue: 0.88, alpha: 0.45).setStroke()
         tile.lineWidth = 0.8
         tile.stroke()
         drawCenteredText(glyph, in: rect, font: .systemFont(ofSize: 8.5, weight: .bold),
-                         color: NSColor.white.withAlphaComponent(0.92))
+                         color: NSColor.white.withAlphaComponent(0.65))
         context.restoreGraphicsState()
     }
 
@@ -5107,7 +5108,7 @@ private func runVocabularySelfTest() -> Never {
               ),
               abs((card.minX + vocabularyProjectionReach) -
                     (laptop.maxX - vocabularyProjectionSourceInset + vocabularyProjectionReach)) <= 0.01,
-              abs((card.minX + vocabularyProjectionReach) - (pet.maxX + pet.width * 0.5)) <= 1.0,
+              abs((card.minX + vocabularyProjectionReach) - (pet.maxX + pet.width * 0.25)) <= 1.0,
               abs(card.midY - laptop.midY) <= 0.01,
               abs(card.width - (vocabularyProjectionReach + vocabularyCardBaseSize.width)) <= 0.01,
               abs(card.height - vocabularyCardBaseSize.height) <= 0.01

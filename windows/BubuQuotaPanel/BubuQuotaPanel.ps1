@@ -769,9 +769,9 @@ $script:SelectedSkin = "orange"
 # array or `{ "words": [...] }` at the configured path; each entry needs
 # `word` and `meaning` (or `definition` / `translation`), with optional id,
 # phonetic and example fields.
-$script:VocabularyBaseWidth = 350.0
+$script:VocabularyBaseWidth = 309.0
 $script:VocabularyBaseHeight = 154.0
-$script:VocabularyProjectionReach = 132.0
+$script:VocabularyProjectionReach = 91.0
 $script:VocabularyProjectionSourceInset = 6.0
 $script:VocabularyRoot = Join-Path $env:APPDATA "OrangeBubuQuotaPanel"
 $script:VocabularyProgressPath = Join-Path $script:VocabularyRoot "vocabulary-progress.json"
@@ -1311,47 +1311,47 @@ $vocabularyXaml = @"
     </Window.Resources>
     <Canvas x:Name="VocabularyScaleRoot" Width="$($script:VocabularyBaseWidth)" Height="$($script:VocabularyBaseHeight)">
         <!-- layered laptop projection: broad fan, bright inner cone, white core -->
-        <Path Data="M0,77 L143,23 L143,131 Z">
-            <Path.Fill><LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5"><GradientStop Color="#6B73EDFF" Offset="0"/><GradientStop Color="#0C73EDFF" Offset="1"/></LinearGradientBrush></Path.Fill>
+        <Path Data="M0,77 L102,23 L102,131 Z">
+            <Path.Fill><LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5"><GradientStop Color="#3373EDFF" Offset="0"/><GradientStop Color="#0573EDFF" Offset="1"/></LinearGradientBrush></Path.Fill>
         </Path>
-        <Path Data="M0,77 L140,56 L140,98 Z">
-            <Path.Fill><LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5"><GradientStop Color="#C7EFFFFF" Offset="0"/><GradientStop Color="#1973EDFF" Offset="1"/></LinearGradientBrush></Path.Fill>
+        <Path Data="M0,77 L99,56 L99,98 Z">
+            <Path.Fill><LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5"><GradientStop Color="#57EFFFFF" Offset="0"/><GradientStop Color="#0973EDFF" Offset="1"/></LinearGradientBrush></Path.Fill>
         </Path>
-        <Path Data="M0,77 L137,73 L137,81 Z" Fill="#C2F9FFFF"/>
-        <Ellipse Canvas.Left="105" Canvas.Top="47" Width="60" Height="60" Fill="#0A61E8FF"/>
-        <Ellipse Canvas.Left="116" Canvas.Top="58" Width="38" Height="38" Fill="#1574EFFF"/>
-        <Border Canvas.Left="48" Canvas.Top="48" Width="14" Height="14" CornerRadius="3" Background="#4AFFFFFF" BorderBrush="#C23CC7DD" BorderThickness="0.8" RenderTransformOrigin="0.5,0.5"><Border.RenderTransform><RotateTransform Angle="-12"/></Border.RenderTransform><TextBlock Text="B" TextAlignment="Center" VerticalAlignment="Center" FontSize="8.5" FontWeight="Bold" Foreground="White"/></Border>
-        <Border Canvas.Left="66" Canvas.Top="71" Width="14" Height="14" CornerRadius="3" Background="#4AFFFFFF" BorderBrush="#C23CC7DD" BorderThickness="0.8" RenderTransformOrigin="0.5,0.5"><Border.RenderTransform><RotateTransform Angle="7"/></Border.RenderTransform><TextBlock Text="a" TextAlignment="Center" VerticalAlignment="Center" FontSize="8.5" FontWeight="Bold" Foreground="White"/></Border>
-        <Border Canvas.Left="89" Canvas.Top="98" Width="14" Height="14" CornerRadius="3" Background="#4AFFFFFF" BorderBrush="#C23CC7DD" BorderThickness="0.8" RenderTransformOrigin="0.5,0.5"><Border.RenderTransform><RotateTransform Angle="-10"/></Border.RenderTransform><TextBlock Text="E" TextAlignment="Center" VerticalAlignment="Center" FontSize="8.5" FontWeight="Bold" Foreground="White"/></Border>
+        <Path Data="M0,77 L96,73 L96,81 Z" Fill="#52F9FFFF"/>
+        <Ellipse Canvas.Left="64" Canvas.Top="47" Width="60" Height="60" Fill="#0561E8FF"/>
+        <Ellipse Canvas.Left="75" Canvas.Top="58" Width="38" Height="38" Fill="#0C74EFFF"/>
+        <Border Canvas.Left="29" Canvas.Top="48" Width="14" Height="14" CornerRadius="3" Background="#29FFFFFF" BorderBrush="#733CC7DD" BorderThickness="0.8" RenderTransformOrigin="0.5,0.5"><Border.RenderTransform><RotateTransform Angle="-12"/></Border.RenderTransform><TextBlock Text="B" TextAlignment="Center" VerticalAlignment="Center" FontSize="8.5" FontWeight="Bold" Foreground="#A6FFFFFF"/></Border>
+        <Border Canvas.Left="46" Canvas.Top="71" Width="14" Height="14" CornerRadius="3" Background="#29FFFFFF" BorderBrush="#733CC7DD" BorderThickness="0.8" RenderTransformOrigin="0.5,0.5"><Border.RenderTransform><RotateTransform Angle="7"/></Border.RenderTransform><TextBlock Text="a" TextAlignment="Center" VerticalAlignment="Center" FontSize="8.5" FontWeight="Bold" Foreground="#A6FFFFFF"/></Border>
+        <Border Canvas.Left="64" Canvas.Top="98" Width="14" Height="14" CornerRadius="3" Background="#29FFFFFF" BorderBrush="#733CC7DD" BorderThickness="0.8" RenderTransformOrigin="0.5,0.5"><Border.RenderTransform><RotateTransform Angle="-10"/></Border.RenderTransform><TextBlock Text="E" TextAlignment="Center" VerticalAlignment="Center" FontSize="8.5" FontWeight="Bold" Foreground="#A6FFFFFF"/></Border>
 
         <!-- The non-rectangular paper path carries the large punch and the three small edge bites. -->
-        <Path Data="M148,0 H334 Q350,0 350,16 V138 Q350,154 334,154 H148 Q132,154 132,138 V111 C132,108 134,106 137,106 C134,106 132,104 132,101 V95 C152,89 152,65 132,59 V51 C132,48 134,46 137,46 C134,46 132,44 132,41 V16 Q132,0 148,0 Z" Stroke="#DFFFFEFF" StrokeThickness="1">
+        <Path Data="M107,0 H293 Q309,0 309,16 V138 Q309,154 293,154 H107 Q91,154 91,138 V111 C91,108 93,106 96,106 C93,106 91,104 91,101 V95 C111,89 111,65 91,59 V51 C91,48 93,46 96,46 C93,46 91,44 91,41 V16 Q91,0 107,0 Z" Stroke="#DFFFFEFF" StrokeThickness="1">
             <Path.Fill><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#FFFFFDF9" Offset="0"/><GradientStop Color="#FFF9F2E8" Offset="1"/></LinearGradientBrush></Path.Fill>
             <Path.Effect><DropShadowEffect Color="#3D1E2524" BlurRadius="17" ShadowDepth="6"/></Path.Effect>
         </Path>
-        <Path Data="M136,60 C151,65 151,89 136,94" Stroke="#CA45DCE8" StrokeThickness="1.7"/>
-        <Border Canvas.Left="131.5" Canvas.Top="22" Width="3" Height="12" Background="#C946DFE8" CornerRadius="1.5"/>
-        <Border Canvas.Left="131.5" Canvas.Top="67" Width="3" Height="11" Background="#C946DFE8" CornerRadius="1.5"/>
-        <Border Canvas.Left="131.5" Canvas.Top="121" Width="3" Height="12" Background="#C946DFE8" CornerRadius="1.5"/>
-        <Path Data="M148,3 H334" Stroke="#BFFFFFFF" StrokeThickness="2"/>
+        <Path Data="M95,60 C110,65 110,89 95,94" Stroke="#CA45DCE8" StrokeThickness="1.7"/>
+        <Border Canvas.Left="90.5" Canvas.Top="22" Width="3" Height="12" Background="#C946DFE8" CornerRadius="1.5"/>
+        <Border Canvas.Left="90.5" Canvas.Top="67" Width="3" Height="11" Background="#C946DFE8" CornerRadius="1.5"/>
+        <Border Canvas.Left="90.5" Canvas.Top="121" Width="3" Height="12" Background="#C946DFE8" CornerRadius="1.5"/>
+        <Path Data="M107,3 H293" Stroke="#BFFFFFFF" StrokeThickness="2"/>
 
-        <TextBlock Canvas.Left="196" Canvas.Top="15" Width="100" Height="14" Text="✿  今日单词" TextAlignment="Center"
+        <TextBlock Canvas.Left="155" Canvas.Top="15" Width="100" Height="14" Text="✿  今日单词" TextAlignment="Center"
                    FontFamily="Microsoft YaHei UI" FontSize="8.5" FontWeight="Medium" Foreground="#DE308F96"/>
-        <TextBlock x:Name="VocabularyWordText" Canvas.Left="162" Canvas.Top="35" Width="160" Height="28" Text="serendipity"
+        <TextBlock x:Name="VocabularyWordText" Canvas.Left="121" Canvas.Top="35" Width="160" Height="28" Text="serendipity"
                    TextAlignment="Center" TextTrimming="CharacterEllipsis" FontFamily="Segoe UI" FontSize="20.5" FontWeight="SemiBold" Foreground="#F0128A91"/>
-        <TextBlock x:Name="VocabularyPhoneticText" Canvas.Left="166" Canvas.Top="65" Width="152" Height="17" Text="/ˌserənˈdɪpəti/"
+        <TextBlock x:Name="VocabularyPhoneticText" Canvas.Left="125" Canvas.Top="65" Width="152" Height="17" Text="/ˌserənˈdɪpəti/"
                    TextAlignment="Center" TextTrimming="CharacterEllipsis" FontFamily="Segoe UI" FontSize="11" Foreground="#E42F9299"/>
-        <TextBlock x:Name="VocabularyMeaningText" Canvas.Left="167" Canvas.Top="88" Width="148" Height="18" Text="意外发现的美好"
+        <TextBlock x:Name="VocabularyMeaningText" Canvas.Left="126" Canvas.Top="88" Width="148" Height="18" Text="意外发现的美好"
                    TextAlignment="Center" TextTrimming="CharacterEllipsis" FontFamily="Microsoft YaHei UI" FontSize="12.5" FontWeight="SemiBold" Foreground="#F0242424"/>
-        <Button x:Name="VocabularyRememberButton" Canvas.Left="176" Canvas.Top="110" Width="58" Height="25" Content="记住啦"
+        <Button x:Name="VocabularyRememberButton" Canvas.Left="135" Canvas.Top="110" Width="58" Height="25" Content="记住啦"
                 Style="{StaticResource VocabularyTicketButton}" FontFamily="Microsoft YaHei UI" FontSize="10.5" FontWeight="SemiBold"
                 Foreground="White" BorderThickness="0" Cursor="Hand"><Button.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#FF0A9FA9" Offset="0"/><GradientStop Color="#F82AB8BF" Offset="1"/></LinearGradientBrush></Button.Background></Button>
-        <Button x:Name="VocabularyLaterButton" Canvas.Left="245" Canvas.Top="110" Width="75" Height="25" Content="等会再学"
+        <Button x:Name="VocabularyLaterButton" Canvas.Left="204" Canvas.Top="110" Width="75" Height="25" Content="等会再学"
                 Style="{StaticResource VocabularyTicketButton}" FontFamily="Microsoft YaHei UI" FontSize="10" FontWeight="Medium"
                 Foreground="#F012858D" Background="Transparent" BorderBrush="#C00C9EA6" BorderThickness="1.35" Cursor="Hand"/>
-        <TextBlock Canvas.Left="164" Canvas.Top="141" Width="86" Height="10" Text="No. 20240520"
+        <TextBlock Canvas.Left="123" Canvas.Top="141" Width="86" Height="10" Text="No. 20240520"
                    FontFamily="Segoe UI" FontSize="8.2" FontWeight="Medium" Foreground="#D9329198"/>
-        <TextBlock x:Name="VocabularyDailyText" Canvas.Left="304" Canvas.Top="141" Width="32" Height="10" Text="0 / 10"
+        <TextBlock x:Name="VocabularyDailyText" Canvas.Left="263" Canvas.Top="141" Width="32" Height="10" Text="0 / 10"
                    TextAlignment="Right" FontFamily="Consolas" FontSize="8.5" FontWeight="SemiBold" Foreground="#DE329198"/>
     </Canvas>
 </Window>
@@ -4296,7 +4296,7 @@ if ($ValidateVocabulary) {
             Left = $laptop.Left; Top = $laptop.Top; Right = $laptop.Right; Bottom = $laptop.Bottom
         })) -or -not $projection -or
             [Math]::Abs([double]$projection.TicketLeft -
-                ([double]$anchor.CenterX + $script:CanonicalPetWidth * 0.5 + $script:CanonicalPetWidth * 0.5)) -gt 1.0) {
+                ([double]$anchor.CenterX + $script:CanonicalPetWidth * 0.5 + $script:CanonicalPetWidth * 0.25)) -gt 1.0) {
             throw "Vocabulary laptop hit or projection anchor failed."
         }
         Write-Output "vocabulary-validation: library=pass remember=pass later=pass laptop-hit=pass projection-anchor=pass"
