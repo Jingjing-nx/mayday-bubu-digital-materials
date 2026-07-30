@@ -2133,22 +2133,21 @@ private final class VocabularyProjectionView: NSView {
 
         let teal = NSColor(calibratedRed: 0.07, green: 0.54, blue: 0.57, alpha: 0.97)
         let mutedTeal = NSColor(calibratedRed: 0.19, green: 0.58, blue: 0.61, alpha: 0.87)
-        drawText("✿  今日单词", in: NSRect(x: cardRect.minX + 64, y: 15, width: 100, height: 14),
-                 font: .systemFont(ofSize: 8.5, weight: .medium), color: mutedTeal, alignment: .center)
+        drawFittedText(
+            "✿  今日已学 \(dailyCompletedCount) / \(vocabularyDailyGoal)",
+            in: NSRect(x: cardRect.minX + 44, y: 15, width: 130, height: 14),
+            preferredSize: 8.5,
+            minimumSize: 7,
+            weight: .medium,
+            color: mutedTeal,
+            alignment: .center
+        )
 
         if dailyGoalComplete {
             drawFittedText("今日完成", in: NSRect(x: cardRect.minX + 30, y: 48, width: 160, height: 30),
                            preferredSize: 22, minimumSize: 18, weight: .semibold,
                            color: teal, alignment: .center)
-            drawText("\(vocabularyDailyGoal) / \(vocabularyDailyGoal)",
-                     in: NSRect(x: cardRect.minX + 34, y: 84, width: 152, height: 20),
-                     font: .monospacedDigitSystemFont(ofSize: 14, weight: .semibold),
-                     color: mutedTeal, alignment: .center)
             drawMasterySummary(color: mutedTeal)
-            drawText("\(vocabularyDailyGoal) / \(vocabularyDailyGoal)",
-                     in: NSRect(x: cardRect.maxX - 46, y: 141, width: 32, height: 10),
-                     font: .monospacedDigitSystemFont(ofSize: 8.5, weight: .semibold),
-                     color: mutedTeal, alignment: .right)
             return
         }
 
@@ -2177,8 +2176,6 @@ private final class VocabularyProjectionView: NSView {
                          font: .systemFont(ofSize: 10, weight: .medium), color: teal)
 
         drawMasterySummary(color: mutedTeal)
-        drawText("\(dailyCompletedCount) / \(vocabularyDailyGoal)", in: NSRect(x: cardRect.maxX - 46, y: 141, width: 32, height: 10),
-                 font: .monospacedDigitSystemFont(ofSize: 8.5, weight: .semibold), color: mutedTeal, alignment: .right)
     }
 
     private func drawMasterySummary(color: NSColor) {

@@ -1365,7 +1365,7 @@ $vocabularyXaml = @"
       </Canvas>
 
       <Canvas x:Name="VocabularyContentRoot" Canvas.Left="91" Width="218" Height="$($script:VocabularyBaseHeight)">
-        <TextBlock Canvas.Left="64" Canvas.Top="15" Width="100" Height="14" Text="✿  今日单词" TextAlignment="Center"
+        <TextBlock x:Name="VocabularyDailyText" Canvas.Left="44" Canvas.Top="15" Width="130" Height="14" Text="✿  今日已学 0 / 10" TextAlignment="Center"
                    FontFamily="Microsoft YaHei UI" FontSize="8.5" FontWeight="Medium" Foreground="#DE308F96"/>
         <TextBlock x:Name="VocabularyWordText" Canvas.Left="30" Canvas.Top="35" Width="160" Height="28" Text="serendipity"
                    TextAlignment="Center" TextTrimming="CharacterEllipsis" FontFamily="Segoe UI" FontSize="20.5" FontWeight="SemiBold" Foreground="#F0128A91"/>
@@ -1381,8 +1381,6 @@ $vocabularyXaml = @"
                 Foreground="#F012858D" Background="Transparent" BorderBrush="#C00C9EA6" BorderThickness="1.35" Cursor="Hand"/>
         <TextBlock x:Name="VocabularyMasteryText" Canvas.Left="18" Canvas.Top="141" Width="128" Height="10" Text="已掌握 0 / 5"
                    FontFamily="Segoe UI" FontSize="8.2" FontWeight="Medium" Foreground="#D9329198"/>
-        <TextBlock x:Name="VocabularyDailyText" Canvas.Left="172" Canvas.Top="141" Width="32" Height="10" Text="0 / 10"
-                   TextAlignment="Right" FontFamily="Consolas" FontSize="8.5" FontWeight="SemiBold" Foreground="#DE329198"/>
       </Canvas>
     </Canvas>
 </Window>
@@ -3308,10 +3306,12 @@ function Update-VocabularyProjectionText {
     $script:VocabularyProjection.MasteryText.Text = (
         "已掌握 " + [string]$mastery.Mastered + " / " + [string]$mastery.Total
     )
-    $script:VocabularyProjection.DailyText.Text = ([string]$completed + " / " + [string]$script:VocabularyDailyGoal)
+    $script:VocabularyProjection.DailyText.Text = (
+        "✿  今日已学 " + [string]$completed + " / " + [string]$script:VocabularyDailyGoal
+    )
     if ($completed -ge $script:VocabularyDailyGoal) {
         $script:VocabularyProjection.WordText.Text = "今日完成"
-        $script:VocabularyProjection.PhoneticText.Text = ([string]$script:VocabularyDailyGoal + " / " + [string]$script:VocabularyDailyGoal)
+        $script:VocabularyProjection.PhoneticText.Text = ""
         $script:VocabularyProjection.MeaningText.Text = ""
         $script:VocabularyProjection.RememberButton.Visibility = [Windows.Visibility]::Collapsed
         $script:VocabularyProjection.LaterButton.Visibility = [Windows.Visibility]::Collapsed
