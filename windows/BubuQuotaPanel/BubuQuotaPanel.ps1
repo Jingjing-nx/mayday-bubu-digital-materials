@@ -4367,7 +4367,8 @@ if ($ValidateVocabulary) {
         $script:VocabularyLibraryWrite = [DateTime]::MinValue
         @(
             [PSCustomObject]@{ id = "one"; word = "one"; meaning = "一" },
-            [PSCustomObject]@{ id = "two"; word = "two"; definition = "二" }
+            [PSCustomObject]@{ id = "two"; word = "two"; definition = "二" },
+            [PSCustomObject]@{ id = "three"; word = "three"; meaning = "三" }
         ) | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $script:VocabularyLibraryPath -Encoding UTF8
         Import-VocabularyLibrary $true
         $first = Get-NextVocabularyWord
@@ -4378,6 +4379,12 @@ if ($ValidateVocabulary) {
             throw "Vocabulary remember queue failed."
         }
         Postpone-VocabularyWord $second
+        $replacement = Get-NextVocabularyWord ([string]$second.Id)
+        $masteryAfterPostpone = Get-VocabularyMasterySummary
+        if (-not $replacement -or $replacement.Id -eq $second.Id -or
+            $script:VocabularyCompletedToday -ne 1 -or $masteryAfterPostpone.Mastered -ne 1) {
+            throw "Vocabulary later queue failed."
+        }
         while ($script:VocabularyCompletedToday -lt $script:VocabularyDailyGoal) {
             $next = Get-NextVocabularyWord
             if (-not $next) { throw "Vocabulary daily limit stopped too early." }
@@ -4386,7 +4393,7 @@ if ($ValidateVocabulary) {
         Remember-VocabularyWord $first
         $mastery = Get-VocabularyMasterySummary
         if ($script:VocabularyCompletedToday -ne $script:VocabularyDailyGoal -or
-            (Get-NextVocabularyWord) -or $mastery.Mastered -ne 1 -or $mastery.Total -ne 2) {
+            (Get-NextVocabularyWord) -or $mastery.Mastered -ne 2 -or $mastery.Total -ne 3) {
             throw "Vocabulary daily limit failed."
         }
         $anchor = [PSCustomObject]@{ CenterX = 500.0; Top = 200.0 }
@@ -4893,11 +4900,13 @@ $script:VocabularyProjection.RememberButton.Add_Click({
 })
 $script:VocabularyProjection.LaterButton.Add_Click({
     if (-not $script:VocabularyCurrentWord) { return }
-    Postpone-VocabularyWord $script:VocabularyCurrentWord
-    Write-PanelLog ("VOCABULARY later=" + [string]$script:VocabularyCurrentWord.Id)
-    $script:VocabularyCurrentWord = $null
-    $script:VocabularyDismissedUntilMouseLeaves = $true
-    Hide-VocabularyProjectionWindow
+    $postponed = $script:VocabularyCurrentWord
+    Postpone-VocabularyWord $postponed
+    # "等会再学" queues this word for a later loop. It must not close the
+    # card, count as mastered, or consume one of today's ten completions.
+    $script:VocabularyCurrentWord = Get-NextVocabularyWord ([string]$postponed.Id)
+    Update-VocabularyProjectionText
+    Write-PanelLog ("VOCABULARY later=" + [string]$postponed.Id)
 })
 $script:Window.Add_IsVisibleChanged({ Update-TaskBadgeAnimationState })
 $script:Window.Add_Closed({

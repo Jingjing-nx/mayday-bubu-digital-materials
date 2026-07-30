@@ -4603,10 +4603,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             vocabularyProjectionView.masteredWordCount = masterySummary.mastered
             vocabularyProjectionView.totalWordCount = masterySummary.total
         case .later:
-            vocabularyStore.learnLater(currentVocabularyWord)
-            self.currentVocabularyWord = nil
-            vocabularyDismissedUntilMouseLeaves = true
-            vocabularyProjectionPanel.orderOut(nil)
+            let postponedWord = currentVocabularyWord
+            vocabularyStore.learnLater(postponedWord)
+            // "等会再学" is a queue action, not a dismissal: keep the projection
+            // open and continue with another eligible word. The postponed word
+            // comes back after its short delay without affecting mastery or the
+            // day's completed count.
+            self.currentVocabularyWord = vocabularyStore.nextWord(excluding: postponedWord.id)
+            let masterySummary = vocabularyStore.masterySummary
+            vocabularyProjectionView.word = self.currentVocabularyWord
+            vocabularyProjectionView.dailyCompletedCount = vocabularyStore.dailyCompletedCount
+            vocabularyProjectionView.masteredWordCount = masterySummary.mastered
+            vocabularyProjectionView.totalWordCount = masterySummary.total
         }
     }
 
@@ -5217,6 +5225,7 @@ private func runVocabularySelfTest() -> Never {
         let words = VocabularyLibraryDocument(words: [
             VocabularyWord(id: "one", word: "one", meaning: "一"),
             VocabularyWord(id: "two", word: "two", meaning: "二"),
+            VocabularyWord(id: "three", word: "three", meaning: "三"),
         ])
         let encoder = JSONEncoder()
         try encoder.encode(words).write(to: libraryURL, options: .atomic)
@@ -5227,6 +5236,11 @@ private func runVocabularySelfTest() -> Never {
               let second = store.nextWord(excluding: first.id), second.id != first.id
         else { throw NSError(domain: "Vocabulary", code: 2) }
         store.learnLater(second)
+        guard store.dailyCompletedCount == 1,
+              store.masterySummary.mastered == 1,
+              let replacement = store.nextWord(excluding: second.id),
+              replacement.id != second.id
+        else { throw NSError(domain: "Vocabulary", code: 6) }
         while store.dailyCompletedCount < vocabularyDailyGoal {
             guard let next = store.nextWord() else { throw NSError(domain: "Vocabulary", code: 4) }
             store.remember(next)
@@ -5235,8 +5249,8 @@ private func runVocabularySelfTest() -> Never {
         let masterySummary = store.masterySummary
         guard store.dailyCompletedCount == vocabularyDailyGoal,
               store.nextWord() == nil,
-              masterySummary.mastered == 1,
-              masterySummary.total == 2
+              masterySummary.mastered == 2,
+              masterySummary.total == 3
         else { throw NSError(domain: "Vocabulary", code: 5) }
 
         let pet = NSRect(x: 420, y: 210, width: 163, height: 177)
