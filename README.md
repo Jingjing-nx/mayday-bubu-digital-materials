@@ -29,6 +29,13 @@
 
 请按皮肤、功能和系统选择版本：
 
+<h2>
+  必须搭配codex使用！！！<br>
+  必须搭配codex使用！！！<br>
+  必须搭配codex使用！！！<br>
+  没有codex用不了！！！
+</h2>
+
 <!-- DOWNLOAD_TABLE:START -->
 <table>
   <thead>
