@@ -8,6 +8,8 @@
 2. 双击 `安装卜卜-macOS.command`。
 3. 重新打开 Codex；安装器会自动选择橙色卜卜。
 
+背 Web3 单词版请下载并解压 `Orange-Bubu-Web3-Vocabulary-macOS-Universal-30.zip`；它保留 BTC 面板，并内置 3000 词单词卡。
+
 如 macOS 提示无法验证，请在“系统设置 → 隐私与安全”中选择“仍要打开”。要求 macOS 12.3+，兼容 Apple 芯片与 Intel Mac。
 
 ## 当前设计
@@ -21,7 +23,7 @@
 - 已运行结束的任务立即从面板移除；任务最多显示 5 行。
 - 面板与荧光棒随宠物移动和同比缩放；面板箭头尖端保持在头顶正中约 14px。
 - 双击卜卜可循环隐藏或显示面板。
-- 悬停电脑区域会从右侧投出一张亮色票根式单词卡；点击“记住啦”按 1、3、7、30 天安排复习，点击“等会再学”延后 15 分钟。学习记录与自定义词库完全保存在本机，格式见 [`shared/pet/bubu-orange/VOCABULARY.md`](../shared/pet/bubu-orange/VOCABULARY.md)。
+- 悬停电脑区域会从右侧投出一张亮色票根式单词卡；例句默认显示两行，过长时点击“展开”可完整阅读，鼠标离开卡片会自动收起。点击“记住啦”按 1、3、7、30 天安排复习，点击“等会再学”延后 15 分钟。学习记录与自定义词库完全保存在本机，格式见 [`shared/pet/bubu-orange/VOCABULARY.md`](../shared/pet/bubu-orange/VOCABULARY.md)。
 
 ## 项目隔离
 

@@ -8,6 +8,8 @@
 2. 双击 `安装卜卜-Windows.cmd`。
 3. 安装器会关闭 Codex/ChatGPT；完成后重新打开即可。
 
+背 Web3 单词版请下载并解压 `Orange-Bubu-Web3-Vocabulary-Windows-10-11-30.zip`；它保留 BTC 面板，并内置 3000 词单词卡。
+
 支持 Windows 10/11、x64 与 ARM64；不需要管理员权限、Python、Node.js、.NET SDK 或 API Key。
 
 ## 当前设计
@@ -21,7 +23,7 @@
 - 已运行结束的任务立即移除，最多显示 5 个进行中任务。
 - 面板和荧光棒跟随宠物移动、同比缩放，并兼容高 DPI 与多显示器。
 - 双击卜卜可循环隐藏或显示面板。
-- 悬停电脑区域会从右侧投出一张亮色票根式单词卡；点击“记住啦”按 1、3、7、30 天安排复习，点击“等会再学”延后 15 分钟。学习记录与自定义词库完全保存在本机，格式见 [`shared/pet/bubu-orange/VOCABULARY.md`](../shared/pet/bubu-orange/VOCABULARY.md)。
+- 悬停电脑区域会从右侧投出一张亮色票根式单词卡；例句默认显示两行，过长时点击“展开”可完整阅读，鼠标离开卡片会自动收起。点击“记住啦”按 1、3、7、30 天安排复习，点击“等会再学”延后 15 分钟。学习记录与自定义词库完全保存在本机，格式见 [`shared/pet/bubu-orange/VOCABULARY.md`](../shared/pet/bubu-orange/VOCABULARY.md)。
 
 ## 项目隔离
 

@@ -60,7 +60,10 @@ private enum OrangeBubuRuntimeGeometry {
     // between Bubu's laptop and its ticket. The reference composition is not
     // a tooltip: it is a large, warm paper ticket suspended in a cyan beam.
     // Values are base logical points and scale with Bubu as one composition.
-    static let vocabularyCardSize = NSSize(width: 218, height: 154)
+    // A compact ticket reserves exactly two lines for its example sentence.
+    // Long examples grow downward only after the reader explicitly expands
+    // them, so the familiar laptop-to-ticket alignment never shifts upward.
+    static let vocabularyCardSize = NSSize(width: 218, height: 194)
     // Keeps the physical ticket about one quarter of a pet-width beyond the
     // chair rail: half of the previous visible gap.
     static let vocabularyProjectionReach: CGFloat = 91
@@ -520,15 +523,22 @@ private struct VocabularyProjectionPlacement {
 private func vocabularyProjectionPlacement(
     petVisibleRect: NSRect,
     petRenderScale: CGFloat,
-    screenVisibleFrame: NSRect
+    screenVisibleFrame: NSRect,
+    cardBaseHeight: CGFloat = vocabularyCardBaseSize.height
 ) -> VocabularyProjectionPlacement? {
     let scale = normalizedPanelScale(petRenderScale)
-    let cardSize = scaledPanelSize(vocabularyCardBaseSize, scale: scale)
+    let cardSize = scaledPanelSize(
+        NSSize(width: vocabularyCardBaseSize.width, height: cardBaseHeight),
+        scale: scale
+    )
     let reach = vocabularyProjectionReach * scale
     let laptop = vocabularyLaptopHoverRect(for: petVisibleRect)
     let size = NSSize(width: reach + cardSize.width, height: cardSize.height)
     let margin: CGFloat = 6 * scale
-    let originY = laptop.midY - size.height / 2
+    // Expanded examples extend below the compact ticket. The laptop beam and
+    // the top of the ticket therefore stay pinned at their approved position.
+    let compactHeight = vocabularyCardBaseSize.height * scale
+    let originY = laptop.midY - compactHeight / 2
     func candidate(originX: CGFloat, side: VocabularyProjectionSide)
         -> VocabularyProjectionPlacement?
     {
@@ -1865,6 +1875,7 @@ private struct VocabularyLearningState: Codable {
 private enum VocabularyAction {
     case remember
     case later
+    case toggleExample
 }
 
 /// A small local spaced-repetition queue. It first serves due reviews, then
@@ -2070,7 +2081,14 @@ private final class VocabularyLearningStore {
 }
 
 private final class VocabularyProjectionView: NSView {
-    var word: VocabularyWord? { didSet { if oldValue != word { needsDisplay = true } } }
+    var word: VocabularyWord? {
+        didSet {
+            if oldValue != word {
+                isExampleExpanded = false
+                needsDisplay = true
+            }
+        }
+    }
     var dailyCompletedCount = 0 {
         didSet { if oldValue != dailyCompletedCount { needsDisplay = true } }
     }
@@ -2084,28 +2102,80 @@ private final class VocabularyProjectionView: NSView {
         didSet { if oldValue != projectionSide { needsDisplay = true } }
     }
     var onAction: ((VocabularyAction) -> Void)?
+    private var isExampleExpanded = false {
+        didSet { if oldValue != isExampleExpanded { needsDisplay = true } }
+    }
 
     override var isFlipped: Bool { true }
 
     // A static, deterministic grain avoids a "flat UI card" look without
     // creating a per-frame texture workload while Bubu is being followed.
     private let paperGrain = VocabularyProjectionView.makePaperGrain()
+    private let exampleTextHeight: CGFloat = 26
+    private let exampleLineFont = NSFont.systemFont(ofSize: 9.2, weight: .regular)
+
+    private var example: String {
+        word?.example?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private var projectionCenterY: CGFloat { vocabularyCardBaseSize.height / 2 }
+
+    private func measuredExampleHeight() -> CGFloat {
+        guard !example.isEmpty else { return 0 }
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byWordWrapping
+        let size = (example as NSString).boundingRect(
+            with: NSSize(width: 166, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: exampleLineFont, .paragraphStyle: style]
+        ).size
+        return ceil(size.height)
+    }
+
+    private var exampleNeedsExpansion: Bool {
+        measuredExampleHeight() > exampleTextHeight + 0.5
+    }
+
+    private var expandedExampleHeight: CGFloat {
+        guard isExampleExpanded, exampleNeedsExpansion else { return 0 }
+        // The extra breathing room prevents the final baseline from touching
+        // the action row after a full sentence is revealed.
+        return max(0, measuredExampleHeight() - exampleTextHeight + 6)
+    }
+
+    func preferredCardHeight() -> CGFloat {
+        vocabularyCardBaseSize.height + expandedExampleHeight
+    }
+
+    func collapseExample() {
+        isExampleExpanded = false
+    }
+
+    func setExampleExpanded(_ expanded: Bool) {
+        guard exampleNeedsExpansion else { return }
+        isExampleExpanded = expanded
+    }
 
     private var cardRect: NSRect {
         NSRect(
             x: projectionSide == .right ? vocabularyProjectionReach : 0,
             y: 0,
             width: vocabularyCardBaseSize.width,
-            height: vocabularyCardBaseSize.height
+            height: bounds.height
         )
     }
 
     private var rememberButtonRect: NSRect {
-        NSRect(x: cardRect.minX + 44, y: cardRect.minY + 110, width: 58, height: 25)
+        NSRect(x: cardRect.minX + 44, y: cardRect.minY + 142 + expandedExampleHeight, width: 58, height: 25)
     }
 
     private var laterButtonRect: NSRect {
-        NSRect(x: cardRect.minX + 113, y: cardRect.minY + 110, width: 75, height: 25)
+        NSRect(x: cardRect.minX + 113, y: cardRect.minY + 142 + expandedExampleHeight, width: 75, height: 25)
+    }
+
+    private var exampleToggleRect: NSRect? {
+        guard exampleNeedsExpansion else { return nil }
+        return NSRect(x: cardRect.maxX - 52, y: cardRect.minY + 96, width: 38, height: 13)
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -2117,6 +2187,9 @@ private final class VocabularyProjectionView: NSView {
             onAction?(.remember)
         } else if laterButtonRect.contains(point) {
             onAction?(.later)
+        } else if let exampleToggleRect, exampleToggleRect.contains(point) {
+            isExampleExpanded.toggle()
+            onAction?(.toggleExample)
         }
     }
 
@@ -2134,7 +2207,7 @@ private final class VocabularyProjectionView: NSView {
         let mutedTeal = NSColor(calibratedRed: 0.19, green: 0.58, blue: 0.61, alpha: 0.87)
         drawFittedText(
             "✿  今日已学 \(dailyCompletedCount) / \(vocabularyDailyGoal)",
-            in: NSRect(x: cardRect.minX + 44, y: 15, width: 130, height: 14),
+            in: NSRect(x: cardRect.minX + 44, y: 12, width: 130, height: 14),
             preferredSize: 8.5,
             minimumSize: 7,
             weight: .medium,
@@ -2151,13 +2224,14 @@ private final class VocabularyProjectionView: NSView {
         }
 
         guard let word else { return }
-        drawFittedText(word.word, in: NSRect(x: cardRect.minX + 30, y: 35, width: 160, height: 28),
+        drawFittedText(word.word, in: NSRect(x: cardRect.minX + 30, y: 30, width: 160, height: 25),
                        preferredSize: 20.5, minimumSize: 16, weight: .semibold, color: teal, alignment: .center)
-        drawText(word.phonetic ?? "", in: NSRect(x: cardRect.minX + 34, y: 65, width: 152, height: 17),
+        drawText(word.phonetic ?? "", in: NSRect(x: cardRect.minX + 34, y: 58, width: 152, height: 15),
                  font: .systemFont(ofSize: 11, weight: .regular), color: mutedTeal, alignment: .center)
-        drawFittedText(word.meaning, in: NSRect(x: cardRect.minX + 35, y: 88, width: 148, height: 18),
+        drawFittedText(word.meaning, in: NSRect(x: cardRect.minX + 35, y: 78, width: 148, height: 16),
                        preferredSize: 12.5, minimumSize: 10, weight: .semibold,
                        color: NSColor(calibratedWhite: 0.15, alpha: 0.94), alignment: .center)
+        drawExample(color: mutedTeal)
 
         let rememberedPath = NSBezierPath(roundedRect: rememberButtonRect, xRadius: 12.5, yRadius: 12.5)
         NSGradient(
@@ -2180,7 +2254,7 @@ private final class VocabularyProjectionView: NSView {
     private func drawMasterySummary(color: NSColor) {
         drawFittedText(
             "已掌握 \(masteredWordCount) / \(totalWordCount)",
-            in: NSRect(x: cardRect.minX + 18, y: 141, width: 128, height: 10),
+            in: NSRect(x: cardRect.minX + 18, y: 175 + expandedExampleHeight, width: 128, height: 10),
             preferredSize: 8.2,
             minimumSize: 6.5,
             weight: .medium,
@@ -2189,15 +2263,51 @@ private final class VocabularyProjectionView: NSView {
         )
     }
 
+    private func drawExample(color: NSColor) {
+        let labelRect = NSRect(x: cardRect.minX + 24, y: 98, width: 36, height: 10)
+        let textRect = NSRect(
+            x: cardRect.minX + 26,
+            y: 109,
+            width: 166,
+            height: exampleTextHeight + expandedExampleHeight
+        )
+        drawText("例句", in: labelRect, font: .systemFont(ofSize: 8.2, weight: .medium), color: color)
+        guard !example.isEmpty else {
+            drawText("暂未收录例句", in: textRect, font: exampleLineFont,
+                     color: color.withAlphaComponent(0.7), alignment: .left)
+            return
+        }
+
+        let style = NSMutableParagraphStyle()
+        // Drawing uses the same wrapping metric as the height calculation.
+        // In compact mode AppKit clips after two lines; the explicit
+        // “... 展开” affordance tells the reader that more is available.
+        style.lineBreakMode = .byWordWrapping
+        style.alignment = .left
+        (example as NSString).draw(
+            with: textRect,
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [
+                .font: exampleLineFont,
+                .foregroundColor: NSColor(calibratedWhite: 0.18, alpha: 0.82),
+                .paragraphStyle: style,
+            ]
+        )
+        guard let exampleToggleRect else { return }
+        let toggleLabel = isExampleExpanded ? "收起" : "… 展开"
+        drawText(toggleLabel, in: exampleToggleRect,
+                 font: .systemFont(ofSize: 8.2, weight: .semibold), color: color, alignment: .right)
+    }
+
     private func drawProjectionBeam() {
         let direction: CGFloat = projectionSide == .right ? 1 : -1
         let sourceX: CGFloat = projectionSide == .right ? 0 : bounds.maxX
         let impact = NSPoint(
             x: projectionSide == .right ? cardRect.minX + 3 : cardRect.maxX - 3,
-            y: cardRect.midY
+            y: projectionCenterY
         )
         let wideBeam = NSBezierPath()
-        wideBeam.move(to: NSPoint(x: sourceX, y: bounds.midY))
+        wideBeam.move(to: NSPoint(x: sourceX, y: projectionCenterY))
         wideBeam.line(to: NSPoint(x: impact.x + direction * 11, y: impact.y - 54))
         wideBeam.line(to: NSPoint(x: impact.x + direction * 11, y: impact.y + 54))
         wideBeam.close()
@@ -2207,7 +2317,7 @@ private final class VocabularyProjectionView: NSView {
         )!.draw(in: wideBeam, angle: projectionSide == .right ? 0 : 180)
 
         let innerBeam = NSBezierPath()
-        innerBeam.move(to: NSPoint(x: sourceX, y: bounds.midY))
+        innerBeam.move(to: NSPoint(x: sourceX, y: projectionCenterY))
         innerBeam.line(to: NSPoint(x: impact.x + direction * 8, y: impact.y - 21))
         innerBeam.line(to: NSPoint(x: impact.x + direction * 8, y: impact.y + 21))
         innerBeam.close()
@@ -2217,7 +2327,7 @@ private final class VocabularyProjectionView: NSView {
         )!.draw(in: innerBeam, angle: projectionSide == .right ? 0 : 180)
 
         let core = NSBezierPath()
-        core.move(to: NSPoint(x: sourceX, y: bounds.midY))
+        core.move(to: NSPoint(x: sourceX, y: projectionCenterY))
         core.line(to: NSPoint(x: impact.x + direction * 4, y: impact.y - 4))
         core.line(to: NSPoint(x: impact.x + direction * 4, y: impact.y + 4))
         core.close()
@@ -2235,15 +2345,15 @@ private final class VocabularyProjectionView: NSView {
             projectionSide == .right ? x : bounds.maxX - x
         }
         drawProjectionGlyph(
-            "B", center: NSPoint(x: glyphX(36), y: bounds.midY - 22),
+            "B", center: NSPoint(x: glyphX(36), y: projectionCenterY - 22),
             angle: projectionSide == .right ? -0.20 : 0.20
         )
         drawProjectionGlyph(
-            "a", center: NSPoint(x: glyphX(53), y: bounds.midY + 1),
+            "a", center: NSPoint(x: glyphX(53), y: projectionCenterY + 1),
             angle: projectionSide == .right ? 0.12 : -0.12
         )
         drawProjectionGlyph(
-            "E", center: NSPoint(x: glyphX(71), y: bounds.midY + 28),
+            "E", center: NSPoint(x: glyphX(71), y: projectionCenterY + 28),
             angle: projectionSide == .right ? -0.16 : 0.16
         )
     }
@@ -2269,6 +2379,8 @@ private final class VocabularyProjectionView: NSView {
 
     private func makeRightSideTicketPath(in rect: NSRect) -> NSBezierPath {
         let radius: CGFloat = 16
+        let punchCenterY = rect.minY + projectionCenterY
+        let punchHalfHeight: CGFloat = 18
         let path = NSBezierPath()
         path.move(to: NSPoint(x: rect.minX + radius, y: rect.minY))
         path.line(to: NSPoint(x: rect.maxX - radius, y: rect.minY))
@@ -2285,27 +2397,27 @@ private final class VocabularyProjectionView: NSView {
                    controlPoint2: NSPoint(x: rect.minX, y: rect.maxY - 3))
         // This wide paper-punch opening accepts the laptop projection. Its
         // physical silhouette is intentionally different from a UI tooltip.
-        path.line(to: NSPoint(x: rect.minX, y: rect.minY + 111))
-        path.curve(to: NSPoint(x: rect.minX + 5, y: rect.minY + 106),
-                   controlPoint1: NSPoint(x: rect.minX, y: rect.minY + 108),
-                   controlPoint2: NSPoint(x: rect.minX + 2, y: rect.minY + 106))
-        path.curve(to: NSPoint(x: rect.minX, y: rect.minY + 101),
-                   controlPoint1: NSPoint(x: rect.minX + 2, y: rect.minY + 106),
-                   controlPoint2: NSPoint(x: rect.minX, y: rect.minY + 104))
-        path.line(to: NSPoint(x: rect.minX, y: rect.minY + 95))
-        path.curve(to: NSPoint(x: rect.minX + 20, y: rect.midY),
-                   controlPoint1: NSPoint(x: rect.minX + 15, y: rect.minY + 89),
-                   controlPoint2: NSPoint(x: rect.minX + 20, y: rect.midY + 10))
-        path.curve(to: NSPoint(x: rect.minX, y: rect.minY + 59),
-                   controlPoint1: NSPoint(x: rect.minX + 20, y: rect.midY - 10),
-                   controlPoint2: NSPoint(x: rect.minX + 15, y: rect.minY + 65))
-        path.line(to: NSPoint(x: rect.minX, y: rect.minY + 51))
-        path.curve(to: NSPoint(x: rect.minX + 5, y: rect.minY + 46),
-                   controlPoint1: NSPoint(x: rect.minX, y: rect.minY + 48),
-                   controlPoint2: NSPoint(x: rect.minX + 2, y: rect.minY + 46))
-        path.curve(to: NSPoint(x: rect.minX, y: rect.minY + 41),
-                   controlPoint1: NSPoint(x: rect.minX + 2, y: rect.minY + 46),
-                   controlPoint2: NSPoint(x: rect.minX, y: rect.minY + 44))
+        path.line(to: NSPoint(x: rect.minX, y: punchCenterY + punchHalfHeight + 17))
+        path.curve(to: NSPoint(x: rect.minX + 5, y: punchCenterY + punchHalfHeight + 12),
+                   controlPoint1: NSPoint(x: rect.minX, y: punchCenterY + punchHalfHeight + 14),
+                   controlPoint2: NSPoint(x: rect.minX + 2, y: punchCenterY + punchHalfHeight + 12))
+        path.curve(to: NSPoint(x: rect.minX, y: punchCenterY + punchHalfHeight + 7),
+                   controlPoint1: NSPoint(x: rect.minX + 2, y: punchCenterY + punchHalfHeight + 12),
+                   controlPoint2: NSPoint(x: rect.minX, y: punchCenterY + punchHalfHeight + 10))
+        path.line(to: NSPoint(x: rect.minX, y: punchCenterY + punchHalfHeight))
+        path.curve(to: NSPoint(x: rect.minX + 20, y: punchCenterY),
+                   controlPoint1: NSPoint(x: rect.minX + 15, y: punchCenterY + punchHalfHeight - 6),
+                   controlPoint2: NSPoint(x: rect.minX + 20, y: punchCenterY + 10))
+        path.curve(to: NSPoint(x: rect.minX, y: punchCenterY - punchHalfHeight),
+                   controlPoint1: NSPoint(x: rect.minX + 20, y: punchCenterY - 10),
+                   controlPoint2: NSPoint(x: rect.minX + 15, y: punchCenterY - punchHalfHeight + 6))
+        path.line(to: NSPoint(x: rect.minX, y: punchCenterY - punchHalfHeight - 7))
+        path.curve(to: NSPoint(x: rect.minX + 5, y: punchCenterY - punchHalfHeight - 12),
+                   controlPoint1: NSPoint(x: rect.minX, y: punchCenterY - punchHalfHeight - 10),
+                   controlPoint2: NSPoint(x: rect.minX + 2, y: punchCenterY - punchHalfHeight - 12))
+        path.curve(to: NSPoint(x: rect.minX, y: punchCenterY - punchHalfHeight - 17),
+                   controlPoint1: NSPoint(x: rect.minX + 2, y: punchCenterY - punchHalfHeight - 12),
+                   controlPoint2: NSPoint(x: rect.minX, y: punchCenterY - punchHalfHeight - 14))
         path.line(to: NSPoint(x: rect.minX, y: rect.minY + radius))
         path.curve(to: NSPoint(x: rect.minX + radius, y: rect.minY),
                    controlPoint1: NSPoint(x: rect.minX, y: rect.minY + 3),
@@ -2348,7 +2460,7 @@ private final class VocabularyProjectionView: NSView {
         let edgeX = projectionSide == .right ? cardRect.minX : cardRect.maxX
         let x = projectionSide == .right ? edgeX - 0.4 : edgeX - 2.6
         let accent = NSColor(calibratedRed: 0.28, green: 0.86, blue: 0.91, alpha: 0.78)
-        for (y, height) in [(22.0, 12.0), (67.0, 11.0), (121.0, 12.0)] {
+        for (y, height) in [(22.0, 12.0), (82.0, 11.0), (151.0, 12.0)] {
             let tab = NSBezierPath(
                 roundedRect: NSRect(x: x, y: y, width: 3.0, height: height), xRadius: 1.5, yRadius: 1.5
             )
@@ -2362,13 +2474,13 @@ private final class VocabularyProjectionView: NSView {
             ).fill()
         }
         let rim = NSBezierPath()
-        rim.move(to: NSPoint(x: edgeX + direction * 0.9, y: 60))
-        rim.curve(to: NSPoint(x: edgeX + direction * 20, y: cardRect.midY),
-                  controlPoint1: NSPoint(x: edgeX + direction * 15, y: 65),
-                  controlPoint2: NSPoint(x: edgeX + direction * 20, y: cardRect.midY + 9))
-        rim.curve(to: NSPoint(x: edgeX + direction * 0.9, y: 94),
-                  controlPoint1: NSPoint(x: edgeX + direction * 20, y: cardRect.midY - 9),
-                  controlPoint2: NSPoint(x: edgeX + direction * 15, y: 89))
+        rim.move(to: NSPoint(x: edgeX + direction * 0.9, y: projectionCenterY - 18))
+        rim.curve(to: NSPoint(x: edgeX + direction * 20, y: projectionCenterY),
+                  controlPoint1: NSPoint(x: edgeX + direction * 15, y: projectionCenterY - 13),
+                  controlPoint2: NSPoint(x: edgeX + direction * 20, y: projectionCenterY + 9))
+        rim.curve(to: NSPoint(x: edgeX + direction * 0.9, y: projectionCenterY + 18),
+                  controlPoint1: NSPoint(x: edgeX + direction * 20, y: projectionCenterY - 9),
+                  controlPoint2: NSPoint(x: edgeX + direction * 15, y: projectionCenterY + 13))
         accent.setStroke()
         rim.lineWidth = 1.7
         rim.stroke()
@@ -4530,17 +4642,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if !laptopHovered && !cardHovered {
             vocabularyDismissedUntilMouseLeaves = false
+            vocabularyProjectionView.collapseExample()
             vocabularyProjectionPanel.orderOut(nil)
             return
         }
         guard !vocabularyDismissedUntilMouseLeaves,
               petDragStart == nil,
-              quotaLightstickMode == .chair,
-              let placement = vocabularyProjectionPlacement(
-                  petVisibleRect: pet.visibleRect,
-                  petRenderScale: currentPanelScale,
-                  screenVisibleFrame: pet.screen.visibleFrame
-              )
+              quotaLightstickMode == .chair
         else {
             vocabularyProjectionPanel.orderOut(nil)
             return
@@ -4562,6 +4670,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         vocabularyProjectionView.dailyCompletedCount = vocabularyStore.dailyCompletedCount
         vocabularyProjectionView.masteredWordCount = masterySummary.mastered
         vocabularyProjectionView.totalWordCount = masterySummary.total
+        guard let placement = vocabularyProjectionPlacement(
+            petVisibleRect: pet.visibleRect,
+            petRenderScale: currentPanelScale,
+            screenVisibleFrame: pet.screen.visibleFrame,
+            cardBaseHeight: vocabularyProjectionView.preferredCardHeight()
+        ) else {
+            vocabularyProjectionPanel.orderOut(nil)
+            return
+        }
         vocabularyProjectionView.projectionSide = placement.side
         let frame = placement.frame
         if !rectApproximatelyEqual(vocabularyProjectionPanel.frame, frame) {
@@ -4572,7 +4689,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             origin: .zero,
             size: NSSize(
                 width: vocabularyProjectionReach + vocabularyCardBaseSize.width,
-                height: vocabularyCardBaseSize.height
+                height: vocabularyProjectionView.preferredCardHeight()
             )
         )
         if !rectApproximatelyEqual(vocabularyProjectionView.frame, viewFrame)
@@ -4611,6 +4728,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             vocabularyProjectionView.dailyCompletedCount = vocabularyStore.dailyCompletedCount
             vocabularyProjectionView.masteredWordCount = masterySummary.mastered
             vocabularyProjectionView.totalWordCount = masterySummary.total
+        case .toggleExample:
+            // Re-run the live placement immediately: expanding may change the
+            // card height and needs the same screen-edge protection as a drag.
+            followPet()
         }
     }
 
@@ -6107,26 +6228,35 @@ private func renderQuotaAirplanePreviewOnce(
 private func renderVocabularyProjectionPreviewOnce(
     to outputPath: String,
     dailyCompletedCount: Int = 3,
-    projectionSide: VocabularyProjectionSide = .right
+    projectionSide: VocabularyProjectionSide = .right,
+    expandedExample: Bool = false
 ) -> Never {
     _ = NSApplication.shared
-    let baseSize = NSSize(
+    let initialSize = NSSize(
         width: vocabularyProjectionReach + vocabularyCardBaseSize.width,
         height: vocabularyCardBaseSize.height
     )
-    let view = VocabularyProjectionView(frame: NSRect(origin: .zero, size: baseSize))
+    let view = VocabularyProjectionView(frame: NSRect(origin: .zero, size: initialSize))
     view.projectionSide = projectionSide
     if dailyCompletedCount < vocabularyDailyGoal {
         view.word = VocabularyWord(
             id: "serendipity",
             word: "serendipity",
             phonetic: "/ˌserənˈdɪpəti/",
-            meaning: "意外发现的美好"
+            meaning: "意外发现的美好",
+            example: "The product team documented how a distributed ledger helps every participant verify records across a rapidly changing Web3 workflow."
         )
+        view.setExampleExpanded(expandedExample)
     }
     view.dailyCompletedCount = dailyCompletedCount
     view.masteredWordCount = 4
     view.totalWordCount = 5
+    let baseSize = NSSize(
+        width: vocabularyProjectionReach + vocabularyCardBaseSize.width,
+        height: view.preferredCardHeight()
+    )
+    view.frame = NSRect(origin: .zero, size: baseSize)
+    view.bounds = NSRect(origin: .zero, size: baseSize)
     view.layoutSubtreeIfNeeded()
 
     let scale: CGFloat = 4
@@ -6356,7 +6486,8 @@ if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-vocabulary-p
         dailyCompletedCount: CommandLine.arguments.contains("--vocabulary-completed")
             ? vocabularyDailyGoal
             : 3,
-        projectionSide: CommandLine.arguments.contains("--vocabulary-left") ? .left : .right
+        projectionSide: CommandLine.arguments.contains("--vocabulary-left") ? .left : .right,
+        expandedExample: CommandLine.arguments.contains("--vocabulary-example-expanded")
     )
 }
 

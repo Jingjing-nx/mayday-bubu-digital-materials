@@ -56,6 +56,10 @@ jobs:
           ./scripts/validate-orange-isolation.sh build/release/橙色卜卜-macOS-仅Codex额度
           unzip -tq dist/Orange-Bubu-macOS-Universal-29.zip
           unzip -tq dist/Orange-Bubu-macOS-Universal-Codex-Only-29.zip
+          ./scripts/build-macos-release.sh --web3-vocabulary
+          test -f dist/Orange-Bubu-Web3-Vocabulary-macOS-Universal-30.zip
+          test -e build/release/橙色卜卜-macOS-背Web3单词/WEB3-VOCABULARY.txt
+          unzip -tq dist/Orange-Bubu-Web3-Vocabulary-macOS-Universal-30.zip
           ./scripts/privacy-audit.sh
       - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh
       - name: Verify macOS panel service handoff
@@ -149,6 +153,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Pet-only install failed' }
           $config = Get-Content -Raw (Join-Path $testHome 'config.toml')
           if ($config -notmatch 'selected-avatar-id\s*=\s*"custom:bubu-orange"') { throw 'Orange Bubu was not selected' }
+          .\scripts\build-windows-release.ps1 -Web3VocabularyRelease
+          $vocabularyZip = 'dist\Orange-Bubu-Web3-Vocabulary-Windows-10-11-30.zip'
+          if (-not (Test-Path $vocabularyZip)) { throw 'Windows vocabulary ZIP missing' }
+          $vocabularyExtractRoot = Join-Path $env:RUNNER_TEMP 'orange-bubu-vocabulary'
+          Expand-Archive -LiteralPath $vocabularyZip -DestinationPath $vocabularyExtractRoot -Force
+          $vocabularyStage = @(Get-ChildItem -LiteralPath $vocabularyExtractRoot -Directory |
+            Where-Object { Test-Path (Join-Path $_.FullName 'WEB3-VOCABULARY.txt') })
+          if ($vocabularyStage.Count -ne 1) { throw 'Expected exactly one vocabulary package root' }
+          if (-not (Test-Path (Join-Path $vocabularyStage[0].FullName 'pet\bubu-orange\vocabulary-web3-3000.json'))) { throw 'Vocabulary library missing' }
           Remove-Item Env:CODEX_HOME
           Remove-Item Env:BUBU_INSTALL_NONINTERACTIVE
       - uses: actions/upload-artifact@v4

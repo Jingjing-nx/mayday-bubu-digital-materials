@@ -76,8 +76,8 @@
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-Windows-10-11-Codex-Only-No-Singing-46.zip">版本 46 下载</a></td>
     </tr>
     <tr>
-      <td rowspan="4"><strong>橙色卜卜</strong></td>
-      <td rowspan="4" align="center"><img src="shared/preview/orange-bubu-static.png" alt="橙色卜卜完整效果示意图" width="280"></td>
+      <td rowspan="5"><strong>橙色卜卜</strong></td>
+      <td rowspan="5" align="center"><img src="shared/preview/orange-bubu-static.png" alt="橙色卜卜完整效果示意图" width="280"></td>
       <td rowspan="2">Web3 版</td>
       <td>不唱歌版</td>
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/29/Orange-Bubu-macOS-Universal-29.zip">版本 29 下载</a></td>
@@ -99,6 +99,12 @@
       <td>制作中</td>
       <td>制作中</td>
     </tr>
+    <tr>
+      <td>背 Web3 单词版</td>
+      <td>不唱歌版</td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/30/Orange-Bubu-Web3-Vocabulary-macOS-Universal-30.zip">版本 30 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/30/Orange-Bubu-Web3-Vocabulary-Windows-10-11-30.zip">版本 30 下载</a></td>
+    </tr>
   </tbody>
 </table>
 
@@ -106,7 +112,8 @@
 - **普通版**：保留 Codex 额度和任务进度，不显示、也不请求 BTC 行情。
 - **唱歌版**：向左拖动时保留唱歌画面动作，并播放 27.5 秒音乐。
 - **不唱歌版**：只删除唱歌 MP3 音效；唱歌画面动作、持续时间和其他功能完全相同。
-- 蓝色卜卜当前正式版为 **46**；橙色卜卜当前正式版为 **29**，两套项目和安装目录彼此隔离。
+- **背 Web3 单词版**：保留完整 Web3 面板；鼠标悬停电脑即可学习内置 3000 词，并在本机记录复习进度。当前为 **30** 版。
+- 蓝色卜卜当前正式版为 **46**；橙色卜卜基础版为 **29**，两套项目和安装目录彼此隔离。
 <!-- DOWNLOAD_TABLE:END -->
 
 macOS 支持 12.3+、Apple 芯片与 Intel Mac；Windows 支持 Windows 10/11、x64 与 ARM64。压缩包的系统和版本不能混用。
@@ -140,7 +147,7 @@ macOS 支持 12.3+、Apple 芯片与 Intel Mac；Windows 支持 Windows 10/11、
 - macOS 第一次启动会请求一次“辅助功能”权限；它只用于在持续按住期间续接唱歌动作。允许后才能绕过 Codex 原生约 3.18 秒的非待机动作上限；Windows 不需要这项授权。
 - 向右拖动：变成无手脚圆球，弹奏深蓝色电吉他。
 - 双击卜卜：在“显示面板”和“隐藏面板”之间循环切换；只识别卜卜本体范围，普通单击与拖动不会误触。
-- 背单词：鼠标悬停在卜卜电脑上，右侧投出亮色票根式单词卡；“记住啦”会在本机按 1、3、7、30 天安排复习，“等会再学”延后 15 分钟。单词库和学习记录均本地保存，词库格式见 [`shared/pet/bubu-orange/VOCABULARY.md`](shared/pet/bubu-orange/VOCABULARY.md)。
+- 背单词：鼠标悬停在卜卜电脑上，右侧投出亮色票根式单词卡；例句默认显示两行，过长时点击“展开”可完整阅读，鼠标离开卡片会自动收起。“记住啦”会在本机按 1、3、7、30 天安排复习，“等会再学”延后 15 分钟。单词库和学习记录均本地保存，词库格式见 [`shared/pet/bubu-orange/VOCABULARY.md`](shared/pet/bubu-orange/VOCABULARY.md)。
 - 额度面板：跟随在卜卜头顶约 14 px，并随卜卜同比放大缩小；额度每 5 分钟更新，可隐藏和显示。
 - 任务进度：约每 2 秒读取本机 Codex 任务索引，用每个任务的唯一 ID 对应左侧任务列表里的正式名称。四种状态使用同一套角色图标：正在执行为蓝色眼镜球与持续旋转的蓝色循环箭头，等你确认为橙色手机球与黄色问号，已完成为粉色球与绿色勾，执行失败为红色球与红色叉。Codex 自动化生成的定时任务不会计入面板。带蓝点、尚未查看的已完成或失败手动任务会保留在面板底部，用户在 Codex 中点开该任务、蓝点消失后，面板同步移除该行。多个手动任务按开始时间依次向下排列，最多显示前 5 个真实任务，不显示额外汇总行。任务名称与已读状态只在本机读取和显示，不写入面板日志，也不上传；旧版 Codex 没有相关索引时才会回退到任务消息摘要与短时完成提示。
 - 完整版另含每 5 秒更新的 BTC；`Codex-Only` 版会缩短面板并完全关闭行情请求。

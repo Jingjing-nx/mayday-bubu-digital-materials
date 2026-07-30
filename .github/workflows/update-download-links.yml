@@ -59,6 +59,12 @@ jobs:
               "Orange-Bubu-Windows-10-11-$VERSION.zip"
               "Orange-Bubu-Windows-10-11-Codex-Only-$VERSION.zip"
             )
+          elif grep -Fxq "Orange-Bubu-Web3-Vocabulary-macOS-Universal-$VERSION.zip" <<< "$ASSETS"; then
+            SKIN="orange-vocabulary"
+            EXPECTED=(
+              "Orange-Bubu-Web3-Vocabulary-macOS-Universal-$VERSION.zip"
+              "Orange-Bubu-Web3-Vocabulary-Windows-10-11-$VERSION.zip"
+            )
           else
             echo "Release $VERSION 中没有可识别的蓝色或橙色卜卜安装包。" >&2
             exit 1

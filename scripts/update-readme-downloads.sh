@@ -3,12 +3,12 @@ set -euo pipefail
 
 SKIN="${1:-}"
 VERSION="${2:-}"
-if [[ "$SKIN" != "blue" && "$SKIN" != "orange" ]]; then
-  echo "用法：$0 <blue|orange> <纯数字 Release 版本>" >&2
+if [[ "$SKIN" != "blue" && "$SKIN" != "orange" && "$SKIN" != "orange-vocabulary" ]]; then
+  echo "用法：$0 <blue|orange|orange-vocabulary> <纯数字 Release 版本>" >&2
   exit 1
 fi
 if [[ ! "$VERSION" =~ ^[0-9]+$ ]]; then
-  echo "用法：$0 <blue|orange> <纯数字 Release 版本>" >&2
+  echo "用法：$0 <blue|orange|orange-vocabulary> <纯数字 Release 版本>" >&2
   exit 1
 fi
 
@@ -29,6 +29,7 @@ current_version() {
 
 BLUE_VERSION="$(current_version 'Mayday-Bubu-macOS-Universal-[0-9]+\.zip')"
 ORANGE_VERSION="$(current_version 'Orange-Bubu-macOS-Universal-[0-9]+\.zip')"
+ORANGE_VOCABULARY_VERSION="$(current_version 'Orange-Bubu-Web3-Vocabulary-macOS-Universal-[0-9]+\.zip')"
 [[ "$BLUE_VERSION" =~ ^[0-9]+$ ]] || {
   echo "README 中找不到蓝色卜卜当前版本。" >&2
   exit 1
@@ -37,15 +38,19 @@ ORANGE_VERSION="$(current_version 'Orange-Bubu-macOS-Universal-[0-9]+\.zip')"
   echo "README 中找不到橙色卜卜当前版本。" >&2
   exit 1
 }
+[[ "$ORANGE_VOCABULARY_VERSION" =~ ^[0-9]+$ ]] || ORANGE_VOCABULARY_VERSION="$ORANGE_VERSION"
 
 if [[ "$SKIN" == "blue" ]]; then
   BLUE_VERSION="$VERSION"
-else
+elif [[ "$SKIN" == "orange" ]]; then
   ORANGE_VERSION="$VERSION"
+else
+  ORANGE_VOCABULARY_VERSION="$VERSION"
 fi
 
 BLUE_URL="https://github.com/$REPOSITORY/releases/download/$BLUE_VERSION"
 ORANGE_URL="https://github.com/$REPOSITORY/releases/download/$ORANGE_VERSION"
+ORANGE_VOCABULARY_URL="https://github.com/$REPOSITORY/releases/download/$ORANGE_VOCABULARY_VERSION"
 # Orange Bubu's released packages keep the visual singing action but do not
 # bundle the optional singing audio. Do not relabel them on README regeneration.
 ORANGE_RELEASED_SINGING_LABEL="不唱歌版"
@@ -89,8 +94,8 @@ BLOCK="$START
       <td><a href=\"$BLUE_URL/Mayday-Bubu-Windows-10-11-Codex-Only-No-Singing-$BLUE_VERSION.zip\">版本 $BLUE_VERSION 下载</a></td>
     </tr>
     <tr>
-      <td rowspan=\"4\"><strong>橙色卜卜</strong></td>
-      <td rowspan=\"4\" align=\"center\"><img src=\"shared/preview/orange-bubu-static.png\" alt=\"橙色卜卜完整效果示意图\" width=\"280\"></td>
+      <td rowspan=\"5\"><strong>橙色卜卜</strong></td>
+      <td rowspan=\"5\" align=\"center\"><img src=\"shared/preview/orange-bubu-static.png\" alt=\"橙色卜卜完整效果示意图\" width=\"280\"></td>
       <td rowspan=\"2\">Web3 版</td>
       <td>$ORANGE_RELEASED_SINGING_LABEL</td>
       <td><a href=\"$ORANGE_URL/Orange-Bubu-macOS-Universal-$ORANGE_VERSION.zip\">版本 $ORANGE_VERSION 下载</a></td>
@@ -112,6 +117,12 @@ BLOCK="$START
       <td>制作中</td>
       <td>制作中</td>
     </tr>
+    <tr>
+      <td>背 Web3 单词版</td>
+      <td>不唱歌版</td>
+      <td><a href=\"$ORANGE_VOCABULARY_URL/Orange-Bubu-Web3-Vocabulary-macOS-Universal-$ORANGE_VOCABULARY_VERSION.zip\">版本 $ORANGE_VOCABULARY_VERSION 下载</a></td>
+      <td><a href=\"$ORANGE_VOCABULARY_URL/Orange-Bubu-Web3-Vocabulary-Windows-10-11-$ORANGE_VOCABULARY_VERSION.zip\">版本 $ORANGE_VOCABULARY_VERSION 下载</a></td>
+    </tr>
   </tbody>
 </table>
 
@@ -119,7 +130,8 @@ BLOCK="$START
 - **普通版**：保留 Codex 额度和任务进度，不显示、也不请求 BTC 行情。
 - **唱歌版**：向左拖动时保留唱歌画面动作，并播放 27.5 秒音乐。
 - **不唱歌版**：只删除唱歌 MP3 音效；唱歌画面动作、持续时间和其他功能完全相同。
-- 蓝色卜卜当前正式版为 **$BLUE_VERSION**；橙色卜卜当前正式版为 **$ORANGE_VERSION**，两套项目和安装目录彼此隔离。
+- **背 Web3 单词版**：保留完整 Web3 面板；鼠标悬停电脑即可学习内置 3000 词，并在本机记录复习进度。当前为 **$ORANGE_VOCABULARY_VERSION** 版。
+- 蓝色卜卜当前正式版为 **$BLUE_VERSION**；橙色卜卜基础版为 **$ORANGE_VERSION**，两套项目和安装目录彼此隔离。
 $END"
 
 DOWNLOAD_BLOCK="$BLOCK" awk '

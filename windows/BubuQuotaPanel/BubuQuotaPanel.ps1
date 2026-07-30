@@ -770,10 +770,15 @@ $script:SelectedSkin = "orange"
 # `word` and `meaning` (or `definition` / `translation`), with optional id,
 # phonetic and example fields.
 $script:VocabularyBaseWidth = 309.0
-$script:VocabularyBaseHeight = 154.0
+$script:VocabularyBaseHeight = 194.0
 $script:VocabularyProjectionReach = 91.0
 $script:VocabularyProjectionSourceInset = 6.0
 $script:VocabularyDailyGoal = 10
+$script:VocabularyExampleCollapsedHeight = 26.0
+$script:VocabularyExampleExpanded = $false
+$script:VocabularyExampleExtraHeight = 0.0
+$script:VocabularyExampleWordId = ""
+$script:VocabularyProjectionScale = 1.0
 $script:VocabularyRoot = Join-Path $env:APPDATA "OrangeBubuQuotaPanel"
 $script:VocabularyProgressPath = Join-Path $script:VocabularyRoot "vocabulary-progress.json"
 $script:VocabularyLibraryPath = if ($env:BUBU_VOCABULARY_PATH) {
@@ -1340,47 +1345,58 @@ $vocabularyXaml = @"
     <Canvas x:Name="VocabularyScaleRoot" Width="$($script:VocabularyBaseWidth)" Height="$($script:VocabularyBaseHeight)">
       <Canvas x:Name="VocabularyMaterialRoot" Width="$($script:VocabularyBaseWidth)" Height="$($script:VocabularyBaseHeight)" RenderTransformOrigin="0.5,0.5">
         <!-- layered laptop projection: broad fan, bright inner cone, white core -->
-        <Path Data="M0,77 L102,23 L102,131 Z">
+        <Path Data="M0,97 L102,43 L102,151 Z">
             <Path.Fill><LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5"><GradientStop Color="#3373EDFF" Offset="0"/><GradientStop Color="#0573EDFF" Offset="1"/></LinearGradientBrush></Path.Fill>
         </Path>
-        <Path Data="M0,77 L99,56 L99,98 Z">
+        <Path Data="M0,97 L99,76 L99,118 Z">
             <Path.Fill><LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5"><GradientStop Color="#57EFFFFF" Offset="0"/><GradientStop Color="#0973EDFF" Offset="1"/></LinearGradientBrush></Path.Fill>
         </Path>
-        <Path Data="M0,77 L96,73 L96,81 Z" Fill="#52F9FFFF"/>
-        <Ellipse Canvas.Left="64" Canvas.Top="47" Width="60" Height="60" Fill="#0561E8FF"/>
-        <Ellipse Canvas.Left="75" Canvas.Top="58" Width="38" Height="38" Fill="#0C74EFFF"/>
-        <Border Canvas.Left="29" Canvas.Top="48" Width="14" Height="14" CornerRadius="3" Background="#29FFFFFF" BorderBrush="#733CC7DD" BorderThickness="0.8" RenderTransformOrigin="0.5,0.5"><Border.RenderTransform><RotateTransform Angle="-12"/></Border.RenderTransform><TextBlock Text="B" TextAlignment="Center" VerticalAlignment="Center" FontSize="8.5" FontWeight="Bold" Foreground="#A6FFFFFF"/></Border>
-        <Border Canvas.Left="46" Canvas.Top="71" Width="14" Height="14" CornerRadius="3" Background="#29FFFFFF" BorderBrush="#733CC7DD" BorderThickness="0.8" RenderTransformOrigin="0.5,0.5"><Border.RenderTransform><RotateTransform Angle="7"/></Border.RenderTransform><TextBlock Text="a" TextAlignment="Center" VerticalAlignment="Center" FontSize="8.5" FontWeight="Bold" Foreground="#A6FFFFFF"/></Border>
-        <Border Canvas.Left="64" Canvas.Top="98" Width="14" Height="14" CornerRadius="3" Background="#29FFFFFF" BorderBrush="#733CC7DD" BorderThickness="0.8" RenderTransformOrigin="0.5,0.5"><Border.RenderTransform><RotateTransform Angle="-10"/></Border.RenderTransform><TextBlock Text="E" TextAlignment="Center" VerticalAlignment="Center" FontSize="8.5" FontWeight="Bold" Foreground="#A6FFFFFF"/></Border>
+        <Path Data="M0,97 L96,93 L96,101 Z" Fill="#52F9FFFF"/>
+        <Ellipse Canvas.Left="64" Canvas.Top="67" Width="60" Height="60" Fill="#0561E8FF"/>
+        <Ellipse Canvas.Left="75" Canvas.Top="78" Width="38" Height="38" Fill="#0C74EFFF"/>
+        <Border Canvas.Left="29" Canvas.Top="68" Width="14" Height="14" CornerRadius="3" Background="#29FFFFFF" BorderBrush="#733CC7DD" BorderThickness="0.8" RenderTransformOrigin="0.5,0.5"><Border.RenderTransform><RotateTransform Angle="-12"/></Border.RenderTransform><TextBlock Text="B" TextAlignment="Center" VerticalAlignment="Center" FontSize="8.5" FontWeight="Bold" Foreground="#A6FFFFFF"/></Border>
+        <Border Canvas.Left="46" Canvas.Top="91" Width="14" Height="14" CornerRadius="3" Background="#29FFFFFF" BorderBrush="#733CC7DD" BorderThickness="0.8" RenderTransformOrigin="0.5,0.5"><Border.RenderTransform><RotateTransform Angle="7"/></Border.RenderTransform><TextBlock Text="a" TextAlignment="Center" VerticalAlignment="Center" FontSize="8.5" FontWeight="Bold" Foreground="#A6FFFFFF"/></Border>
+        <Border Canvas.Left="64" Canvas.Top="118" Width="14" Height="14" CornerRadius="3" Background="#29FFFFFF" BorderBrush="#733CC7DD" BorderThickness="0.8" RenderTransformOrigin="0.5,0.5"><Border.RenderTransform><RotateTransform Angle="-10"/></Border.RenderTransform><TextBlock Text="E" TextAlignment="Center" VerticalAlignment="Center" FontSize="8.5" FontWeight="Bold" Foreground="#A6FFFFFF"/></Border>
 
         <!-- The non-rectangular paper path carries the large punch and the three small edge bites. -->
-        <Path Data="M107,0 H293 Q309,0 309,16 V138 Q309,154 293,154 H107 Q91,154 91,138 V111 C91,108 93,106 96,106 C93,106 91,104 91,101 V95 C111,89 111,65 91,59 V51 C91,48 93,46 96,46 C93,46 91,44 91,41 V16 Q91,0 107,0 Z" Stroke="#DFFFFEFF" StrokeThickness="1">
+        <Path Data="M107,0 H293 Q309,0 309,16 V178 Q309,194 293,194 H107 Q91,194 91,178 V132 C91,129 93,127 96,127 C93,127 91,125 91,122 V116 C111,110 111,84 91,78 V72 C91,69 93,67 96,67 C93,67 91,65 91,62 V16 Q91,0 107,0 Z" Stroke="#DFFFFEFF" StrokeThickness="1">
             <Path.Fill><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#FFFFFDF9" Offset="0"/><GradientStop Color="#FFF9F2E8" Offset="1"/></LinearGradientBrush></Path.Fill>
             <Path.Effect><DropShadowEffect Color="#3D1E2524" BlurRadius="17" ShadowDepth="6"/></Path.Effect>
         </Path>
-        <Path Data="M95,60 C110,65 110,89 95,94" Stroke="#CA45DCE8" StrokeThickness="1.7"/>
+        <Path Data="M95,80 C110,85 110,109 95,114" Stroke="#CA45DCE8" StrokeThickness="1.7"/>
         <Border Canvas.Left="90.5" Canvas.Top="22" Width="3" Height="12" Background="#C946DFE8" CornerRadius="1.5"/>
-        <Border Canvas.Left="90.5" Canvas.Top="67" Width="3" Height="11" Background="#C946DFE8" CornerRadius="1.5"/>
-        <Border Canvas.Left="90.5" Canvas.Top="121" Width="3" Height="12" Background="#C946DFE8" CornerRadius="1.5"/>
+        <Border Canvas.Left="90.5" Canvas.Top="82" Width="3" Height="11" Background="#C946DFE8" CornerRadius="1.5"/>
+        <Border Canvas.Left="90.5" Canvas.Top="151" Width="3" Height="12" Background="#C946DFE8" CornerRadius="1.5"/>
+        <!-- This continuation appears only after the reader expands a long example. -->
+        <Border x:Name="VocabularyExampleExtension" Canvas.Left="91" Canvas.Top="168" Width="218" Height="0"
+                Visibility="Collapsed" CornerRadius="0,0,16,16" BorderBrush="#DFFFFEFF" BorderThickness="1">
+            <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#FFFFFDF9" Offset="0"/><GradientStop Color="#FFF9F2E8" Offset="1"/></LinearGradientBrush></Border.Background>
+        </Border>
         <Path Data="M107,3 H293" Stroke="#BFFFFFFF" StrokeThickness="2"/>
       </Canvas>
 
       <Canvas x:Name="VocabularyContentRoot" Canvas.Left="91" Width="218" Height="$($script:VocabularyBaseHeight)">
-        <TextBlock x:Name="VocabularyDailyText" Canvas.Left="44" Canvas.Top="15" Width="130" Height="14" Text="✿  今日已学 0 / 10" TextAlignment="Center"
+        <TextBlock x:Name="VocabularyDailyText" Canvas.Left="44" Canvas.Top="12" Width="130" Height="14" Text="✿  今日已学 0 / 10" TextAlignment="Center"
                    FontFamily="Microsoft YaHei UI" FontSize="8.5" FontWeight="Medium" Foreground="#DE308F96"/>
-        <TextBlock x:Name="VocabularyWordText" Canvas.Left="30" Canvas.Top="35" Width="160" Height="28" Text="serendipity"
+        <TextBlock x:Name="VocabularyWordText" Canvas.Left="30" Canvas.Top="30" Width="160" Height="25" Text="serendipity"
                    TextAlignment="Center" TextTrimming="CharacterEllipsis" FontFamily="Segoe UI" FontSize="20.5" FontWeight="SemiBold" Foreground="#F0128A91"/>
-        <TextBlock x:Name="VocabularyPhoneticText" Canvas.Left="34" Canvas.Top="65" Width="152" Height="17" Text="/ˌserənˈdɪpəti/"
+        <TextBlock x:Name="VocabularyPhoneticText" Canvas.Left="34" Canvas.Top="58" Width="152" Height="15" Text="/ˌserənˈdɪpəti/"
                    TextAlignment="Center" TextTrimming="CharacterEllipsis" FontFamily="Segoe UI" FontSize="11" Foreground="#E42F9299"/>
-        <TextBlock x:Name="VocabularyMeaningText" Canvas.Left="35" Canvas.Top="88" Width="148" Height="18" Text="意外发现的美好"
+        <TextBlock x:Name="VocabularyMeaningText" Canvas.Left="35" Canvas.Top="78" Width="148" Height="16" Text="意外发现的美好"
                    TextAlignment="Center" TextTrimming="CharacterEllipsis" FontFamily="Microsoft YaHei UI" FontSize="12.5" FontWeight="SemiBold" Foreground="#F0242424"/>
-        <Button x:Name="VocabularyRememberButton" Canvas.Left="44" Canvas.Top="110" Width="58" Height="25" Content="记住啦"
+        <TextBlock x:Name="VocabularyExampleLabel" Canvas.Left="24" Canvas.Top="98" Width="36" Height="10" Text="例句" FontFamily="Microsoft YaHei UI" FontSize="8.2" FontWeight="Medium" Foreground="#D9329198"/>
+        <Button x:Name="VocabularyExampleToggleButton" Canvas.Left="166" Canvas.Top="96" Width="38" Height="13" Content="… 展开"
+                Style="{StaticResource VocabularyTicketButton}" FontFamily="Microsoft YaHei UI" FontSize="8.2" FontWeight="SemiBold"
+                Foreground="#E012858D" Background="Transparent" BorderThickness="0" Cursor="Hand" Focusable="False" Visibility="Collapsed"/>
+        <TextBlock x:Name="VocabularyExampleText" Canvas.Left="26" Canvas.Top="109" Width="166" Height="26" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
+                   FontFamily="Segoe UI" FontSize="9.2" Foreground="#D1242424"/>
+        <Button x:Name="VocabularyRememberButton" Canvas.Left="44" Canvas.Top="142" Width="58" Height="25" Content="记住啦"
                 Style="{StaticResource VocabularyTicketButton}" FontFamily="Microsoft YaHei UI" FontSize="10.5" FontWeight="SemiBold"
                 Foreground="White" BorderThickness="0" Cursor="Hand"><Button.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#FF0A9FA9" Offset="0"/><GradientStop Color="#F82AB8BF" Offset="1"/></LinearGradientBrush></Button.Background></Button>
-        <Button x:Name="VocabularyLaterButton" Canvas.Left="113" Canvas.Top="110" Width="75" Height="25" Content="等会再学"
+        <Button x:Name="VocabularyLaterButton" Canvas.Left="113" Canvas.Top="142" Width="75" Height="25" Content="等会再学"
                 Style="{StaticResource VocabularyTicketButton}" FontFamily="Microsoft YaHei UI" FontSize="10" FontWeight="Medium"
                 Foreground="#F012858D" Background="Transparent" BorderBrush="#C00C9EA6" BorderThickness="1.35" Cursor="Hand"/>
-        <TextBlock x:Name="VocabularyMasteryText" Canvas.Left="18" Canvas.Top="141" Width="128" Height="10" Text="已掌握 0 / 5"
+        <TextBlock x:Name="VocabularyMasteryText" Canvas.Left="18" Canvas.Top="175" Width="128" Height="10" Text="已掌握 0 / 5"
                    FontFamily="Segoe UI" FontSize="8.2" FontWeight="Medium" Foreground="#D9329198"/>
       </Canvas>
     </Canvas>
@@ -1406,6 +1422,10 @@ function New-VocabularyProjectionVisual {
         WordText = $window.FindName("VocabularyWordText")
         PhoneticText = $window.FindName("VocabularyPhoneticText")
         MeaningText = $window.FindName("VocabularyMeaningText")
+        ExampleLabel = $window.FindName("VocabularyExampleLabel")
+        ExampleText = $window.FindName("VocabularyExampleText")
+        ExampleToggleButton = $window.FindName("VocabularyExampleToggleButton")
+        ExampleExtension = $window.FindName("VocabularyExampleExtension")
         MasteryText = $window.FindName("VocabularyMasteryText")
         RememberButton = $window.FindName("VocabularyRememberButton")
         LaterButton = $window.FindName("VocabularyLaterButton")
@@ -3213,13 +3233,85 @@ function Set-QuotaLightstickScale([double]$scale) {
     return $safeScale
 }
 
+function Get-VocabularyExampleLayout([string]$example) {
+    $text = ([string]$example).Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return [PSCustomObject]@{
+            Text = "暂未收录例句"
+            FullHeight = $script:VocabularyExampleCollapsedHeight
+            NeedsExpansion = $false
+            ExtraHeight = 0.0
+        }
+    }
+    $measure = [System.Windows.Controls.TextBlock]::new()
+    $measure.Text = $text
+    $measure.TextWrapping = [System.Windows.TextWrapping]::Wrap
+    $measure.FontFamily = [System.Windows.Media.FontFamily]::new("Segoe UI")
+    $measure.FontSize = 9.2
+    $measure.Width = 166.0
+    $measure.Measure([System.Windows.Size]::new(166.0, 10000.0))
+    $fullHeight = [Math]::Ceiling([double]$measure.DesiredSize.Height)
+    $needsExpansion = $fullHeight -gt ($script:VocabularyExampleCollapsedHeight + 0.5)
+    return [PSCustomObject]@{
+        Text = $text
+        FullHeight = $fullHeight
+        NeedsExpansion = $needsExpansion
+        ExtraHeight = if ($needsExpansion) {
+            [Math]::Ceiling($fullHeight - $script:VocabularyExampleCollapsedHeight + 6.0)
+        } else { 0.0 }
+    }
+}
+
+function Set-VocabularyExampleLayout([bool]$expanded) {
+    $example = if ($script:VocabularyCurrentWord) {
+        [string]$script:VocabularyCurrentWord.Example
+    } else { "" }
+    $layout = Get-VocabularyExampleLayout $example
+    $showExpanded = $expanded -and $layout.NeedsExpansion
+    $extra = if ($showExpanded) { [double]$layout.ExtraHeight } else { 0.0 }
+    $script:VocabularyExampleExpanded = $showExpanded
+    $script:VocabularyExampleExtraHeight = $extra
+
+    $projection = $script:VocabularyProjection
+    $projection.ExampleLabel.Visibility = [Windows.Visibility]::Visible
+    $projection.ExampleText.Text = [string]$layout.Text
+    $projection.ExampleText.Height = $script:VocabularyExampleCollapsedHeight + $extra
+    $projection.ExampleToggleButton.Visibility = if ($layout.NeedsExpansion) {
+        [Windows.Visibility]::Visible
+    } else { [Windows.Visibility]::Collapsed }
+    $projection.ExampleToggleButton.Content = if ($showExpanded) { "收起" } else { "… 展开" }
+
+    [Windows.Controls.Canvas]::SetTop($projection.RememberButton, 142.0 + $extra)
+    [Windows.Controls.Canvas]::SetTop($projection.LaterButton, 142.0 + $extra)
+    [Windows.Controls.Canvas]::SetTop($projection.MasteryText, 175.0 + $extra)
+
+    $logicalHeight = $script:VocabularyBaseHeight + $extra
+    $projection.ScaleRoot.Height = $logicalHeight
+    $projection.MaterialRoot.Height = $logicalHeight
+    $projection.ContentRoot.Height = $logicalHeight
+    $projection.ExampleExtension.Height = if ($extra -gt 0) { 26.0 + $extra } else { 0.0 }
+    $projection.ExampleExtension.Visibility = if ($extra -gt 0) {
+        [Windows.Visibility]::Visible
+    } else { [Windows.Visibility]::Collapsed }
+
+    $safeScale = if ($script:VocabularyProjectionScale) {
+        [double]$script:VocabularyProjectionScale
+    } else { 1.0 }
+    $script:VocabularyWindow.Width = $script:VocabularyBaseWidth * $safeScale
+    $script:VocabularyWindow.Height = $logicalHeight * $safeScale
+    return $layout
+}
+
 function Set-VocabularyProjectionScale([double]$scale) {
     $safeScale = Limit-PanelScale $scale
+    $script:VocabularyProjectionScale = $safeScale
     $script:VocabularyProjection.ScaleRoot.LayoutTransform = [Windows.Media.ScaleTransform]::new(
         $safeScale, $safeScale
     )
     $script:VocabularyWindow.Width = $script:VocabularyBaseWidth * $safeScale
-    $script:VocabularyWindow.Height = $script:VocabularyBaseHeight * $safeScale
+    $script:VocabularyWindow.Height = (
+        $script:VocabularyBaseHeight + $script:VocabularyExampleExtraHeight
+    ) * $safeScale
     return $safeScale
 }
 
@@ -3251,7 +3343,11 @@ function Get-VocabularyProjectionPlacement($laptop, $nativeWindow, $workArea = $
     if (-not $laptop -or -not $nativeWindow) { return $null }
     $sourceInset = [double]$nativeWindow.Width * $script:VocabularyProjectionSourceInset / $script:VocabularyBaseWidth
     $reach = [double]$nativeWindow.Width * $script:VocabularyProjectionReach / $script:VocabularyBaseWidth
-    $top = [Math]::Round([double]$laptop.CenterY - [double]$nativeWindow.Height / 2.0)
+    # The compact ticket stays attached to the laptop. A fully expanded
+    # example grows downward, rather than moving the beam and header upward.
+    $compactHeight = [double]$script:VocabularyBaseHeight *
+        [double]$nativeWindow.Width / [double]$script:VocabularyBaseWidth
+    $top = [Math]::Round([double]$laptop.CenterY - $compactHeight / 2.0)
     $margin = 6.0
     $fits = {
         param([double]$left)
@@ -3314,6 +3410,11 @@ function Update-VocabularyProjectionText {
         $script:VocabularyProjection.WordText.Text = "今日完成"
         $script:VocabularyProjection.PhoneticText.Text = ""
         $script:VocabularyProjection.MeaningText.Text = ""
+        $script:VocabularyExampleWordId = ""
+        [void](Set-VocabularyExampleLayout $false)
+        $script:VocabularyProjection.ExampleLabel.Visibility = [Windows.Visibility]::Collapsed
+        $script:VocabularyProjection.ExampleText.Visibility = [Windows.Visibility]::Collapsed
+        $script:VocabularyProjection.ExampleToggleButton.Visibility = [Windows.Visibility]::Collapsed
         $script:VocabularyProjection.RememberButton.Visibility = [Windows.Visibility]::Collapsed
         $script:VocabularyProjection.LaterButton.Visibility = [Windows.Visibility]::Collapsed
         return
@@ -3321,9 +3422,17 @@ function Update-VocabularyProjectionText {
     if (-not $script:VocabularyCurrentWord) { return }
     $script:VocabularyProjection.RememberButton.Visibility = [Windows.Visibility]::Visible
     $script:VocabularyProjection.LaterButton.Visibility = [Windows.Visibility]::Visible
+    $script:VocabularyProjection.ExampleLabel.Visibility = [Windows.Visibility]::Visible
+    $script:VocabularyProjection.ExampleText.Visibility = [Windows.Visibility]::Visible
     $script:VocabularyProjection.WordText.Text = [string]$script:VocabularyCurrentWord.Word
     $script:VocabularyProjection.PhoneticText.Text = [string]$script:VocabularyCurrentWord.Phonetic
     $script:VocabularyProjection.MeaningText.Text = [string]$script:VocabularyCurrentWord.Meaning
+    $currentID = [string]$script:VocabularyCurrentWord.Id
+    if ($script:VocabularyExampleWordId -ne $currentID) {
+        $script:VocabularyExampleWordId = $currentID
+        $script:VocabularyExampleExpanded = $false
+    }
+    [void](Set-VocabularyExampleLayout $script:VocabularyExampleExpanded)
 }
 
 function Hide-VocabularyProjectionWindow {
@@ -3348,6 +3457,9 @@ function Update-VocabularyProjectionAtPet($anchor, $visualMetrics, [double]$petS
         [double]$cursor.Y -ge [double]$nativeWindow.Top -and [double]$cursor.Y -le ([double]$nativeWindow.Top + [double]$nativeWindow.Height)
     if (-not $laptopHovered -and -not $cardHovered) {
         $script:VocabularyDismissedUntilMouseLeaves = $false
+        if ($script:VocabularyExampleExpanded) {
+            [void](Set-VocabularyExampleLayout $false)
+        }
         Hide-VocabularyProjectionWindow
         return
     }
@@ -3367,6 +3479,7 @@ function Update-VocabularyProjectionAtPet($anchor, $visualMetrics, [double]$petS
         return
     }
 
+    Update-VocabularyProjectionText
     $safeScale = Set-VocabularyProjectionScale $petScale
     if (-not $script:VocabularyWindow.IsVisible) {
         $script:VocabularyWindow.Show()
@@ -3391,7 +3504,6 @@ function Update-VocabularyProjectionAtPet($anchor, $visualMetrics, [double]$petS
             $script:VocabularyWindowHandle, [int]$left, [int]$top
         )
     }
-    Update-VocabularyProjectionText
 }
 
 function Get-NativePetVisualMetrics($petWindow) {
@@ -4908,6 +5020,13 @@ $script:VocabularyProjection.LaterButton.Add_Click({
     $script:VocabularyCurrentWord = Get-NextVocabularyWord ([string]$postponed.Id)
     Update-VocabularyProjectionText
     Write-PanelLog ("VOCABULARY later=" + [string]$postponed.Id)
+})
+$script:VocabularyProjection.ExampleToggleButton.Add_Click({
+    if (-not $script:VocabularyCurrentWord) { return }
+    [void](Set-VocabularyExampleLayout (-not $script:VocabularyExampleExpanded))
+    # Re-evaluate live placement right away because expanding changes only the
+    # lower half of the ticket and still has to respect display edges.
+    Update-PetPosition
 })
 $script:Window.Add_IsVisibleChanged({ Update-TaskBadgeAnimationState })
 $script:Window.Add_Closed({

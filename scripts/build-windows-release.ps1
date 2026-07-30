@@ -1,5 +1,6 @@
 ﻿param(
-    [switch]$CodexOnlyRelease
+    [switch]$CodexOnlyRelease,
+    [switch]$Web3VocabularyRelease
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,8 +9,14 @@ $Version = "29"
 $StageRoot = Join-Path $Root "build\release"
 $FullStage = Join-Path $StageRoot "橙色卜卜-Windows"
 $CodexOnlyStage = Join-Path $StageRoot "橙色卜卜-Windows-仅Codex额度"
+$Web3VocabularyStage = Join-Path $StageRoot "橙色卜卜-Windows-背Web3单词"
 $FullOutput = Join-Path $Root "dist\Orange-Bubu-Windows-10-11-$Version.zip"
 $CodexOnlyOutput = Join-Path $Root "dist\Orange-Bubu-Windows-10-11-Codex-Only-$Version.zip"
+$Web3VocabularyOutput = Join-Path $Root "dist\Orange-Bubu-Web3-Vocabulary-Windows-10-11-30.zip"
+
+if ($CodexOnlyRelease -and $Web3VocabularyRelease) {
+    throw "Use only one release variant at a time."
+}
 
 function New-ReleasePackage {
     param(
@@ -18,7 +25,9 @@ function New-ReleasePackage {
         [Parameter(Mandatory = $true)]
         [string]$Output,
         [Parameter(Mandatory = $true)]
-        [bool]$CodexOnly
+        [bool]$CodexOnly,
+        [Parameter(Mandatory = $true)]
+        [bool]$Web3Vocabulary
     )
 
     Remove-Item -LiteralPath $Stage -Recurse -Force -ErrorAction SilentlyContinue
@@ -30,6 +39,7 @@ function New-ReleasePackage {
     @("pet.json", "spritesheet.webp", "validation.json") | ForEach-Object {
         Copy-Item -LiteralPath (Join-Path $Root "shared\pet\bubu-orange\$_") -Destination $petStage
     }
+    Copy-Item -LiteralPath (Join-Path $Root "shared\pet\bubu-orange\vocabulary-web3-3000.json") -Destination $petStage
     Copy-Item -LiteralPath (Join-Path $Root "shared\pet\bubu-orange\qa\release-freeze-v29.json") -Destination $petStage
     $previewStage = Join-Path $Stage "preview"
     New-Item -ItemType Directory -Force -Path $previewStage | Out-Null
@@ -50,6 +60,9 @@ function New-ReleasePackage {
     Copy-Item -LiteralPath (Join-Path $Root "ORANGE-BUBU-PROJECT.txt") -Destination $Stage
     if ($CodexOnly) {
         Copy-Item -LiteralPath (Join-Path $Root "windows\CODEX-ONLY.txt") -Destination (Join-Path $Stage "CODEX-ONLY.txt")
+    }
+    if ($Web3Vocabulary) {
+        Copy-Item -LiteralPath (Join-Path $Root "windows\package\WEB3-VOCABULARY.txt") -Destination (Join-Path $Stage "WEB3-VOCABULARY.txt")
     }
 
     # A versioned atlas path prevents the desktop app from reusing the previous
@@ -90,7 +103,11 @@ function New-ReleasePackage {
     Write-Output $Output
 }
 
-if (-not $CodexOnlyRelease) {
-    New-ReleasePackage -Stage $FullStage -Output $FullOutput -CodexOnly $false
+if ($Web3VocabularyRelease) {
+    New-ReleasePackage -Stage $Web3VocabularyStage -Output $Web3VocabularyOutput -CodexOnly $false -Web3Vocabulary $true
+    exit 0
 }
-New-ReleasePackage -Stage $CodexOnlyStage -Output $CodexOnlyOutput -CodexOnly $true
+if (-not $CodexOnlyRelease) {
+    New-ReleasePackage -Stage $FullStage -Output $FullOutput -CodexOnly $false -Web3Vocabulary $false
+}
+New-ReleasePackage -Stage $CodexOnlyStage -Output $CodexOnlyOutput -CodexOnly $true -Web3Vocabulary $false
