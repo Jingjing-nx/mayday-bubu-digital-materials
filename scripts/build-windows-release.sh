@@ -22,10 +22,23 @@ FULL_OUT="$ROOT/dist/Orange-Bubu-Windows-10-11-$VERSION.zip"
 CODEX_ONLY_OUT="$ROOT/dist/Orange-Bubu-Windows-10-11-Codex-Only-$VERSION.zip"
 WEB3_VOCABULARY_OUT="$ROOT/dist/Orange-Bubu-Web3-Vocabulary-Windows-10-11-30.zip"
 ATLAS_NAME="spritesheet-win-$VERSION.webp"
+PYTHON_BIN="${PYTHON:-python3}"
 
 command -v jq >/dev/null || {
   print -u2 "缺少 jq，无法生成 Windows 发布包。"
   exit 1
+}
+
+command -v "$PYTHON_BIN" >/dev/null || {
+  print -u2 "缺少 Python 3，无法生成带 UTF-8 文件名的 Windows 发布包。"
+  exit 1
+}
+
+create_windows_archive() {
+  local stage="$1"
+  local output="$2"
+  "$PYTHON_BIN" "$ROOT/scripts/create-windows-release-zip.py" \
+    --stage "$stage" --output "$output"
 }
 
 stage_package() {
@@ -91,7 +104,7 @@ stage_package() {
 if [[ "$WEB3_VOCABULARY_RELEASE" == "true" ]]; then
   /bin/rm -f "$WEB3_VOCABULARY_OUT"
   stage_package "$WEB3_VOCABULARY_STAGE" false true
-  /usr/bin/ditto -c -k --norsrc --keepParent "$WEB3_VOCABULARY_STAGE" "$WEB3_VOCABULARY_OUT"
+  create_windows_archive "$WEB3_VOCABULARY_STAGE" "$WEB3_VOCABULARY_OUT"
   print "$WEB3_VOCABULARY_OUT"
   exit 0
 fi
@@ -104,8 +117,8 @@ fi
 stage_package "$CODEX_ONLY_STAGE" true false
 
 if [[ "$CODEX_ONLY_RELEASE" != "true" ]]; then
-  /usr/bin/ditto -c -k --norsrc --keepParent "$FULL_STAGE" "$FULL_OUT"
+  create_windows_archive "$FULL_STAGE" "$FULL_OUT"
   print "$FULL_OUT"
 fi
-/usr/bin/ditto -c -k --norsrc --keepParent "$CODEX_ONLY_STAGE" "$CODEX_ONLY_OUT"
+create_windows_archive "$CODEX_ONLY_STAGE" "$CODEX_ONLY_OUT"
 print "$CODEX_ONLY_OUT"

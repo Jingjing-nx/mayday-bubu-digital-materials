@@ -60,6 +60,14 @@ jobs:
           test -f dist/Orange-Bubu-Web3-Vocabulary-macOS-Universal-30.zip
           test -e build/release/橙色卜卜-macOS-背Web3单词/WEB3-VOCABULARY.txt
           unzip -tq dist/Orange-Bubu-Web3-Vocabulary-macOS-Universal-30.zip
+          PYTHON=python3 ./scripts/build-windows-release.sh
+          test -f dist/Orange-Bubu-Windows-10-11-29.zip
+          test -f dist/Orange-Bubu-Windows-10-11-Codex-Only-29.zip
+          unzip -tq dist/Orange-Bubu-Windows-10-11-29.zip
+          unzip -tq dist/Orange-Bubu-Windows-10-11-Codex-Only-29.zip
+          PYTHON=python3 ./scripts/build-windows-release.sh --web3-vocabulary
+          test -f dist/Orange-Bubu-Web3-Vocabulary-Windows-10-11-30.zip
+          unzip -tq dist/Orange-Bubu-Web3-Vocabulary-Windows-10-11-30.zip
           ./scripts/privacy-audit.sh
       - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh
       - name: Verify macOS panel service handoff
@@ -110,7 +118,7 @@ jobs:
           $geometry = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateRuntimeGeometry
           if ($LASTEXITCODE -ne 0 -or $geometry -notmatch 'panel=224x75 gap=14.*uniform-2x=pass') { throw "Geometry validation failed: $geometry" }
           $tracking = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateTrackingFilters
-          if ($LASTEXITCODE -ne 0 -or $tracking -notmatch 'state-aware-selection=True center-calibration=True drag-center=True.*scale-stability=True pet-double-click=True') { throw "Tracking validation failed: $tracking" }
+          if ($LASTEXITCODE -ne 0 -or $tracking -notmatch 'visual-metrics-guard=13.*state-aware-selection=True center-calibration=True drag-center=True.*scale-stability=True pet-double-click=True') { throw "Tracking validation failed: $tracking" }
           $tasks = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateTaskProgress
           if ($LASTEXITCODE -ne 0 -or $tasks -notmatch 'completed-unread=pass.*list=5-truncated.*running-gif=12x100ms') { throw "Task validation failed: $tasks" }
           $skin = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateSkinSelection

@@ -3597,6 +3597,64 @@ function ConvertTo-PhysicalPetVisualMetrics(
     }
 }
 
+function Test-NativeVisualMetricsAlignment(
+    $petWindow,
+    $bounds,
+    $geometry,
+    $visualMetrics,
+    [double]$alignmentX = 0.0,
+    [double]$alignmentY = 0.0
+) {
+    # PrintWindow occasionally returns pixels from Electron's transparent
+    # helper surface rather than the rendered pet.  Those pixels are still a
+    # valid-looking rectangle, but are often the 20% minimum-size rectangle at
+    # the top-left of the overlay.  Never let that one bad sample resize and
+    # detach every companion window.
+    if (-not $petWindow -or -not $bounds -or -not $geometry -or -not $visualMetrics -or
+        [double]$bounds.width -le 0 -or [double]$bounds.height -le 0 -or
+        [double]$visualMetrics.Width -le 0 -or [double]$visualMetrics.Height -le 0) {
+        return $false
+    }
+
+    $windowScaleX = [double]$petWindow.Width / [double]$bounds.width
+    $windowScaleY = [double]$petWindow.Height / [double]$bounds.height
+    if ($windowScaleX -le 0 -or $windowScaleY -le 0) { return $false }
+
+    $expectedCenterX = ([double]$geometry.Left + [double]$geometry.Width / 2.0) *
+        $windowScaleX + $alignmentX
+    $expectedTop = [double]$geometry.Top * $windowScaleY + $alignmentY
+    $actualCenterX = [double]$visualMetrics.Left + [double]$visualMetrics.Width / 2.0
+    $actualTop = [double]$visualMetrics.Top
+
+    # The captured non-transparent mascot changes a little among animation
+    # frames, so this is deliberately generous.  It still rejects a helper
+    # capture on the opposite side of the 356px overlay, which is the Windows
+    # regression reported from installed builds.
+    $centerTolerance = [Math]::Max(36.0, [double]$geometry.Width * $windowScaleX * 0.42)
+    $topTolerance = [Math]::Max(32.0, $script:CanonicalPetHeight * $windowScaleY * 0.34)
+    return [Math]::Abs($actualCenterX - $expectedCenterX) -le $centerTolerance -and
+        [Math]::Abs($actualTop - $expectedTop) -le $topTolerance
+}
+
+function Get-TrustedNativePetVisualMetrics(
+    $petWindow,
+    $bounds,
+    $geometry,
+    $rawVisualMetrics,
+    [double]$dpi,
+    [double]$alignmentX = 0.0,
+    [double]$alignmentY = 0.0
+) {
+    $physicalMetrics = ConvertTo-PhysicalPetVisualMetrics `
+        $petWindow $bounds $geometry $rawVisualMetrics $dpi
+    if (-not $physicalMetrics) { return $null }
+    if (Test-NativeVisualMetricsAlignment `
+        $petWindow $bounds $geometry $physicalMetrics $alignmentX $alignmentY) {
+        return $physicalMetrics
+    }
+    return $null
+}
+
 function Reset-PanelScaleStabilizer {
     $script:PendingPanelScale = [double]::NaN
     $script:PendingPanelScaleSamples = 0
@@ -3842,11 +3900,10 @@ function Show-QuotaLightstickAtNativePet(
         )
         if (-not $lightstickWindow) { return $false }
         $left = [Math]::Round(
-            [double]$petWindow.Left + [double]$petWindow.Width / 2.0 +
-                $originX * $safeScale * $dpiScale
+            [double]$anchor.CenterX + $originX * $safeScale * $dpiScale
         )
         $top = [Math]::Round(
-            [double]$petWindow.Top +
+            [double]$anchor.Top +
                 $script:QuotaLightstickTopFromOverlayTop * $safeScale * $dpiScale
         )
         if ($workArea) {
@@ -3886,11 +3943,10 @@ function Show-QuotaLightstickAtNativePet(
                 $script:QuotaAirplaneOriginXFromOverlayCenter
             }
             $airplaneLeft = [Math]::Round(
-                [double]$petWindow.Left + [double]$petWindow.Width / 2.0 +
-                    $airplaneOriginX * $safeScale * $dpiScale
+                [double]$anchor.CenterX + $airplaneOriginX * $safeScale * $dpiScale
             )
             $airplaneTop = [Math]::Round(
-                [double]$petWindow.Top +
+                [double]$anchor.Top +
                     $script:QuotaAirplaneTopFromOverlayTop * $safeScale * $dpiScale
             )
             if ($workArea) {
@@ -3969,8 +4025,9 @@ function Get-NativePanelPlacement(
 function Show-PanelAtNativePetWindow($petWindow, $bounds, $geometry) {
     $dpi = [BubuPanel.NativeWindows]::GetWindowDpi($petWindow.Handle)
     $capturedVisualMetrics = Get-NativePetVisualMetrics $petWindow
-    $visualMetrics = ConvertTo-PhysicalPetVisualMetrics `
-        $petWindow $bounds $geometry $capturedVisualMetrics $dpi
+    $visualMetrics = Get-TrustedNativePetVisualMetrics `
+        $petWindow $bounds $geometry $capturedVisualMetrics $dpi `
+        $script:TrackingAlignmentX $script:TrackingAlignmentY
     $candidatePanelScale = Get-NativePetScale `
         $petWindow $bounds $geometry $dpi $visualMetrics
     $panelScale = Get-StabilizedPanelScale $candidatePanelScale $petWindow.Handle
@@ -4021,7 +4078,7 @@ function Show-PanelAtHeuristicWindow($petWindow) {
     $estimatedBounds = [PSCustomObject]@{ width = 356.0; height = 320.0 }
     $estimatedGeometry = [PSCustomObject]@{ Left = 165.0; Top = 15.0; Width = 163.0 }
     $capturedVisualMetrics = Get-NativePetVisualMetrics $petWindow
-    $visualMetrics = ConvertTo-PhysicalPetVisualMetrics `
+    $visualMetrics = Get-TrustedNativePetVisualMetrics `
         $petWindow $estimatedBounds $estimatedGeometry $capturedVisualMetrics $dpi
     $candidatePanelScale = Get-NativePetScale `
         $petWindow $estimatedBounds $estimatedGeometry $dpi $visualMetrics
@@ -4070,7 +4127,6 @@ function Show-PanelAtSavedState($bounds, $geometry) {
     $visualCenterX = [double]$bounds.x + $geometry.Left + $geometry.Width / 2.0
     $visualTop = [double]$bounds.y + $geometry.Top
     $vocabularyAnchor = [PSCustomObject]@{ CenterX = $visualCenterX; Top = $visualTop }
-    $overlayCenterX = [double]$bounds.x + [double]$bounds.width / 2.0
     $rewindProgress = Get-RewindTicketProgress
     if ($script:QuotaLightstickMode -ne "chair") {
         if ($script:QuotaLightstickWindow.IsVisible) {
@@ -4080,8 +4136,8 @@ function Show-PanelAtSavedState($bounds, $geometry) {
         $originX = $script:QuotaLightstickOriginXFromOverlayCenter
         Set-LightstickVisualSide $script:PrimaryLightstick $false
         $script:QuotaLightstickRotation.Angle = $script:QuotaLightstickChairTilt
-        $stickLeft = $overlayCenterX + $originX * $lightstickScale
-        $stickTop = [double]$bounds.y +
+        $stickLeft = $visualCenterX + $originX * $lightstickScale
+        $stickTop = $visualTop +
             $script:QuotaLightstickTopFromOverlayTop * $lightstickScale
         $script:QuotaLightstickWindow.Left = [Math]::Round($stickLeft)
         $script:QuotaLightstickWindow.Top = [Math]::Round($stickTop)
@@ -4100,10 +4156,10 @@ function Show-PanelAtSavedState($bounds, $geometry) {
             $script:QuotaAirplaneOriginXFromOverlayCenter
         }
         $script:QuotaAirplaneWindow.Left = [Math]::Round(
-            $overlayCenterX + $airplaneOriginX * $lightstickScale
+            $visualCenterX + $airplaneOriginX * $lightstickScale
         )
         $script:QuotaAirplaneWindow.Top = [Math]::Round(
-            [double]$bounds.y +
+            $visualTop +
             $script:QuotaAirplaneTopFromOverlayTop * $lightstickScale
         )
         if (-not $script:QuotaAirplaneWindow.IsVisible) {
@@ -4337,7 +4393,16 @@ function Get-CurrentPetHitRect {
     $petWindow = [BubuPanel.NativeWindows]::GetWindow($script:PetWindowHandle)
     if (-not $petWindow) { return $null }
 
-    $visualMetrics = Get-NativePetVisualMetrics $petWindow
+    $bounds = $script:TrackingBounds
+    $geometry = $script:TrackingGeometry
+    if (-not $bounds -or -not $geometry) {
+        $bounds = [PSCustomObject]@{ width = 356.0; height = 320.0 }
+        $geometry = [PSCustomObject]@{ Left = 165.0; Top = 15.0; Width = 163.0 }
+    }
+    $dpi = [BubuPanel.NativeWindows]::GetWindowDpi($petWindow.Handle)
+    $visualMetrics = Get-TrustedNativePetVisualMetrics `
+        $petWindow $bounds $geometry (Get-NativePetVisualMetrics $petWindow) $dpi `
+        $script:TrackingAlignmentX $script:TrackingAlignmentY
     if ($visualMetrics -and $visualMetrics.Width -gt 0 -and $visualMetrics.Height -gt 0) {
         return [PSCustomObject]@{
             Left = [double]($petWindow.Left + $visualMetrics.Left)
@@ -4347,16 +4412,9 @@ function Get-CurrentPetHitRect {
         }
     }
 
-    $bounds = $script:TrackingBounds
-    $geometry = $script:TrackingGeometry
-    if (-not $bounds -or -not $geometry) {
-        $bounds = [PSCustomObject]@{ width = 356.0; height = 320.0 }
-        $geometry = [PSCustomObject]@{ Left = 165.0; Top = 15.0; Width = 163.0 }
-    }
     $anchor = Get-NativePetAnchor $petWindow $bounds $geometry `
         $script:TrackingAlignmentX $script:TrackingAlignmentY
     if (-not $anchor) { return $null }
-    $dpi = [BubuPanel.NativeWindows]::GetWindowDpi($petWindow.Handle)
     $petScale = Get-NativePetScale $petWindow $bounds $geometry $dpi
     $dpiScale = [Math]::Max(0.1, $dpi / 96.0)
     $width = $script:CanonicalPetWidth * $petScale * $dpiScale
@@ -4714,6 +4772,7 @@ if ($ValidateTrackingFilters) {
     $scaleSamples = 0
     $visualScaleSamples = 0
     $captureCoordinateSamples = 0
+    $visualMetricsGuardSamples = 0
     $geometry = [PSCustomObject]@{ Left = 165.0; Top = 15.0; Width = 163.0 }
     foreach ($dpi in @(96.0, 120.0, 144.0, 192.0, 288.0)) {
         foreach ($petScale in @(0.5, 1.0, 1.75, 2.5)) {
@@ -4845,9 +4904,27 @@ if ($ValidateTrackingFilters) {
                         "visibleScale=$visibleScale derived=$derivedScale.")
                 }
                 $captureCoordinateSamples++
+
+                if (-not (Test-NativeVisualMetricsAlignment `
+                    $syntheticPet $testBounds $geometry $physicalMetrics)) {
+                    throw "Aligned visible-pixel capture was rejected at dpi=$dpi mode=$captureMode."
+                }
+                $visualMetricsGuardSamples++
             }
         }
     }
+
+    # Regression fixture: a transparent Electron helper reports a small
+    # non-empty rectangle at the overlay's top-left.  It must not set the
+    # 20%-scale panel or become the anchor for the airplane/lightstick.
+    $helperSurfaceMetrics = [PSCustomObject]@{
+        Left = 8.0; Top = 6.0; Width = 28.0; Height = 34.0; VisibleFraction = 0.01
+    }
+    if (Test-NativeVisualMetricsAlignment `
+        $petWindow $testBounds $geometry $helperSurfaceMetrics) {
+        throw "Transparent helper capture was incorrectly trusted as the pet."
+    }
+    $visualMetricsGuardSamples++
 
     # A single incomplete Chromium frame must not resize the whole panel. Only
     # commit a materially different size after three matching observations.
@@ -4957,6 +5034,7 @@ if ($ValidateTrackingFilters) {
         " scale-matrix=" + $scaleSamples +
         " visual-scale-matrix=" + $visualScaleSamples +
         " capture-coordinate-matrix=" + $captureCoordinateSamples +
+        " visual-metrics-guard=" + $visualMetricsGuardSamples +
         " layout-scale-matrix=" + $layoutScaleSamples +
         " state-aware-selection=True center-calibration=True drag-center=True" +
         " anchor-monitor=True flicker-grace=True scale-stability=True pet-double-click=True")
