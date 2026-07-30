@@ -13,6 +13,9 @@ LEGACY_PLIST="$HOME/Library/LaunchAgents/$LEGACY_LABEL.plist"
 LEGACY_RESTORE_MARKER="${HEALTH:h}/restore-legacy-panel-on-uninstall"
 STATE="${CODEX_HOME:-$HOME/.codex}/.codex-global-state.json"
 DOMAIN="gui/$(id -u)"
+VOCABULARY_SOURCE="$ROOT/../../shared/pet/bubu-orange/vocabulary-web3-3000.json"
+VOCABULARY_ROOT="$HOME/Library/Application Support/$LABEL"
+VOCABULARY_DEST="$VOCABULARY_ROOT/vocabulary.json"
 
 legacy_panel_is_disabled() {
   /bin/launchctl print-disabled "$DOMAIN" 2>/dev/null \
@@ -34,6 +37,10 @@ pause_legacy_panel() {
 
 "$ROOT/scripts/build.sh" >/dev/null
 mkdir -p "$HOME/Applications" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" "${HEALTH:h}"
+if [[ -f "$VOCABULARY_SOURCE" && ! -s "$VOCABULARY_DEST" ]]; then
+  mkdir -p "$VOCABULARY_ROOT"
+  /bin/cp "$VOCABULARY_SOURCE" "$VOCABULARY_DEST"
+fi
 rm -rf "$DEST_APP"
 /usr/bin/ditto "$SOURCE_APP" "$DEST_APP"
 

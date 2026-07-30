@@ -71,6 +71,12 @@ try {
     $rootPath = [IO.Path]::GetFullPath($Root)
     $panelSource = Join-Path $rootPath "windows"
     $installDirectory = Join-Path $env:LOCALAPPDATA "OrangeBubuPet"
+    $vocabularySource = @(
+        (Join-Path $rootPath "pet\bubu-orange\vocabulary-web3-3000.json"),
+        (Join-Path $rootPath "shared\pet\bubu-orange\vocabulary-web3-3000.json")
+    ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+    $vocabularyRoot = Join-Path $env:APPDATA "OrangeBubuQuotaPanel"
+    $vocabularyDestination = Join-Path $vocabularyRoot "vocabulary.json"
     $codexOnlySource = Join-Path $rootPath "CODEX-ONLY.txt"
     $marketPricesEnabled = -not (Test-Path -LiteralPath $codexOnlySource)
     $expectedPanelHeight = if ($marketPricesEnabled) { 75 } else { 53 }
@@ -118,6 +124,10 @@ try {
     Copy-Item -LiteralPath (Join-Path $panelSource "task-running-badge.gif") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "task-waiting-icon.png") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "task-failed-icon.png") -Destination $installDirectory -Force
+    if ($vocabularySource -and -not (Test-Path -LiteralPath $vocabularyDestination -PathType Leaf)) {
+        New-Item -ItemType Directory -Force -Path $vocabularyRoot | Out-Null
+        Copy-Item -LiteralPath $vocabularySource -Destination $vocabularyDestination -Force
+    }
     $installedCodexOnlyMarker = Join-Path $installDirectory "CODEX-ONLY.txt"
     if ($marketPricesEnabled) {
         Remove-Item -LiteralPath $installedCodexOnlyMarker -Force -ErrorAction SilentlyContinue

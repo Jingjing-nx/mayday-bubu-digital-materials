@@ -9,6 +9,9 @@ APP_SOURCE="$ROOT/quota-panel/橙色卜卜额度面板.app"
 APP_DEST="$HOME/Applications/橙色卜卜额度面板.app"
 APP_BINARY="$APP_DEST/Contents/MacOS/OrangeBubuQuotaPanel"
 LABEL="io.github.mayday-materials.orange-bubu-quota-panel"
+VOCABULARY_SOURCE="$ROOT/pet/bubu-orange/vocabulary-web3-3000.json"
+VOCABULARY_ROOT="$HOME/Library/Application Support/$LABEL"
+VOCABULARY_DEST="$VOCABULARY_ROOT/vocabulary.json"
 PLIST_SOURCE="$ROOT/quota-panel/$LABEL.plist.in"
 PLIST_DEST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG_PATH="$HOME/Library/Logs/橙色卜卜额度面板.log"
@@ -172,6 +175,8 @@ for PET_ID in "${PET_IDS[@]}"; do
 done
 [[ -d "$APP_SOURCE" && -f "$PLIST_SOURCE" ]] \
   || fail "额度面板文件不完整，请重新解压整个分享包。"
+[[ -f "$VOCABULARY_SOURCE" ]] \
+  || fail "Web3 3000 词词库不完整，请重新下载分享包。"
 
 ARCH="$(/usr/bin/uname -m)"
 [[ "$ARCH" == "arm64" || "$ARCH" == "x86_64" ]] \
@@ -194,6 +199,14 @@ for PET_ID in "${PET_IDS[@]}"; do
   fi
   /usr/bin/ditto "$PET_SOURCE" "$PET_DEST"
 done
+
+# A learner's existing vocabulary file is personal data. Seed the bundled Web3
+# library only on first install; later updates never replace it or its progress.
+if [[ ! -s "$VOCABULARY_DEST" ]]; then
+  mkdir -p "$VOCABULARY_ROOT"
+  /bin/cp "$VOCABULARY_SOURCE" "$VOCABULARY_DEST"
+  echo "已导入 Web3 常用 3000 词词库。"
+fi
 
 # Keep project files isolated, but hand off the single visible quota-panel slot
 # from the legacy blue service to Orange Bubu so two panels never overlap.

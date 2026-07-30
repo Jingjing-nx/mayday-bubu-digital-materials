@@ -33,6 +33,7 @@ stage_package() {
   /bin/cp "$ROOT/shared/pet/bubu-orange/pet.json" "$stage/pet/bubu-orange/"
   /bin/cp "$ROOT/shared/pet/bubu-orange/spritesheet.webp" "$stage/pet/bubu-orange/"
   /bin/cp "$ROOT/shared/pet/bubu-orange/validation.json" "$stage/pet/bubu-orange/"
+  /bin/cp "$ROOT/shared/pet/bubu-orange/vocabulary-web3-3000.json" "$stage/pet/bubu-orange/"
   /bin/cp "$ROOT/shared/pet/bubu-orange/qa/release-freeze-v29.json" "$stage/pet/bubu-orange/"
   local preview_name
   for preview_name in \
