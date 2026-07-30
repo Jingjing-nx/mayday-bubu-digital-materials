@@ -1967,12 +1967,11 @@ private final class VocabularyLearningStore {
         }
         let unseen = available.filter { state.progressByID[$0.id]?.masteryCount ?? 0 == 0 }
         let pool = !due.isEmpty ? due : (!unseen.isEmpty ? unseen : available)
-        let sorted = pool.sorted { lhs, rhs in
-            let lhsDate = state.progressByID[lhs.id]?.nextReviewAt ?? .distantPast
-            let rhsDate = state.progressByID[rhs.id]?.nextReviewAt ?? .distantPast
-            return lhsDate == rhsDate ? lhs.word < rhs.word : lhsDate < rhsDate
-        }
-        return sorted.first(where: { $0.id != excludedID }) ?? sorted.first
+        let alternatives = pool.filter { $0.id != excludedID }
+        // Keep the learning priority (due review → unseen → other) but choose
+        // freely inside that priority pool, so the card never walks the source
+        // spreadsheet or alphabet in a visible sequence.
+        return alternatives.randomElement() ?? pool.randomElement()
     }
 
     func remember(_ word: VocabularyWord, now: Date = Date()) {

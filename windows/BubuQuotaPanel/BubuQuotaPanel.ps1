@@ -954,10 +954,11 @@ function Get-NextVocabularyWord([string]$excludingId = "", [DateTime]$now = [Dat
         [int]$progress.masteryCount -eq 0
     })
     $pool = if ($due.Count -gt 0) { $due } elseif ($unseen.Count -gt 0) { $unseen } else { $available }
-    $ordered = @($pool | Sort-Object Word)
-    $alternate = @($ordered | Where-Object { $_.Id -ne $excludingId } | Select-Object -First 1)
-    if ($alternate.Count -gt 0) { return $alternate[0] }
-    return $ordered[0]
+    $alternatives = @($pool | Where-Object { $_.Id -ne $excludingId })
+    # Preserve the review priority while selecting a random word inside the
+    # eligible pool, rather than walking alphabetically through the source list.
+    if ($alternatives.Count -gt 0) { return Get-Random -InputObject $alternatives }
+    return Get-Random -InputObject $pool
 }
 
 function Remember-VocabularyWord($word, [DateTime]$now = [DateTime]::Now) {
