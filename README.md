@@ -76,8 +76,8 @@
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/46/Mayday-Bubu-Windows-10-11-Codex-Only-No-Singing-46.zip">版本 46 下载</a></td>
     </tr>
     <tr>
-      <td rowspan="5"><strong>橙色卜卜</strong></td>
-      <td rowspan="5" align="center"><img src="shared/preview/orange-bubu-static.png" alt="橙色卜卜完整效果示意图" width="280"></td>
+      <td rowspan="6"><strong>橙色卜卜</strong></td>
+      <td rowspan="6" align="center"><img src="shared/preview/orange-bubu-static.png" alt="橙色卜卜完整效果示意图" width="280"></td>
       <td rowspan="2">Web3 版</td>
       <td>不唱歌版</td>
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/29/Orange-Bubu-macOS-Universal-29.zip">版本 29 下载</a></td>
@@ -105,6 +105,12 @@
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/30/Orange-Bubu-Web3-Vocabulary-macOS-Universal-30.zip">版本 30 下载</a></td>
       <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/30/Orange-Bubu-Web3-Vocabulary-Windows-10-11-30.zip">版本 30 下载</a></td>
     </tr>
+    <tr>
+      <td><strong>会唱歌、也会背单词<br>终极版</strong></td>
+      <td>唱歌 + 背单词</td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/31/Orange-Bubu-Ultimate-macOS-Universal-31.zip">版本 31 下载</a></td>
+      <td><a href="https://github.com/Jingjing-nx/mayday-bubu-digital-materials/releases/download/31/Orange-Bubu-Ultimate-Windows-10-11-31.zip">版本 31 下载</a></td>
+    </tr>
   </tbody>
 </table>
 
@@ -113,6 +119,7 @@
 - **唱歌版**：向左拖动时保留唱歌画面动作，并播放 27.5 秒音乐。
 - **不唱歌版**：只删除唱歌 MP3 音效；唱歌画面动作、持续时间和其他功能完全相同。
 - **背 Web3 单词版**：保留完整 Web3 面板；鼠标悬停电脑即可学习内置 3000 词，并在本机记录复习进度。当前为 **30** 版。
+- **会唱歌、也会背单词终极版**：同时提供本地 27.5 秒音乐与 Web3 3000 词学习卡，保留完整 BTC 面板。当前为 **31** 版。
 - 蓝色卜卜当前正式版为 **46**；橙色卜卜基础版为 **29**，两套项目和安装目录彼此隔离。
 <!-- DOWNLOAD_TABLE:END -->
 

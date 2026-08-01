@@ -3,14 +3,20 @@ set -euo pipefail
 
 ROOT="${0:A:h:h}"
 VERSION="29"
+ULTIMATE_VERSION="31"
+RELEASE_VERSION="$VERSION"
 CODEX_ONLY_RELEASE="false"
 WEB3_VOCABULARY_RELEASE="false"
+ULTIMATE_RELEASE="false"
 if [[ "${1:-}" == "--codex-only" ]]; then
   CODEX_ONLY_RELEASE="true"
 elif [[ "${1:-}" == "--web3-vocabulary" ]]; then
   WEB3_VOCABULARY_RELEASE="true"
+elif [[ "${1:-}" == "--ultimate" ]]; then
+  ULTIMATE_RELEASE="true"
+  RELEASE_VERSION="$ULTIMATE_VERSION"
 elif [[ -n "${1:-}" ]]; then
-  print -u2 "用法：$0 [--codex-only|--web3-vocabulary]"
+  print -u2 "用法：$0 [--codex-only|--web3-vocabulary|--ultimate]"
   exit 1
 fi
 
@@ -18,10 +24,12 @@ STAGE_ROOT="$ROOT/build/release"
 FULL_STAGE="$STAGE_ROOT/橙色卜卜-Windows"
 CODEX_ONLY_STAGE="$STAGE_ROOT/橙色卜卜-Windows-仅Codex额度"
 WEB3_VOCABULARY_STAGE="$STAGE_ROOT/橙色卜卜-Windows-背Web3单词"
+ULTIMATE_STAGE="$STAGE_ROOT/橙色卜卜-Windows-会唱歌也会背单词终极版"
 FULL_OUT="$ROOT/dist/Orange-Bubu-Windows-10-11-$VERSION.zip"
 CODEX_ONLY_OUT="$ROOT/dist/Orange-Bubu-Windows-10-11-Codex-Only-$VERSION.zip"
 WEB3_VOCABULARY_OUT="$ROOT/dist/Orange-Bubu-Web3-Vocabulary-Windows-10-11-30.zip"
-ATLAS_NAME="spritesheet-win-$VERSION.webp"
+ULTIMATE_OUT="$ROOT/dist/Orange-Bubu-Ultimate-Windows-10-11-$ULTIMATE_VERSION.zip"
+ATLAS_NAME="spritesheet-win-$RELEASE_VERSION.webp"
 PYTHON_BIN="${PYTHON:-python3}"
 
 command -v jq >/dev/null || {
@@ -45,6 +53,7 @@ stage_package() {
   local stage="$1"
   local codex_only="$2"
   local web3_vocabulary="$3"
+  local ultimate="$4"
   local pet_dir
   local temporary_json
 
@@ -76,6 +85,12 @@ stage_package() {
   if [[ "$web3_vocabulary" == "true" ]]; then
     /bin/cp "$ROOT/windows/package/WEB3-VOCABULARY.txt" "$stage/WEB3-VOCABULARY.txt"
   fi
+  if [[ "$ultimate" == "true" ]]; then
+    mkdir -p "$stage/windows/Assets/Audio"
+    /bin/cp "$ROOT/shared/audio/bubu-left-drag-song.mp3" \
+      "$stage/windows/Assets/Audio/bubu-left-drag-song.mp3"
+    /bin/cp "$ROOT/windows/package/ULTIMATE.txt" "$stage/ULTIMATE.txt"
+  fi
 
   for pet_dir in "$stage"/pet/*(N/); do
     [[ -f "$pet_dir/spritesheet.webp" && -f "$pet_dir/pet.json" ]] || continue
@@ -103,18 +118,26 @@ stage_package() {
 
 if [[ "$WEB3_VOCABULARY_RELEASE" == "true" ]]; then
   /bin/rm -f "$WEB3_VOCABULARY_OUT"
-  stage_package "$WEB3_VOCABULARY_STAGE" false true
+  stage_package "$WEB3_VOCABULARY_STAGE" false true false
   create_windows_archive "$WEB3_VOCABULARY_STAGE" "$WEB3_VOCABULARY_OUT"
   print "$WEB3_VOCABULARY_OUT"
+  exit 0
+fi
+
+if [[ "$ULTIMATE_RELEASE" == "true" ]]; then
+  /bin/rm -f "$ULTIMATE_OUT"
+  stage_package "$ULTIMATE_STAGE" false true true
+  create_windows_archive "$ULTIMATE_STAGE" "$ULTIMATE_OUT"
+  print "$ULTIMATE_OUT"
   exit 0
 fi
 
 /bin/rm -f "$CODEX_ONLY_OUT"
 if [[ "$CODEX_ONLY_RELEASE" != "true" ]]; then
   /bin/rm -f "$FULL_OUT"
-  stage_package "$FULL_STAGE" false false
+  stage_package "$FULL_STAGE" false false false
 fi
-stage_package "$CODEX_ONLY_STAGE" true false
+stage_package "$CODEX_ONLY_STAGE" true false false
 
 if [[ "$CODEX_ONLY_RELEASE" != "true" ]]; then
   create_windows_archive "$FULL_STAGE" "$FULL_OUT"

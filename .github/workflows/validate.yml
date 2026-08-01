@@ -38,6 +38,7 @@ jobs:
           "$BIN" --self-test-skin-selection | grep 'project=orange orange=pass'
           "$BIN" --self-test-runtime-geometry | grep 'panel=224x75 gap=14.*uniform-2x=pass'
           "$BIN" --self-test-quota-lightstick | grep 'rewind-no-lightsticks=pass.*chairside-live-no-external-accessories=pass'
+          "$BIN" --self-test-airplane-singing | grep 'double-click=pass hover-leave=stop renderer-drag=disabled pet-stability=pass audio=27.53s-loop=pass'
           "$BIN" --self-test-vocabulary | grep 'library=pass.*remember=pass.*later=pass.*daily-limit=pass.*mastery-summary=pass.*laptop-hit=pass.*projection-anchor=pass.*edge-fallback=pass'
           "$BIN" --render-vocabulary-preview /tmp/orange-bubu-vocabulary.png
           test -s /tmp/orange-bubu-vocabulary.png
@@ -60,6 +61,11 @@ jobs:
           test -f dist/Orange-Bubu-Web3-Vocabulary-macOS-Universal-30.zip
           test -e build/release/橙色卜卜-macOS-背Web3单词/WEB3-VOCABULARY.txt
           unzip -tq dist/Orange-Bubu-Web3-Vocabulary-macOS-Universal-30.zip
+          ./scripts/build-macos-release.sh --ultimate
+          test -f dist/Orange-Bubu-Ultimate-macOS-Universal-31.zip
+          test -e build/release/橙色卜卜-macOS-会唱歌也会背单词终极版/ULTIMATE.txt
+          test -e build/release/橙色卜卜-macOS-会唱歌也会背单词终极版/quota-panel/橙色卜卜额度面板.app/Contents/Resources/bubu-left-drag-song.mp3
+          unzip -tq dist/Orange-Bubu-Ultimate-macOS-Universal-31.zip
           PYTHON=python3 ./scripts/build-windows-release.sh
           test -f dist/Orange-Bubu-Windows-10-11-29.zip
           test -f dist/Orange-Bubu-Windows-10-11-Codex-Only-29.zip
@@ -68,6 +74,11 @@ jobs:
           PYTHON=python3 ./scripts/build-windows-release.sh --web3-vocabulary
           test -f dist/Orange-Bubu-Web3-Vocabulary-Windows-10-11-30.zip
           unzip -tq dist/Orange-Bubu-Web3-Vocabulary-Windows-10-11-30.zip
+          PYTHON=python3 ./scripts/build-windows-release.sh --ultimate
+          test -f dist/Orange-Bubu-Ultimate-Windows-10-11-31.zip
+          test -e build/release/橙色卜卜-Windows-会唱歌也会背单词终极版/ULTIMATE.txt
+          test -e build/release/橙色卜卜-Windows-会唱歌也会背单词终极版/windows/Assets/Audio/bubu-left-drag-song.mp3
+          unzip -tq dist/Orange-Bubu-Ultimate-Windows-10-11-31.zip
           ./scripts/privacy-audit.sh
       - run: zsh -n macos/package/*.command macos/BubuQuotaPanel/scripts/*.sh scripts/*.sh
       - name: Verify macOS panel service handoff

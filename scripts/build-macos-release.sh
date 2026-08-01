@@ -3,23 +3,29 @@ set -euo pipefail
 
 ROOT="${0:A:h:h}"
 VERSION="29"
+ULTIMATE_VERSION="31"
 CODEX_ONLY_RELEASE="false"
 WEB3_VOCABULARY_RELEASE="false"
+ULTIMATE_RELEASE="false"
 if [[ "${1:-}" == "--codex-only" ]]; then
   CODEX_ONLY_RELEASE="true"
 elif [[ "${1:-}" == "--web3-vocabulary" ]]; then
   WEB3_VOCABULARY_RELEASE="true"
+elif [[ "${1:-}" == "--ultimate" ]]; then
+  ULTIMATE_RELEASE="true"
 elif [[ -n "${1:-}" ]]; then
-  print -u2 "用法：$0 [--codex-only|--web3-vocabulary]"
+  print -u2 "用法：$0 [--codex-only|--web3-vocabulary|--ultimate]"
   exit 1
 fi
 STAGE_ROOT="$ROOT/build/release"
 FULL_STAGE="$STAGE_ROOT/橙色卜卜-macOS"
 CODEX_ONLY_STAGE="$STAGE_ROOT/橙色卜卜-macOS-仅Codex额度"
 WEB3_VOCABULARY_STAGE="$STAGE_ROOT/橙色卜卜-macOS-背Web3单词"
+ULTIMATE_STAGE="$STAGE_ROOT/橙色卜卜-macOS-会唱歌也会背单词终极版"
 FULL_OUT="$ROOT/dist/Orange-Bubu-macOS-Universal-$VERSION.zip"
 CODEX_ONLY_OUT="$ROOT/dist/Orange-Bubu-macOS-Universal-Codex-Only-$VERSION.zip"
 WEB3_VOCABULARY_OUT="$ROOT/dist/Orange-Bubu-Web3-Vocabulary-macOS-Universal-30.zip"
+ULTIMATE_OUT="$ROOT/dist/Orange-Bubu-Ultimate-macOS-Universal-$ULTIMATE_VERSION.zip"
 APP_PROJECT="$ROOT/macos/BubuQuotaPanel"
 LABEL="io.github.mayday-materials.orange-bubu-quota-panel"
 
@@ -29,6 +35,7 @@ stage_package() {
   local stage="$1"
   local codex_only="$2"
   local web3_vocabulary="$3"
+  local ultimate="$4"
 
   /bin/rm -rf "$stage"
   mkdir -p "$stage/pet/bubu-orange" "$stage/quota-panel" "$stage/preview"
@@ -64,6 +71,9 @@ stage_package() {
   if [[ "$web3_vocabulary" == "true" ]]; then
     /bin/cp "$ROOT/macos/package/WEB3-VOCABULARY.txt" "$stage/WEB3-VOCABULARY.txt"
   fi
+  if [[ "$ultimate" == "true" ]]; then
+    /bin/cp "$ROOT/macos/package/ULTIMATE.txt" "$stage/ULTIMATE.txt"
+  fi
   /bin/chmod +x "$stage"/*.command
 
   (
@@ -76,18 +86,26 @@ stage_package() {
 
 if [[ "$WEB3_VOCABULARY_RELEASE" == "true" ]]; then
   /bin/rm -f "$WEB3_VOCABULARY_OUT"
-  stage_package "$WEB3_VOCABULARY_STAGE" false true
+  stage_package "$WEB3_VOCABULARY_STAGE" false true false
   /usr/bin/ditto -c -k --norsrc --keepParent "$WEB3_VOCABULARY_STAGE" "$WEB3_VOCABULARY_OUT"
   printf '%s\n' "$WEB3_VOCABULARY_OUT"
+  exit 0
+fi
+
+if [[ "$ULTIMATE_RELEASE" == "true" ]]; then
+  /bin/rm -f "$ULTIMATE_OUT"
+  stage_package "$ULTIMATE_STAGE" false true true
+  /usr/bin/ditto -c -k --norsrc --keepParent "$ULTIMATE_STAGE" "$ULTIMATE_OUT"
+  printf '%s\n' "$ULTIMATE_OUT"
   exit 0
 fi
 
 /bin/rm -f "$CODEX_ONLY_OUT"
 if [[ "$CODEX_ONLY_RELEASE" != "true" ]]; then
   /bin/rm -f "$FULL_OUT"
-  stage_package "$FULL_STAGE" false false
+  stage_package "$FULL_STAGE" false false false
 fi
-stage_package "$CODEX_ONLY_STAGE" true false
+stage_package "$CODEX_ONLY_STAGE" true false false
 
 if [[ "$CODEX_ONLY_RELEASE" != "true" ]]; then
   /usr/bin/ditto -c -k --norsrc --keepParent "$FULL_STAGE" "$FULL_OUT"

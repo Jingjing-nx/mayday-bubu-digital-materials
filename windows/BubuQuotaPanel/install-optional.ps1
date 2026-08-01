@@ -83,7 +83,7 @@ try {
     $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
     $configPath = Join-Path $codexHome "config.toml"
 
-    foreach ($required in @("BubuQuotaPanel.ps1", "StartBubuPanel.vbs", "StartBubuPanel.cmd", "quota-panel-background.png", "task-running-icon.png", "task-running-badge.gif", "task-waiting-icon.png", "task-completed-icon.png", "task-failed-icon.png")) {
+    foreach ($required in @("BubuQuotaPanel.ps1", "StartBubuPanel.vbs", "StartBubuPanel.cmd", "quota-panel-background.png", "task-running-icon.png", "task-running-badge.gif", "task-waiting-icon.png", "task-completed-icon.png", "task-failed-icon.png", "Assets\Lightstick\lightstick-unlit.png", "Assets\Airplane\quota-airplane-material.png")) {
         if (-not (Test-Path -LiteralPath (Join-Path $panelSource $required))) {
             throw "Missing optional panel file: $required"
         }
@@ -124,6 +124,10 @@ try {
     Copy-Item -LiteralPath (Join-Path $panelSource "task-running-badge.gif") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "task-waiting-icon.png") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "task-failed-icon.png") -Destination $installDirectory -Force
+    # These high-resolution material layers are runtime assets, not preview
+    # files. Copying the full tree prevents upgrades from losing the airplane,
+    # lightstick, or the Ultimate package's local music track.
+    Copy-Item -LiteralPath (Join-Path $panelSource "Assets") -Destination (Join-Path $installDirectory "Assets") -Recurse -Force
     if ($vocabularySource -and -not (Test-Path -LiteralPath $vocabularyDestination -PathType Leaf)) {
         New-Item -ItemType Directory -Force -Path $vocabularyRoot | Out-Null
         Copy-Item -LiteralPath $vocabularySource -Destination $vocabularyDestination -Force

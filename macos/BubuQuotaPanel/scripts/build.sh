@@ -29,6 +29,9 @@ cp "$ROOT/Resources/task-running-badge.gif" "$RESOURCES/task-running-badge.gif"
 cp "$ROOT/Resources/task-waiting-icon.png" "$RESOURCES/task-waiting-icon.png"
 cp "$ROOT/Resources/task-failed-icon.png" "$RESOURCES/task-failed-icon.png"
 cp "$ROOT/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
+# The user-approved 27-second clip is intentionally bundled locally so
+# playback works after installation without a network request.
+cp "$PROJECT_ROOT/shared/audio/bubu-left-drag-song.mp3" "$RESOURCES/bubu-left-drag-song.mp3"
 mkdir -p "$RESOURCES/Lightstick"
 for asset in lightstick-unlit.png lightstick-tube-emission.png lightstick-glow.png lightstick-specular.png lightstick-full-lit.png lightstick-tube-mask.png lightstick-layers.json; do
   cp "$ROOT/../../shared/pet/bubu-orange/accessories/lightstick/runtime/layers/$asset" \
@@ -51,6 +54,7 @@ for ARCH in arm64 x86_64; do
     -target "$ARCH-apple-macos12.3" \
     -sdk "$SDK" \
     -framework AppKit \
+    -framework AVFoundation \
     -framework CoreGraphics \
     "$ROOT/Sources/BubuQuotaPanel/main.swift" \
     -o "$TMP_DIR/OrangeBubuQuotaPanel-$ARCH"
@@ -63,6 +67,7 @@ done
 
 "$MACOS/OrangeBubuQuotaPanel" --self-test-runtime-geometry >/dev/null
 "$MACOS/OrangeBubuQuotaPanel" --self-test-quota-lightstick >/dev/null
+"$MACOS/OrangeBubuQuotaPanel" --self-test-airplane-singing >/dev/null
 
 /usr/bin/codesign --force --deep --sign - "$APP"
 echo "$APP"

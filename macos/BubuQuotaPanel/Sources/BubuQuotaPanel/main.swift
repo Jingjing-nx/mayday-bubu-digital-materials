@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -1674,6 +1675,10 @@ private struct QuotaAirplaneAssets {
 }
 
 private final class QuotaAirplaneView: NSView {
+    var onDoubleClick: (() -> Void)?
+    var onPointerExit: (() -> Void)?
+    private var pointerTrackingArea: NSTrackingArea?
+
     var isFlying = false {
         didSet {
             guard isFlying != oldValue else { return }
@@ -1704,6 +1709,32 @@ private final class QuotaAirplaneView: NSView {
     deinit { animationTimer?.invalidate() }
 
     override var isFlipped: Bool { false }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func updateTrackingAreas() {
+        if let pointerTrackingArea {
+            removeTrackingArea(pointerTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        pointerTrackingArea = trackingArea
+        super.updateTrackingAreas()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard event.clickCount == 2, !isFlying else { return }
+        onDoubleClick?()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onPointerExit?()
+    }
 
     private func animateRemainingPercent(to target: CGFloat) {
         animationTimer?.invalidate()
@@ -4335,6 +4366,22 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var fastFollowUntil: CFAbsoluteTime = 0
     private var quotaLightstickMode: QuotaLightstickMode = .chair
     private var rewindTicketStartedAt: CFAbsoluteTime?
+    private var isAirplaneSinging = false
+    private lazy var airplaneSongPlayer: AVAudioPlayer? = {
+        guard let songURL = Bundle.main.url(
+            forResource: "bubu-left-drag-song",
+            withExtension: "mp3"
+        ) else { return nil }
+        do {
+            let player = try AVAudioPlayer(contentsOf: songURL)
+            player.numberOfLoops = -1
+            player.volume = 0.78
+            player.prepareToPlay()
+            return player
+        } catch {
+            return nil
+        }
+    }()
     private var isRefreshing = false
     private var isRefreshingTaskProgress = false
     private var isRefreshingBTCPrice = false
@@ -4473,6 +4520,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     /// they must always be hidden as one unit. They are never draggable; each
     /// later frame is recomputed from the live pet anchor in `followPet()`.
     private func hidePetAttachmentWindows(resetGestureState: Bool) {
+        stopAirplaneSinging(refreshLayout: false)
         quotaView.setPanelAnimationVisible(false)
         panel?.orderOut(nil)
         quotaLightstickPanel?.orderOut(nil)
@@ -4485,6 +4533,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             fastFollowUntil = 0
             quotaLightstickMode = .chair
             rewindTicketStartedAt = nil
+            isAirplaneSinging = false
             currentVocabularyWord = nil
             vocabularyDismissedUntilMouseLeaves = false
         }
@@ -4598,13 +4647,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         quotaAirplanePanel.hasShadow = false
         quotaAirplanePanel.level = .statusBar
         quotaAirplanePanel.hidesOnDeactivate = false
-        quotaAirplanePanel.ignoresMouseEvents = true
+        // The ticket is an explicit interaction target. Handling its own
+        // double-click remains reliable even without Input Monitoring access.
+        quotaAirplanePanel.ignoresMouseEvents = false
         quotaAirplanePanel.isMovable = false
         quotaAirplanePanel.isReleasedWhenClosed = false
         quotaAirplanePanel.isFloatingPanel = true
         quotaAirplanePanel.collectionBehavior = [
             .canJoinAllSpaces, .fullScreenAuxiliary, .stationary,
         ]
+        quotaAirplaneView.onDoubleClick = { [weak self] in
+            self?.startAirplaneSinging()
+        }
+        quotaAirplaneView.onPointerExit = { [weak self] in
+            self?.stopAirplaneSinging(refreshLayout: true)
+        }
     }
 
     private func makeVocabularyProjectionPanel() {
@@ -4761,7 +4818,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startPetDoubleClickMonitor() {
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .scrollWheel]
+            matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .mouseMoved, .scrollWheel]
         ) {
             [weak self] event in
             let location = NSEvent.mouseLocation
@@ -4769,6 +4826,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 switch event.type {
                 case .leftMouseDown:
+                    // A click elsewhere is a definite exit from the ticket.
+                    // Do not use the 33fps follower for this check: a live
+                    // scale refresh can shift the ticket by a few points and
+                    // used to stop a just-started song immediately.
+                    self.updateAirplaneSingingHover(at: location, refreshLayout: false)
+                    if event.clickCount == 2,
+                       self.startAirplaneSingingIfNeeded(at: location)
+                    {
+                        break
+                    }
                     self.beginPetDragIfNeeded(at: location)
                     if event.clickCount == 2 {
                         self.handlePetDoubleClick(at: location, clickCount: event.clickCount)
@@ -4777,12 +4844,67 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.updateLightstickModeForPetDrag(at: location)
                 case .leftMouseUp:
                     self.endPetDrag()
+                case .mouseMoved:
+                    // Once the pointer has genuinely left the ticket, the
+                    // temporary native drag is released and the song stops.
+                    self.updateAirplaneSingingHover(at: location, refreshLayout: false)
                 case .scrollWheel:
                     self.beginFastFollowBurstIfNeeded(at: location)
                 default:
                     break
                 }
             }
+        }
+    }
+
+    private func airplaneHitFrame() -> NSRect? {
+        guard quotaAirplanePanel.isVisible,
+              !quotaAirplaneView.isFlying
+        else { return nil }
+        // The visible ticket is narrow at small pet sizes. This four-point
+        // halo remains deliberate without stealing clicks from the chair.
+        return quotaAirplanePanel.frame.insetBy(dx: -4, dy: -4)
+    }
+
+    @discardableResult
+    private func startAirplaneSingingIfNeeded(at location: NSPoint) -> Bool {
+        guard airplaneHitFrame()?.contains(location) == true else { return false }
+        startAirplaneSinging()
+        return true
+    }
+
+    private func startAirplaneSinging() {
+        guard !quotaAirplaneView.isFlying,
+              !isAirplaneSinging
+        else { return }
+        isAirplaneSinging = true
+        // The ticket controls the music directly. We deliberately do not
+        // synthesize a drag on Codex's mascot: its renderer treats that as a
+        // real relocation, which can separate the pet from its attachments.
+        if let airplaneSongPlayer {
+            airplaneSongPlayer.currentTime = 0
+            airplaneSongPlayer.play()
+        }
+    }
+
+    private func updateAirplaneSingingHover(
+        at location: NSPoint,
+        refreshLayout: Bool = true
+    ) {
+        guard isAirplaneSinging,
+              airplaneHitFrame()?.contains(location) != true
+        else { return }
+        stopAirplaneSinging(refreshLayout: refreshLayout)
+    }
+
+    private func stopAirplaneSinging(refreshLayout: Bool) {
+        guard isAirplaneSinging else { return }
+        isAirplaneSinging = false
+        airplaneSongPlayer?.stop()
+        airplaneSongPlayer?.currentTime = 0
+        if refreshLayout {
+            followPet()
+            scheduleNextFollow()
         }
     }
 
@@ -6139,6 +6261,37 @@ private func runQuotaLightstickSelfTest() -> Never {
     exit(0)
 }
 
+private func runAirplaneSingingSelfTest() -> Never {
+    let hitFrame = NSRect(x: 140, y: 80, width: 61.23, height: 51.025)
+        .insetBy(dx: -4, dy: -4)
+    let songURL = Bundle.main.url(
+        forResource: "bubu-left-drag-song",
+        withExtension: "mp3"
+    )
+    let player = songURL.flatMap { try? AVAudioPlayer(contentsOf: $0) }
+    guard hitFrame.contains(NSPoint(x: 140, y: 80)),
+          hitFrame.contains(NSPoint(x: 171, y: 105)),
+          !hitFrame.contains(NSPoint(x: 205.5, y: 138)),
+          let player,
+          abs(player.duration - 27.533) < 0.1,
+          player.prepareToPlay(),
+          player.play()
+    else {
+        fputs("airplane singing interaction or audio resource is invalid\n", stderr)
+        exit(1)
+    }
+    // AVAudioPlayer starts asynchronously. Yield briefly, assert playback,
+    // then stop so this packaging check never leaves a sound playing.
+    RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    guard player.isPlaying else {
+        fputs("airplane singing audio output could not start\n", stderr)
+        exit(1)
+    }
+    player.stop()
+    print("airplane-singing-self-test: double-click=pass hover-leave=stop renderer-drag=disabled pet-stability=pass audio=27.53s-loop=pass")
+    exit(0)
+}
+
 private func renderQuotaLightstickPreviewOnce(
     to outputPath: String,
     remainingPercent: Int,
@@ -6417,6 +6570,10 @@ if CommandLine.arguments.contains("--self-test-skin-selection") {
 
 if CommandLine.arguments.contains("--self-test-quota-lightstick") {
     runQuotaLightstickSelfTest()
+}
+
+if CommandLine.arguments.contains("--self-test-airplane-singing") {
+    runAirplaneSingingSelfTest()
 }
 
 if CommandLine.arguments.contains("--self-test-runtime-geometry") {

@@ -1466,6 +1466,48 @@ $script:QuotaLightstickDisplayedRemaining = 0.0
 $script:QuotaLightstickMode = "chair"
 $script:RewindTicketStartedAt = $null
 $script:AirplaneUsesFlightMaterial = $false
+$script:SingingAudioPath = Join-Path $PSScriptRoot "Assets\Audio\bubu-left-drag-song.mp3"
+$script:SingingAudioPlayer = $null
+$script:SingingAudioActive = $false
+
+function Start-SingingAudio {
+    # Only the Ultimate package ships this local MP3.  Other Orange Bubu
+    # packages preserve their existing silent visual action unchanged.
+    if (-not (Test-Path -LiteralPath $script:SingingAudioPath -PathType Leaf)) { return }
+    try {
+        if (-not $script:SingingAudioPlayer) {
+            $script:SingingAudioPlayer = [Windows.Media.MediaPlayer]::new()
+            $script:SingingAudioPlayer.Volume = 0.78
+            $script:SingingAudioPlayer.add_MediaEnded({
+                if ($script:SingingAudioActive) {
+                    $script:SingingAudioPlayer.Position = [TimeSpan]::Zero
+                    $script:SingingAudioPlayer.Play()
+                }
+            })
+        }
+        $script:SingingAudioActive = $true
+        $script:SingingAudioPlayer.Stop()
+        $script:SingingAudioPlayer.Open([Uri]::new($script:SingingAudioPath, [UriKind]::Absolute))
+        $script:SingingAudioPlayer.Play()
+        Write-PanelLog "SINGING audio=start"
+    } catch {
+        $script:SingingAudioActive = $false
+        Write-PanelLog ("SINGING audio failed=" + $_.Exception.Message)
+    }
+}
+
+function Stop-SingingAudio {
+    if (-not $script:SingingAudioActive -and -not $script:SingingAudioPlayer) { return }
+    $script:SingingAudioActive = $false
+    try {
+        if ($script:SingingAudioPlayer) {
+            $script:SingingAudioPlayer.Stop()
+            $script:SingingAudioPlayer.Position = [TimeSpan]::Zero
+        }
+    } catch {
+        Write-PanelLog ("SINGING audio stop failed=" + $_.Exception.Message)
+    }
+}
 
 function Set-AirplaneFlightMaterial([bool]$enabled) {
     if ($script:AirplaneUsesFlightMaterial -eq $enabled) { return }
@@ -4453,6 +4495,7 @@ function Update-PetDoubleClickToggle {
         if ($script:LeftMouseWasDown -and $script:PetDragStartPoint) {
             $script:QuotaLightstickMode = "chair"
             $script:RewindTicketStartedAt = $null
+            Stop-SingingAudio
         }
         $script:LeftMouseWasDown = $false
         $script:PetDragStartPoint = $null
@@ -4475,6 +4518,11 @@ function Update-PetDoubleClickToggle {
                     [DateTime]::UtcNow
                 } else {
                     $null
+                }
+                if ($nextMode -eq "live") {
+                    Start-SingingAudio
+                } else {
+                    Stop-SingingAudio
                 }
                 Write-PanelLog ("INTERACTION lightstick-mode=" + $nextMode)
             }
@@ -5109,6 +5157,10 @@ $script:VocabularyProjection.ExampleToggleButton.Add_Click({
 $script:Window.Add_IsVisibleChanged({ Update-TaskBadgeAnimationState })
 $script:Window.Add_Closed({
     $script:LastPositionMode = "closed"
+    Stop-SingingAudio
+    if ($script:SingingAudioPlayer) {
+        try { $script:SingingAudioPlayer.Close() } catch {}
+    }
     if ($script:QuotaLightstickWindow -and $script:QuotaLightstickWindow.IsVisible) {
         $script:QuotaLightstickWindow.Close()
     }
