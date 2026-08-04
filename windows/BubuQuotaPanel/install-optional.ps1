@@ -70,7 +70,16 @@ try {
 
     $rootPath = [IO.Path]::GetFullPath($Root)
     $panelSource = Join-Path $rootPath "windows"
-    $installDirectory = Join-Path $env:LOCALAPPDATA "OrangeBubuPet"
+    $isUltimatePackage = Test-Path -LiteralPath (Join-Path $rootPath "ULTIMATE.txt") -PathType Leaf
+    $installDirectory = Join-Path $env:LOCALAPPDATA $(if ($isUltimatePackage) {
+        "OrangeBubuUltimate"
+    } else {
+        "OrangeBubuPet"
+    })
+    $runValueName = if ($isUltimatePackage) { "OrangeBubuUltimatePanel" } else { "OrangeBubuQuotaPanel" }
+    $startupFileName = $runValueName + ".cmd"
+    $legacyRunValueName = "OrangeBubuQuotaPanel"
+    $legacyStartupFileName = "OrangeBubuQuotaPanel.cmd"
     $vocabularySource = @(
         (Join-Path $rootPath "pet\bubu-orange\vocabulary-web3-3000.json"),
         (Join-Path $rootPath "shared\pet\bubu-orange\vocabulary-web3-3000.json")
@@ -80,10 +89,14 @@ try {
     $codexOnlySource = Join-Path $rootPath "CODEX-ONLY.txt"
     $marketPricesEnabled = -not (Test-Path -LiteralPath $codexOnlySource)
     $expectedPanelHeight = if ($marketPricesEnabled) { 75 } else { 53 }
+    # This is the panel runtime build number, distinct from the Ultimate
+    # package's release number.  Comparing it to the package number made a
+    # healthy panel appear as a failed installation.
+    $expectedPanelVersion = "37"
     $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
     $configPath = Join-Path $codexHome "config.toml"
 
-    foreach ($required in @("BubuQuotaPanel.ps1", "StartBubuPanel.vbs", "StartBubuPanel.cmd", "quota-panel-background.png", "task-running-icon.png", "task-running-badge.gif", "task-waiting-icon.png", "task-completed-icon.png", "task-failed-icon.png", "Assets\Lightstick\lightstick-unlit.png", "Assets\Airplane\quota-airplane-material.png")) {
+    foreach ($required in @("BubuQuotaPanel.ps1", "StartBubuPanel.cmd", "quota-panel-background.png", "task-running-icon.png", "task-running-badge.gif", "task-waiting-icon.png", "task-completed-icon.png", "task-failed-icon.png", "Assets\Lightstick\lightstick-unlit.png", "Assets\Airplane\quota-airplane-material.png")) {
         if (-not (Test-Path -LiteralPath (Join-Path $panelSource $required))) {
             throw "Missing optional panel file: $required"
         }
@@ -106,7 +119,10 @@ try {
 
     try {
         Get-CimInstance Win32_Process -ErrorAction Stop |
-            Where-Object { $_.CommandLine -like "*OrangeBubuPet*BubuQuotaPanel.ps1*" } |
+            Where-Object {
+                $_.CommandLine -and $_.CommandLine -match
+                    '(?i)OrangeBubu(?:Pet|Ultimate).*BubuQuotaPanel\.ps1'
+            } |
             ForEach-Object {
                 Invoke-CimMethod -InputObject $_ -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null
             }
@@ -116,8 +132,16 @@ try {
 
     New-Item -ItemType Directory -Force -Path $installDirectory | Out-Null
     Copy-Item -LiteralPath (Join-Path $panelSource "BubuQuotaPanel.ps1") -Destination $installDirectory -Force
-    Copy-Item -LiteralPath (Join-Path $panelSource "StartBubuPanel.vbs") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "StartBubuPanel.cmd") -Destination $installDirectory -Force
+    # Old packages installed a VBS trampoline here.  Remove it during every
+    # upgrade so a stale Run entry can never raise a Windows Script Host error.
+    Remove-Item -LiteralPath (Join-Path $installDirectory "StartBubuPanel.vbs") -Force -ErrorAction SilentlyContinue
+    $installedUltimateMarker = Join-Path $installDirectory "ULTIMATE.txt"
+    if ($isUltimatePackage) {
+        Copy-Item -LiteralPath (Join-Path $rootPath "ULTIMATE.txt") -Destination $installedUltimateMarker -Force
+    } else {
+        Remove-Item -LiteralPath $installedUltimateMarker -Force -ErrorAction SilentlyContinue
+    }
     Copy-Item -LiteralPath (Join-Path $panelSource "quota-panel-background.png") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "task-completed-icon.png") -Destination $installDirectory -Force
     Copy-Item -LiteralPath (Join-Path $panelSource "task-running-icon.png") -Destination $installDirectory -Force
@@ -152,15 +176,27 @@ try {
         Write-Warning "Bubu was installed, but could not be selected automatically. Select it manually in the pet picker."
     }
 
-    $launcher = Join-Path $installDirectory "StartBubuPanel.vbs"
-    $wscript = Join-Path $env:SystemRoot "System32\wscript.exe"
+    $panelScript = Join-Path $installDirectory "BubuQuotaPanel.ps1"
+    $powerShell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+    if (-not (Test-Path -LiteralPath $powerShell -PathType Leaf)) {
+        $powerShell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\PowerShell.exe"
+    }
+    if (-not (Test-Path -LiteralPath $powerShell -PathType Leaf)) {
+        throw "Windows PowerShell executable was not found."
+    }
+    $powerShellArguments = '-NoLogo -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $panelScript + '"'
     $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-    $runCommand = '"' + $wscript + '" "' + $launcher + '"'
+    $runCommand = '"' + $powerShell + '" ' + $powerShellArguments
 
     $startupConfigured = $false
     try {
         New-Item -Path $runKey -Force | Out-Null
-        New-ItemProperty -Path $runKey -Name "OrangeBubuQuotaPanel" -Value $runCommand -PropertyType String -Force | Out-Null
+        if ($isUltimatePackage) {
+            # The old common value launches the VBS-based runtime.  Retire it
+            # before installing the Ultimate-only, PowerShell-native launcher.
+            Remove-ItemProperty -Path $runKey -Name $legacyRunValueName -ErrorAction SilentlyContinue
+        }
+        New-ItemProperty -Path $runKey -Name $runValueName -Value $runCommand -PropertyType String -Force | Out-Null
         $startupConfigured = $true
     } catch {
         Write-Warning "Registry startup is blocked; trying the Startup folder fallback."
@@ -169,20 +205,29 @@ try {
     $legacyShortcut = Join-Path ([Environment]::GetFolderPath("Startup")) "橙色卜卜额度面板.lnk"
     Remove-Item -LiteralPath $legacyShortcut -Force -ErrorAction SilentlyContinue
     $startupDirectory = [Environment]::GetFolderPath("Startup")
-    $startupCommand = Join-Path $startupDirectory "OrangeBubuQuotaPanel.cmd"
-    try {
-        New-Item -ItemType Directory -Force -Path $startupDirectory | Out-Null
-        Copy-Item -LiteralPath (Join-Path $panelSource "StartBubuPanel.cmd") -Destination $startupCommand -Force
-        $startupConfigured = $true
-    } catch {
-        Write-Warning "Startup-folder fallback is blocked."
+    if ($isUltimatePackage) {
+        Remove-Item -LiteralPath (Join-Path $startupDirectory $legacyStartupFileName) -Force -ErrorAction SilentlyContinue
+    }
+    $startupCommand = Join-Path $startupDirectory $startupFileName
+    Remove-Item -LiteralPath $startupCommand -Force -ErrorAction SilentlyContinue
+    if (-not $startupConfigured) {
+        try {
+            New-Item -ItemType Directory -Force -Path $startupDirectory | Out-Null
+            $startupContent = '@echo off' + "`r`n" +
+                'start "" /b "' + $powerShell + '" ' + $powerShellArguments + "`r`n" +
+                'exit /b 0' + "`r`n"
+            Write-Utf8NoBom $startupCommand $startupContent
+            $startupConfigured = $true
+        } catch {
+            Write-Warning "Startup-folder fallback is blocked."
+        }
     }
     if (-not $startupConfigured) {
         Write-Warning "Automatic startup could not be configured. Use the package's panel repair command after signing in."
     }
 
     Remove-Item -LiteralPath $oldHealthPath -Force -ErrorAction SilentlyContinue
-    Start-Process -FilePath $wscript -ArgumentList ('"' + $launcher + '"')
+    Start-Process -FilePath $powerShell -ArgumentList $powerShellArguments -WindowStyle Hidden
 
     $panelStarted = $false
     $healthySamples = 0
@@ -193,7 +238,7 @@ try {
                 $health = [IO.File]::ReadAllText($oldHealthPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
                 $healthProcess = Get-Process -Id ([int]$health.processId) -ErrorAction SilentlyContinue
                 $healthAge = [DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($oldHealthPath)
-                if ($health.version -eq "31" -and
+                if ($health.version -eq $expectedPanelVersion -and
                     [bool]$health.marketPricesEnabled -eq $marketPricesEnabled -and
                     [int]$health.panelHeightPoints -eq $expectedPanelHeight -and
                     $healthProcess -and

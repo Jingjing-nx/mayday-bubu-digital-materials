@@ -28,6 +28,8 @@
   <true/>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSAccessibilityUsageDescription</key>
+  <string>用于在橙色卜卜上显示统一的右键菜单，并避免与 Codex 的原生菜单重叠。</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
 </dict>

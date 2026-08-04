@@ -108,6 +108,13 @@ stage_package() {
     fi
   done
 
+  # The installer verifies the cache-busting atlas filename. Rewrite the
+  # generated package command files so Ultimate v31 never tries to load v29.
+  local command_file
+  for command_file in "$stage"/*.cmd(N); do
+    /usr/bin/sed -i '' "s/spritesheet-win-29\.webp/$ATLAS_NAME/g" "$command_file"
+  done
+
   (
     cd "$stage"
     export LC_ALL=C

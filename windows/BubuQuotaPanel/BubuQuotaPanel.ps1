@@ -13,6 +13,12 @@ $ErrorActionPreference = "Stop"
 
 $script:PanelVersion = "37"
 $script:PanelLogPath = Join-Path $PSScriptRoot "panel.log"
+$script:IsUltimateEdition = Test-Path -LiteralPath (Join-Path $PSScriptRoot "ULTIMATE.txt")
+$script:PanelInstanceName = if ($script:IsUltimateEdition) {
+    "OrangeBubuUltimatePanel"
+} else {
+    "OrangeBubuQuotaPanel"
+}
 $script:CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $script:MarketPricesEnabled = $true
 $marketSetting = [string]$env:BUBU_SHOW_MARKET_PRICES
@@ -246,7 +252,9 @@ trap {
     exit 1
 }
 
-Write-PanelLog ("START version=" + $script:PanelVersion + " powershell=" + $PSVersionTable.PSVersion)
+Write-PanelLog ("START version=" + $script:PanelVersion + " edition=" +
+    $(if ($script:IsUltimateEdition) { "ultimate" } else { "standard" }) +
+    " powershell=" + $PSVersionTable.PSVersion)
 
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
@@ -257,7 +265,7 @@ Add-Type -AssemblyName System.Drawing
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $createdNew = $false
-$script:instanceMutex = [Threading.Mutex]::new($true, "Local\OrangeBubuQuotaPanel", [ref]$createdNew)
+$script:instanceMutex = [Threading.Mutex]::new($true, "Local\" + $script:PanelInstanceName, [ref]$createdNew)
 if (-not $createdNew) {
     exit 0
 }
@@ -4160,79 +4168,6 @@ function Show-PanelAtHeuristicWindow($petWindow) {
     return $true
 }
 
-function Show-PanelAtSavedState($bounds, $geometry) {
-    $panelScale = Limit-PanelScale ([double]$geometry.Width / $script:CanonicalPetWidth)
-    [void](Set-PanelScale $panelScale)
-    $lightstickScale = Set-QuotaLightstickScale (
-        $panelScale * $script:QuotaLightstickPetRenderScaleFactor
-    )
-    $visualCenterX = [double]$bounds.x + $geometry.Left + $geometry.Width / 2.0
-    $visualTop = [double]$bounds.y + $geometry.Top
-    $vocabularyAnchor = [PSCustomObject]@{ CenterX = $visualCenterX; Top = $visualTop }
-    $rewindProgress = Get-RewindTicketProgress
-    if ($script:QuotaLightstickMode -ne "chair") {
-        if ($script:QuotaLightstickWindow.IsVisible) {
-            $script:QuotaLightstickWindow.Hide()
-        }
-    } else {
-        $originX = $script:QuotaLightstickOriginXFromOverlayCenter
-        Set-LightstickVisualSide $script:PrimaryLightstick $false
-        $script:QuotaLightstickRotation.Angle = $script:QuotaLightstickChairTilt
-        $stickLeft = $visualCenterX + $originX * $lightstickScale
-        $stickTop = $visualTop +
-            $script:QuotaLightstickTopFromOverlayTop * $lightstickScale
-        $script:QuotaLightstickWindow.Left = [Math]::Round($stickLeft)
-        $script:QuotaLightstickWindow.Top = [Math]::Round($stickTop)
-        if (-not $script:QuotaLightstickWindow.IsVisible) {
-            $script:QuotaLightstickWindow.Show()
-        }
-    }
-    if ($script:SecondaryQuotaLightstickWindow.IsVisible) {
-        $script:SecondaryQuotaLightstickWindow.Hide()
-    }
-    if ($script:QuotaLightstickMode -eq "chair" -or $null -ne $rewindProgress) {
-        Set-AirplaneFlightMaterial ($null -ne $rewindProgress)
-        $airplaneOriginX = if ($null -ne $rewindProgress) {
-            Get-RewindTicketOriginX $rewindProgress
-        } else {
-            $script:QuotaAirplaneOriginXFromOverlayCenter
-        }
-        $script:QuotaAirplaneWindow.Left = [Math]::Round(
-            $visualCenterX + $airplaneOriginX * $lightstickScale
-        )
-        $script:QuotaAirplaneWindow.Top = [Math]::Round(
-            $visualTop +
-            $script:QuotaAirplaneTopFromOverlayTop * $lightstickScale
-        )
-        if (-not $script:QuotaAirplaneWindow.IsVisible) {
-            $script:QuotaAirplaneWindow.Show()
-        }
-    } elseif ($script:QuotaAirplaneWindow.IsVisible) {
-        $script:QuotaAirplaneWindow.Hide()
-    }
-    Update-VocabularyProjectionAtPet $vocabularyAnchor $null $panelScale 96.0 $null
-    if ($script:IsPanelHiddenByUser) { return }
-    $left = $visualCenterX - $script:Window.Width / 2.0
-    $top = $visualTop - $script:PanelPetGap - (
-        $script:Window.Height - $script:PointerTipBottomInset * $panelScale
-    )
-
-    if ($bounds.displayBounds) {
-        $display = $bounds.displayBounds
-        $left = [Math]::Max([double]$display.x + 8,
-            [Math]::Min([double]$display.x + [double]$display.width - $script:Window.Width - 8, $left))
-    }
-
-    $script:Window.Left = [Math]::Round($left)
-    $script:Window.Top = [Math]::Round($top)
-    if (-not $script:Window.IsVisible) { $script:Window.Show() }
-    $panelWindow = [BubuPanel.NativeWindows]::GetWindow($script:WindowHandle)
-    if ($panelWindow) {
-        Set-PanelPointer ($panelWindow.Width / 2.0) $panelWindow.Width
-    }
-    Set-PositionMode "saved-state-fallback"
-}
-
 function Update-NativeTrackingAlignment($petWindow, $bounds, $geometry, [bool]$force) {
     if (-not $petWindow -or -not $bounds -or -not $geometry) {
         $script:TrackingAlignmentX = 0.0
@@ -4345,9 +4280,24 @@ function Test-PetIsMoving {
     return ([DateTime]::UtcNow - $script:LastPetMotionAt).TotalMilliseconds -lt 280
 }
 
+function Test-LiveCodexAttachment([int]$codexProcessCount, [bool]$hasLivePetWindow) {
+    # Persisted overlay bounds remain on disk after Codex quits. They can only
+    # calibrate a *live* native overlay and must never independently make a
+    # detached panel visible on login.
+    return $codexProcessCount -gt 0 -and $hasLivePetWindow
+}
+
 function Update-PetTarget {
     Refresh-OverlayState
     Refresh-ChatProcesses
+
+    if ($script:ChatProcessIds.Count -eq 0) {
+        Clear-NativeTrackingTarget
+        Hide-PanelWindow
+        Hide-QuotaLightstickWindow
+        Set-PositionMode "waiting-for-codex"
+        return
+    }
 
     if (-not $script:OverlayState) {
         $heuristicWindow = Find-PetWindowHeuristic
@@ -4392,12 +4342,13 @@ function Update-PetTarget {
         return
     }
 
-    # Saved-state coordinates are intentionally a slow startup fallback. Mixing
-    # one saved-state frame into active native tracking makes the collapsed
-    # button visibly jump between Bubu and a screen edge.
+    # The JSON state survives after Codex quits and can lag a display change.
+    # Never draw companions from it alone: wait for a real native pet window.
     if (Test-NativeTrackingGrace) { return }
     Clear-NativeTrackingTarget
-    Show-PanelAtSavedState $bounds $geometry
+    Hide-PanelWindow
+    Hide-QuotaLightstickWindow
+    Set-PositionMode "waiting-for-live-pet"
 }
 
 function Update-PetPosition {
@@ -5073,8 +5024,11 @@ if ($ValidateTrackingFilters) {
         -not (Test-PointInsidePetRect $outsidePetClick $petHitRect) -and
         (Test-PetDoubleClickGesture $firstPetClick $secondPetClick 300 500 $doubleClickMovement) -and
         -not (Test-PetDoubleClickGesture $firstPetClick $secondPetClick 501 500 $doubleClickMovement)
+    $startupGuardValid = -not (Test-LiveCodexAttachment 0 $true) -and
+        -not (Test-LiveCodexAttachment 1 $false) -and
+        (Test-LiveCodexAttachment 1 $true)
     if (-not $petAccepted -or -not $imeRejected -or -not $imeClassRejected -or
-        -not $noActivateApplied -or -not $doubleClickValid) {
+        -not $noActivateApplied -or -not $doubleClickValid -or -not $startupGuardValid) {
         throw "Pet-window tracking filters failed validation."
     }
     Write-Output ("tracking-filter-validation: pet=True ime-size=True ime-class=True " +
@@ -5085,7 +5039,8 @@ if ($ValidateTrackingFilters) {
         " visual-metrics-guard=" + $visualMetricsGuardSamples +
         " layout-scale-matrix=" + $layoutScaleSamples +
         " state-aware-selection=True center-calibration=True drag-center=True" +
-        " anchor-monitor=True flicker-grace=True scale-stability=True pet-double-click=True")
+        " anchor-monitor=True flicker-grace=True scale-stability=True pet-double-click=True" +
+        " live-codex-only=True")
     $script:Window.Close()
     exit 0
 }

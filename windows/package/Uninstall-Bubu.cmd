@@ -13,6 +13,13 @@ if defined CODEX_HOME (
 )
 set "ORANGE_PET_DEST=%CODEX_DIR%\pets\bubu-orange"
 set "PANEL_DEST=%LOCALAPPDATA%\OrangeBubuPet"
+set "RUN_VALUE=OrangeBubuQuotaPanel"
+set "STARTUP_FILE=OrangeBubuQuotaPanel.cmd"
+if exist "%ROOT%\ULTIMATE.txt" (
+  set "PANEL_DEST=%LOCALAPPDATA%\OrangeBubuUltimate"
+  set "RUN_VALUE=OrangeBubuUltimatePanel"
+  set "STARTUP_FILE=OrangeBubuUltimatePanel.cmd"
+)
 
 >"%LOG%" echo Bubu Windows uninstaller
 >>"%LOG%" echo Started: %DATE% %TIME%
@@ -22,8 +29,8 @@ if not errorlevel 1 if exist "%ROOT%\windows\uninstall-optional.ps1" (
   powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\windows\uninstall-optional.ps1" >>"%LOG%" 2>&1
 )
 
-reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v OrangeBubuQuotaPanel /f >>"%LOG%" 2>&1
-del /F /Q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\OrangeBubuQuotaPanel.cmd" >>"%LOG%" 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "%RUN_VALUE%" /f >>"%LOG%" 2>&1
+del /F /Q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\%STARTUP_FILE%" >>"%LOG%" 2>&1
 if exist "%PANEL_DEST%" rmdir /S /Q "%PANEL_DEST%" >>"%LOG%" 2>&1
 if exist "%ORANGE_PET_DEST%" rmdir /S /Q "%ORANGE_PET_DEST%" >>"%LOG%" 2>&1
 

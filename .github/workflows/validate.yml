@@ -38,7 +38,6 @@ jobs:
           "$BIN" --self-test-skin-selection | grep 'project=orange orange=pass'
           "$BIN" --self-test-runtime-geometry | grep 'panel=224x75 gap=14.*uniform-2x=pass'
           "$BIN" --self-test-quota-lightstick | grep 'rewind-no-lightsticks=pass.*chairside-live-no-external-accessories=pass'
-          "$BIN" --self-test-airplane-singing | grep 'double-click=pass hover-leave=stop renderer-drag=disabled pet-stability=pass audio=27.53s-loop=pass'
           "$BIN" --self-test-vocabulary | grep 'library=pass.*remember=pass.*later=pass.*daily-limit=pass.*mastery-summary=pass.*laptop-hit=pass.*projection-anchor=pass.*edge-fallback=pass'
           "$BIN" --render-vocabulary-preview /tmp/orange-bubu-vocabulary.png
           test -s /tmp/orange-bubu-vocabulary.png
@@ -129,7 +128,7 @@ jobs:
           $geometry = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateRuntimeGeometry
           if ($LASTEXITCODE -ne 0 -or $geometry -notmatch 'panel=224x75 gap=14.*uniform-2x=pass') { throw "Geometry validation failed: $geometry" }
           $tracking = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateTrackingFilters
-          if ($LASTEXITCODE -ne 0 -or $tracking -notmatch 'visual-metrics-guard=13.*state-aware-selection=True center-calibration=True drag-center=True.*scale-stability=True pet-double-click=True') { throw "Tracking validation failed: $tracking" }
+          if ($LASTEXITCODE -ne 0 -or $tracking -notmatch 'visual-metrics-guard=13.*state-aware-selection=True center-calibration=True drag-center=True.*scale-stability=True pet-double-click=True live-codex-only=True') { throw "Tracking validation failed: $tracking" }
           $tasks = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateTaskProgress
           if ($LASTEXITCODE -ne 0 -or $tasks -notmatch 'completed-unread=pass.*list=5-truncated.*running-gif=12x100ms') { throw "Task validation failed: $tasks" }
           $skin = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $panel -ValidateSkinSelection
@@ -181,6 +180,25 @@ jobs:
             Where-Object { Test-Path (Join-Path $_.FullName 'WEB3-VOCABULARY.txt') })
           if ($vocabularyStage.Count -ne 1) { throw 'Expected exactly one vocabulary package root' }
           if (-not (Test-Path (Join-Path $vocabularyStage[0].FullName 'pet\bubu-orange\vocabulary-web3-3000.json'))) { throw 'Vocabulary library missing' }
+          .\scripts\build-windows-release.ps1 -UltimateRelease
+          $ultimateZip = 'dist\Orange-Bubu-Ultimate-Windows-10-11-31.zip'
+          if (-not (Test-Path $ultimateZip)) { throw 'Ultimate Windows ZIP missing' }
+          $ultimateExtractRoot = Join-Path $env:RUNNER_TEMP 'orange-bubu-ultimate'
+          Expand-Archive -LiteralPath $ultimateZip -DestinationPath $ultimateExtractRoot -Force
+          $ultimateStage = @(Get-ChildItem -LiteralPath $ultimateExtractRoot -Directory |
+            Where-Object { Test-Path (Join-Path $_.FullName 'ULTIMATE.txt') })
+          if ($ultimateStage.Count -ne 1) { throw 'Expected exactly one Ultimate package root' }
+          $ultimateStage = $ultimateStage[0].FullName
+          $ultimateWindows = Join-Path $ultimateStage 'windows'
+          if (Test-Path (Join-Path $ultimateWindows 'StartBubuPanel.vbs')) { throw 'Ultimate package must not contain a VBS launcher' }
+          $ultimateLauncher = [IO.File]::ReadAllText((Join-Path $ultimateWindows 'StartBubuPanel.cmd'), [Text.Encoding]::ASCII)
+          if ($ultimateLauncher -match '(?i)wscript\.exe|StartBubuPanel\.vbs') { throw 'Ultimate launcher still uses the VBS startup chain' }
+          $ultimateInstaller = [IO.File]::ReadAllText((Join-Path $ultimateWindows 'install-optional.ps1'), [Text.Encoding]::UTF8)
+          if ($ultimateInstaller -notmatch 'OrangeBubuUltimatePanel|OrangeBubuUltimate') { throw 'Ultimate runtime isolation is missing' }
+          if ($ultimateInstaller -notmatch 'expectedPanelVersion = "37"') { throw 'Ultimate health check does not match the panel runtime' }
+          if (-not (Test-Path (Join-Path $ultimateStage 'pet\bubu-orange\spritesheet-win-31.webp'))) { throw 'Ultimate v31 atlas missing' }
+          $ultimateInstallCommand = [IO.File]::ReadAllText((Join-Path $ultimateStage 'Install-Bubu.cmd'), [Text.Encoding]::UTF8)
+          if ($ultimateInstallCommand -notmatch 'spritesheet-win-31\.webp') { throw 'Ultimate installer atlas version mismatch' }
           Remove-Item Env:CODEX_HOME
           Remove-Item Env:BUBU_INSTALL_NONINTERACTIVE
       - uses: actions/upload-artifact@v4

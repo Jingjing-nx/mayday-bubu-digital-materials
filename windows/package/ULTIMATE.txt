@@ -8,3 +8,7 @@
 - 保留 Codex 额度、任务进度与 BTC 行情。
 
 音乐和单词学习数据均在本机运行、保存；不上传个人学习记录。
+
+Windows 终极版使用独立运行目录 `%LOCALAPPDATA%\OrangeBubuUltimate` 和
+启动项 `OrangeBubuUltimatePanel`。后续 Windows 修复仅维护此终极版，不影响
+其它橙色卜卜发布包。

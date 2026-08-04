@@ -41,7 +41,13 @@ Add-Report ("Version: " + $PSVersionTable.PSVersion)
 Add-Report ("LanguageMode: " + $ExecutionContext.SessionState.LanguageMode)
 Add-Report ("ExecutionPolicy: " + (Get-ExecutionPolicy -List | Out-String).Trim())
 
-$installDirectory = Join-Path $env:LOCALAPPDATA "OrangeBubuPet"
+$isUltimatePackage = Test-Path -LiteralPath (Join-Path $Root "ULTIMATE.txt") -PathType Leaf
+$installDirectory = Join-Path $env:LOCALAPPDATA $(if ($isUltimatePackage) {
+    "OrangeBubuUltimate"
+} else {
+    "OrangeBubuPet"
+})
+$runValueName = if ($isUltimatePackage) { "OrangeBubuUltimatePanel" } else { "OrangeBubuQuotaPanel" }
 $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $statePath = Join-Path $codexHome ".codex-global-state.json"
 $statePaths = @(
@@ -55,7 +61,8 @@ $statePaths = @(
 
 Add-Report ""
 Add-Report "=== Installed panel ==="
-foreach ($name in @("BubuQuotaPanel.ps1", "StartBubuPanel.vbs", "StartBubuPanel.cmd", "quota-panel-background.png", "task-running-icon.png", "task-running-badge.gif", "task-waiting-icon.png", "task-completed-icon.png", "task-failed-icon.png")) {
+Add-Report ("Edition: " + $(if ($isUltimatePackage) { "ULTIMATE" } else { "STANDARD" }))
+foreach ($name in @("BubuQuotaPanel.ps1", "StartBubuPanel.cmd", "quota-panel-background.png", "task-running-icon.png", "task-running-badge.gif", "task-waiting-icon.png", "task-completed-icon.png", "task-failed-icon.png")) {
     $path = Join-Path $installDirectory $name
     Add-Report ($name + ": " + $(if (Test-Path -LiteralPath $path) { "OK" } else { "MISSING" }))
 }
@@ -64,9 +71,9 @@ Add-Report ("Panel variant: " + $(if (Test-Path -LiteralPath $codexOnlyMarker) {
 
 Add-Report ""
 Add-Report "=== Startup ==="
-$runValue = (Get-ItemProperty -LiteralPath "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "OrangeBubuQuotaPanel").OrangeBubuQuotaPanel
+$runValue = (Get-ItemProperty -LiteralPath "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name $runValueName).$runValueName
 Add-Report ("Registry Run: " + $(if ($runValue) { "CONFIGURED" } else { "MISSING" }))
-$startupCommand = Join-Path ([Environment]::GetFolderPath("Startup")) "OrangeBubuQuotaPanel.cmd"
+$startupCommand = Join-Path ([Environment]::GetFolderPath("Startup")) ($runValueName + ".cmd")
 Add-Report ("Startup folder command: " + $(if (Test-Path -LiteralPath $startupCommand) { "OK" } else { "MISSING" }))
 
 Add-Report ""

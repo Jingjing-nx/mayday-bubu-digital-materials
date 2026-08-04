@@ -284,9 +284,12 @@ private final class PetSelectionStore {
     }
 
     func selectedSkin() -> BubuSkin? {
-        guard let text = try? String(contentsOf: configURL, encoding: .utf8) else {
-            return nil
-        }
+        guard let avatarID = selectedAvatarID() else { return nil }
+        return BubuSkin.allCases.first { $0.avatarID == avatarID }
+    }
+
+    func selectedAvatarID() -> String? {
+        guard let text = try? String(contentsOf: configURL, encoding: .utf8) else { return nil }
         var section = ""
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
@@ -299,8 +302,7 @@ private final class PetSelectionStore {
             else { continue }
             let remainder = line[line.index(after: quoteStart)...]
             guard let quoteEnd = remainder.firstIndex(of: "\"") else { continue }
-            let avatarID = String(remainder[..<quoteEnd])
-            return BubuSkin.allCases.first { $0.avatarID == avatarID }
+            return String(remainder[..<quoteEnd])
         }
         return nil
     }
@@ -322,8 +324,24 @@ private final class PetSelectionStore {
         }
     }
 
-    static func updatingDesktopSelection(in text: String, avatarID: String) -> String {
-        let selectionLine = "selected-avatar-id = \"\(avatarID)\""
+    /// Mirrors Codex's native “关闭宠物” action by removing only the desktop
+    /// avatar selection. It never touches another project setting.
+    @discardableResult
+    func clearSelection(for skin: BubuSkin) -> Bool {
+        guard selectedAvatarID() == skin.avatarID else { return false }
+        do {
+            let original = try String(contentsOf: configURL, encoding: .utf8)
+            let updated = Self.updatingDesktopSelection(in: original, avatarID: nil)
+            guard let data = updated.data(using: .utf8) else { return false }
+            try data.write(to: configURL, options: .atomic)
+            return selectedAvatarID() == nil
+        } catch {
+            return false
+        }
+    }
+
+    static func updatingDesktopSelection(in text: String, avatarID: String?) -> String {
+        let selectionLine = avatarID.map { "selected-avatar-id = \"\($0)\"" }
         let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
         var lines = normalized.components(separatedBy: "\n")
         if lines.last == "" { lines.removeLast() }
@@ -334,7 +352,9 @@ private final class PetSelectionStore {
         var desktopSelectionWritten = false
 
         func appendDesktopSelectionIfNeeded() {
-            guard section == "desktop", !desktopSelectionWritten else { return }
+            guard section == "desktop", !desktopSelectionWritten,
+                  let selectionLine
+            else { return }
             output.append(selectionLine)
             desktopSelectionWritten = true
         }
@@ -353,7 +373,9 @@ private final class PetSelectionStore {
             }
 
             if (section.isEmpty || section == "desktop"), isSelectedAvatarLine(trimmed) {
-                if section == "desktop", !desktopSelectionWritten {
+                if section == "desktop", !desktopSelectionWritten,
+                   let selectionLine
+                {
                     output.append(selectionLine)
                     desktopSelectionWritten = true
                 }
@@ -363,7 +385,7 @@ private final class PetSelectionStore {
         }
 
         appendDesktopSelectionIfNeeded()
-        if !desktopSeen {
+        if !desktopSeen, let selectionLine {
             if let last = output.last, !last.trimmingCharacters(in: .whitespaces).isEmpty {
                 output.append("")
             }
@@ -499,9 +521,9 @@ private func shouldTogglePanelForPetDoubleClick(
     clickCount == 2 && petVisibleRect.contains(clickLocation)
 }
 
-/// The laptop is the only hover target. Keeping this sub-rect distinct from
-/// the rest of Bubu's body prevents a single or double click on the learning
-/// surface from starting a drag or toggling the quota panel.
+/// Keep the laptop input region distinct from Bubu's body so clicks on the
+/// learning surface never start a drag or toggle the quota panel. Vocabulary
+/// itself is opened exclusively from the right-click menu.
 private func vocabularyLaptopHoverRect(for petVisibleRect: NSRect) -> NSRect {
     NSRect(
         x: petVisibleRect.minX + petVisibleRect.width * 0.27,
@@ -1675,10 +1697,6 @@ private struct QuotaAirplaneAssets {
 }
 
 private final class QuotaAirplaneView: NSView {
-    var onDoubleClick: (() -> Void)?
-    var onPointerExit: (() -> Void)?
-    private var pointerTrackingArea: NSTrackingArea?
-
     var isFlying = false {
         didSet {
             guard isFlying != oldValue else { return }
@@ -1709,32 +1727,6 @@ private final class QuotaAirplaneView: NSView {
     deinit { animationTimer?.invalidate() }
 
     override var isFlipped: Bool { false }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func updateTrackingAreas() {
-        if let pointerTrackingArea {
-            removeTrackingArea(pointerTrackingArea)
-        }
-        let trackingArea = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(trackingArea)
-        pointerTrackingArea = trackingArea
-        super.updateTrackingAreas()
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        guard event.clickCount == 2, !isFlying else { return }
-        onDoubleClick?()
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        onPointerExit?()
-    }
 
     private func animateRemainingPercent(to target: CGFloat) {
         animationTimer?.invalidate()
@@ -3340,6 +3332,24 @@ private struct LocatedPet {
     let source: String
 }
 
+private func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
+    guard let number = screen.deviceDescription[
+        NSDeviceDescriptionKey("NSScreenNumber")
+    ] as? NSNumber else { return nil }
+    return CGDirectDisplayID(number.uint32Value)
+}
+
+private func hasSameDisplayID(_ lhs: CGDirectDisplayID?, _ rhs: CGDirectDisplayID?) -> Bool {
+    guard let lhs, let rhs else {
+        return false
+    }
+    return lhs == rhs
+}
+
+private func isOnSameDisplay(_ lhs: NSScreen, _ rhs: NSScreen) -> Bool {
+    hasSameDisplayID(displayID(of: lhs), displayID(of: rhs))
+}
+
 /// A Quartz window-list read may briefly fail while Codex is applying a drag.
 /// The persisted state is intentionally asynchronous, so it can still contain
 /// the *previous* pet coordinate. Keep a fresh live anchor during that narrow
@@ -3373,11 +3383,36 @@ private struct PetAnchorCalibration {
         source.hasPrefix("window-")
     }
 
+    static func canUseSavedAnchor(_ savedAnchor: LocatedPet, with liveGeometry: LocatedPet) -> Bool {
+        // An x/y-only external-display record is already the visible pet
+        // anchor, not Electron's transparent-overlay origin. It cannot safely
+        // calibrate a live window. Likewise, a record from another display
+        // must never influence the current multi-monitor coordinate space.
+        guard acceptsLiveGeometrySource(liveGeometry.source),
+              !savedAnchor.source.contains("direct-anchor"),
+              isOnSameDisplay(savedAnchor.screen, liveGeometry.screen),
+              savedAnchor.overlayRect.width > 0,
+              savedAnchor.overlayRect.height > 0,
+              liveGeometry.overlayRect.width > 0,
+              liveGeometry.overlayRect.height > 0
+        else { return false }
+
+        let widthRatio = liveGeometry.overlayRect.width / savedAnchor.overlayRect.width
+        let heightRatio = liveGeometry.overlayRect.height / savedAnchor.overlayRect.height
+        return widthRatio.isFinite
+            && heightRatio.isFinite
+            && widthRatio >= 0.20
+            && widthRatio <= 8
+            && heightRatio >= 0.20
+            && heightRatio <= 8
+            && abs(log(widthRatio / heightRatio)) <= 0.30
+    }
+
     init?(savedAnchor: LocatedPet, liveGeometry: LocatedPet) {
         // `locate()` can legitimately fall back to the persisted pet anchor
         // during the first few launch frames. That 163x177 anchor is not the
         // Electron overlay's outer bounds and must never become a scale base.
-        guard Self.acceptsLiveGeometrySource(liveGeometry.source) else { return nil }
+        guard Self.canUseSavedAnchor(savedAnchor, with: liveGeometry) else { return nil }
         self.init(
             savedVisibleRect: savedAnchor.visibleRect,
             savedPanelScale: savedAnchor.panelScale,
@@ -3451,35 +3486,6 @@ private func locationUsingRealtimeCalibration(
         panelScale: projection.panelScale,
         screen: geometry.screen,
         source: "window-calibrated-live"
-    )
-}
-
-private func locationUsingSavedAnchor(
-    _ savedAnchor: LocatedPet,
-    geometry: LocatedPet
-) -> LocatedPet {
-    // External-display x/y persistence identifies Bubu's visible top-left,
-    // while the live Quartz window remains the reliable source for scale and
-    // accessory-window geometry. Combine the two instead of mixing their
-    // coordinate origins.
-    let hasTrustedVisualScale = geometry.source.contains("visual-probe")
-    let visibleSize = hasTrustedVisualScale
-        ? geometry.visibleRect.size
-        : savedAnchor.visibleRect.size
-    let visibleRect = NSRect(
-        x: savedAnchor.visibleRect.midX - visibleSize.width / 2,
-        y: savedAnchor.visibleRect.maxY - visibleSize.height,
-        width: visibleSize.width,
-        height: visibleSize.height
-    )
-    return LocatedPet(
-        overlayRect: geometry.overlayRect,
-        visibleRect: visibleRect,
-        panelScale: hasTrustedVisualScale ? geometry.panelScale : savedAnchor.panelScale,
-        screen: savedAnchor.screen,
-        source: hasTrustedVisualScale
-            ? "window-visual-probe+saved-anchor"
-            : savedAnchor.source
     )
 }
 
@@ -3683,7 +3689,18 @@ private final class PetWindowLocator {
             )
         }
 
-        return nil
+        // A live transparent Electron window is still a much safer anchor than
+        // a persisted x/y value after a monitor is added, removed, or moved.
+        // The centered metrics are deliberately approximate, but every Bubu
+        // companion remains attached to the real window on the real screen.
+        let fallbackMetrics = centeredFallbackMetrics(for: converted.0.size)
+        return LocatedPet(
+            overlayRect: converted.0,
+            visibleRect: visibleRect(in: converted.0, metrics: fallbackMetrics),
+            panelScale: panelScale(for: fallbackMetrics),
+            screen: converted.1,
+            source: "window-centered-live-fallback"
+        )
     }
 
     private func refreshStoredOverlayState() {
@@ -4360,28 +4377,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var btcRefreshTimer: Timer?
     private var followTimer: Timer?
     private var globalMouseMonitor: Any?
+    private var petContextMenuEventTap: CFMachPort?
+    private var petContextMenuEventSource: CFRunLoopSource?
+    private var usesPetContextMenuEventTap = false
     private var workspaceLifecycleObservers: [NSObjectProtocol] = []
     private var screenConfigurationObserver: NSObjectProtocol?
     private var petDragStart: NSPoint?
     private var fastFollowUntil: CFAbsoluteTime = 0
     private var quotaLightstickMode: QuotaLightstickMode = .chair
     private var rewindTicketStartedAt: CFAbsoluteTime?
-    private var isAirplaneSinging = false
-    private lazy var airplaneSongPlayer: AVAudioPlayer? = {
-        guard let songURL = Bundle.main.url(
-            forResource: "bubu-left-drag-song",
-            withExtension: "mp3"
-        ) else { return nil }
-        do {
-            let player = try AVAudioPlayer(contentsOf: songURL)
-            player.numberOfLoops = -1
-            player.volume = 0.78
-            player.prepareToPlay()
-            return player
-        } catch {
-            return nil
-        }
-    }()
     private var isRefreshing = false
     private var isRefreshingTaskProgress = false
     private var isRefreshingBTCPrice = false
@@ -4395,15 +4399,40 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var currentBasePanelSize = expandedPanelSize
     private var isPanelHiddenByUser = false
     private var currentVocabularyWord: VocabularyWord?
-    private var vocabularyDismissedUntilMouseLeaves = false
+    private var vocabularyProjectionRequested = false
+    private var activeSongPlayer: AVAudioPlayer?
+    private var nativeSingingGesture: (processID: pid_t, releasePoint: CGPoint)?
+    private let petClosedByUserDefaultsKey = "orange-bubu.pet-closed-by-user"
+    private lazy var hanRenSongPlayer: AVAudioPlayer? = {
+        guard let songURL = Bundle.main.url(
+            forResource: "bubu-left-drag-song",
+            withExtension: "mp3"
+        ) else { return nil }
+        do {
+            let player = try AVAudioPlayer(contentsOf: songURL)
+            player.numberOfLoops = 0
+            player.volume = 0.78
+            player.prepareToPlay()
+            return player
+        } catch {
+            return nil
+        }
+    }()
     private var cachedCodexDesktopRunning = false
     private var lastCodexDesktopCheckAt: CFAbsoluteTime = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        // This executable belongs only to the Orange Bubu project. Never
-        // inherit or write another pet project's selection.
-        _ = petSelectionStore.select(.orange)
+        // This executable belongs only to the Orange Bubu project. Respect a
+        // native-style close action and never overwrite another pet choice.
+        let selectedAvatarID = petSelectionStore.selectedAvatarID()
+        if selectedAvatarID == BubuSkin.orange.avatarID {
+            UserDefaults.standard.set(false, forKey: petClosedByUserDefaultsKey)
+        } else if selectedAvatarID == nil,
+                  !UserDefaults.standard.bool(forKey: petClosedByUserDefaultsKey)
+        {
+            _ = petSelectionStore.select(.orange)
+        }
         quotaView.selectedSkin = .orange
         makePanel()
         makeQuotaLightstickPanel()
@@ -4412,6 +4441,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         startCodexLifecycleObserver()
         startScreenConfigurationObserver()
         startPetDoubleClickMonitor()
+        requestPetContextMenuAccessibility()
+        startPetContextMenuEventTap()
         healthWriter.write(status: "started", panelVisible: false, locationSource: nil, force: true)
         followPet()
         refreshQuota()
@@ -4448,6 +4479,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         if let globalMouseMonitor {
             NSEvent.removeMonitor(globalMouseMonitor)
         }
+        stopPetContextMenuEventTap()
+        stopCurrentSong()
         if let statusItem {
             NSStatusBar.system.removeStatusItem(statusItem)
         }
@@ -4520,7 +4553,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     /// they must always be hidden as one unit. They are never draggable; each
     /// later frame is recomputed from the live pet anchor in `followPet()`.
     private func hidePetAttachmentWindows(resetGestureState: Bool) {
-        stopAirplaneSinging(refreshLayout: false)
+        stopCurrentSong()
         quotaView.setPanelAnimationVisible(false)
         panel?.orderOut(nil)
         quotaLightstickPanel?.orderOut(nil)
@@ -4533,9 +4566,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             fastFollowUntil = 0
             quotaLightstickMode = .chair
             rewindTicketStartedAt = nil
-            isAirplaneSinging = false
             currentVocabularyWord = nil
-            vocabularyDismissedUntilMouseLeaves = false
+            vocabularyProjectionRequested = false
         }
     }
 
@@ -4647,21 +4679,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         quotaAirplanePanel.hasShadow = false
         quotaAirplanePanel.level = .statusBar
         quotaAirplanePanel.hidesOnDeactivate = false
-        // The ticket is an explicit interaction target. Handling its own
-        // double-click remains reliable even without Input Monitoring access.
-        quotaAirplanePanel.ignoresMouseEvents = false
+        // The airplane is visual-only. It must never intercept clicks or
+        // trigger music; pet interactions stay on the mascot itself.
+        quotaAirplanePanel.ignoresMouseEvents = true
         quotaAirplanePanel.isMovable = false
         quotaAirplanePanel.isReleasedWhenClosed = false
         quotaAirplanePanel.isFloatingPanel = true
         quotaAirplanePanel.collectionBehavior = [
             .canJoinAllSpaces, .fullScreenAuxiliary, .stationary,
         ]
-        quotaAirplaneView.onDoubleClick = { [weak self] in
-            self?.startAirplaneSinging()
-        }
-        quotaAirplaneView.onPointerExit = { [weak self] in
-            self?.stopAirplaneSinging(refreshLayout: true)
-        }
     }
 
     private func makeVocabularyProjectionPanel() {
@@ -4692,21 +4718,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateVocabularyProjection(for pet: LocatedPet) {
-        let mouseLocation = NSEvent.mouseLocation
-        let laptopHovered = vocabularyLaptopHoverRect(for: pet.visibleRect).contains(mouseLocation)
-        let cardHovered = vocabularyProjectionPanel.isVisible
-            && vocabularyProjectionPanel.frame.contains(mouseLocation)
-
-        if !laptopHovered && !cardHovered {
-            vocabularyDismissedUntilMouseLeaves = false
-            vocabularyProjectionView.collapseExample()
-            vocabularyProjectionPanel.orderOut(nil)
-            return
-        }
-        guard !vocabularyDismissedUntilMouseLeaves,
+        guard vocabularyProjectionRequested,
               petDragStart == nil,
-              quotaLightstickMode == .chair
+              quotaLightstickMode == .chair,
+              !isSingingPresentationActive
         else {
+            vocabularyProjectionView.collapseExample()
             vocabularyProjectionPanel.orderOut(nil)
             return
         }
@@ -4792,6 +4809,140 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc private func toggleVocabularyFromContextMenu(_ sender: NSMenuItem) {
+        vocabularyProjectionRequested.toggle()
+        if !vocabularyProjectionRequested {
+            vocabularyProjectionView.collapseExample()
+            vocabularyProjectionPanel.orderOut(nil)
+        }
+        followPet()
+        scheduleNextFollow()
+    }
+
+    @objc private func playHanRenFromContextMenu(_ sender: NSMenuItem) {
+        guard let hanRenSongPlayer else { return }
+        stopCurrentSong()
+        hanRenSongPlayer.currentTime = 0
+        activeSongPlayer = hanRenSongPlayer
+        hanRenSongPlayer.play()
+        startNativeSingingGesture()
+        followPet()
+        scheduleNextFollow()
+    }
+
+    private func stopCurrentSong() {
+        stopNativeSingingGesture()
+        activeSongPlayer?.stop()
+        activeSongPlayer?.currentTime = 0
+        activeSongPlayer = nil
+    }
+
+    private var isSingingPresentationActive: Bool {
+        activeSongPlayer?.isPlaying == true
+    }
+
+    private var isNativeSingingGestureActive: Bool {
+        nativeSingingGesture != nil
+    }
+
+    /// The native pet renderer owns the right-drag animation. Sending the
+    /// gesture directly to Codex avoids drawing a second transparent pet on
+    /// top of the first one, which caused the visible double-image artifact.
+    private func startNativeSingingGesture() {
+        guard nativeSingingGesture == nil,
+              AXIsProcessTrusted(),
+              let pet = lastLocatedPet,
+              let processID = codexDesktopProcessID(),
+              let startPoint = quartzPoint(
+                  from: NSPoint(x: pet.visibleRect.midX, y: pet.visibleRect.midY),
+                  on: pet.screen
+              )
+        else { return }
+
+        let dragDistance = max(14, min(22, pet.visibleRect.width * 0.20))
+        let endAppKitPoint = NSPoint(
+            x: min(pet.visibleRect.maxX - 6, pet.visibleRect.midX + dragDistance),
+            y: pet.visibleRect.midY
+        )
+        guard let releasePoint = quartzPoint(from: endAppKitPoint, on: pet.screen),
+              let source = CGEventSource(stateID: .privateState),
+              let mouseDown = CGEvent(
+                  mouseEventSource: source,
+                  mouseType: .leftMouseDown,
+                  mouseCursorPosition: startPoint,
+                  mouseButton: .left
+              ),
+              let drag = CGEvent(
+                  mouseEventSource: source,
+                  mouseType: .leftMouseDragged,
+                  mouseCursorPosition: releasePoint,
+                  mouseButton: .left
+              )
+        else { return }
+
+        // `postToPid` keeps the artificial hold inside Codex; it does not
+        // take over the user's real mouse button or move their desktop cursor.
+        mouseDown.postToPid(processID)
+        drag.postToPid(processID)
+        nativeSingingGesture = (processID: processID, releasePoint: releasePoint)
+    }
+
+    private func stopNativeSingingGesture() {
+        guard let gesture = nativeSingingGesture,
+              let source = CGEventSource(stateID: .privateState),
+              let mouseUp = CGEvent(
+                  mouseEventSource: source,
+                  mouseType: .leftMouseUp,
+                  mouseCursorPosition: gesture.releasePoint,
+                  mouseButton: .left
+              )
+        else {
+            nativeSingingGesture = nil
+            return
+        }
+        mouseUp.postToPid(gesture.processID)
+        nativeSingingGesture = nil
+    }
+
+    private func codexDesktopProcessID() -> pid_t? {
+        NSWorkspace.shared.runningApplications.first { application in
+            isCodexDesktopApplication(
+                bundleIdentifier: application.bundleIdentifier,
+                localizedName: application.localizedName,
+                bundleURL: application.bundleURL,
+                activationPolicy: application.activationPolicy
+            )
+        }?.processIdentifier
+    }
+
+    private func quartzPoint(from point: NSPoint, on screen: NSScreen) -> CGPoint? {
+        guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return nil
+        }
+        let displayBounds = CGDisplayBounds(CGDirectDisplayID(number.uint32Value))
+        guard displayBounds.width > 0, displayBounds.height > 0 else { return nil }
+        let scaleX = screen.frame.width / displayBounds.width
+        let scaleY = screen.frame.height / displayBounds.height
+        guard scaleX > 0, scaleY > 0 else { return nil }
+        return CGPoint(
+            x: displayBounds.minX + (point.x - screen.frame.minX) / scaleX,
+            y: displayBounds.minY + (screen.frame.maxY - point.y) / scaleY
+        )
+    }
+
+    private func stopSongIfPointerLeavesPet(at location: NSPoint) {
+        guard activeSongPlayer?.isPlaying == true else {
+            activeSongPlayer = nil
+            return
+        }
+        guard lastLocatedPet?.visibleRect.contains(location) == true else {
+            stopCurrentSong()
+            followPet()
+            scheduleNextFollow()
+            return
+        }
+    }
+
     private func selectSkin(_ skin: BubuSkin) -> Bool {
         guard petSelectionStore.select(skin) else { return false }
         quotaView.selectedSkin = skin
@@ -4818,7 +4969,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startPetDoubleClickMonitor() {
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .mouseMoved, .scrollWheel]
+            matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .rightMouseDown, .mouseMoved, .scrollWheel]
         ) {
             [weak self] event in
             let location = NSEvent.mouseLocation
@@ -4826,28 +4977,23 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 switch event.type {
                 case .leftMouseDown:
-                    // A click elsewhere is a definite exit from the ticket.
-                    // Do not use the 33fps follower for this check: a live
-                    // scale refresh can shift the ticket by a few points and
-                    // used to stop a just-started song immediately.
-                    self.updateAirplaneSingingHover(at: location, refreshLayout: false)
-                    if event.clickCount == 2,
-                       self.startAirplaneSingingIfNeeded(at: location)
-                    {
-                        break
-                    }
                     self.beginPetDragIfNeeded(at: location)
                     if event.clickCount == 2 {
                         self.handlePetDoubleClick(at: location, clickCount: event.clickCount)
                     }
                 case .leftMouseDragged:
                     self.updateLightstickModeForPetDrag(at: location)
+                    self.stopSongIfPointerLeavesPet(at: location)
                 case .leftMouseUp:
                     self.endPetDrag()
+                case .rightMouseDown:
+                    if !self.usesPetContextMenuEventTap,
+                       self.shouldShowPetContextMenu(at: location)
+                    {
+                        self.showPetContextMenu(at: location)
+                    }
                 case .mouseMoved:
-                    // Once the pointer has genuinely left the ticket, the
-                    // temporary native drag is released and the song stops.
-                    self.updateAirplaneSingingHover(at: location, refreshLayout: false)
+                    self.stopSongIfPointerLeavesPet(at: location)
                 case .scrollWheel:
                     self.beginFastFollowBurstIfNeeded(at: location)
                 default:
@@ -4857,55 +5003,144 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func airplaneHitFrame() -> NSRect? {
-        guard quotaAirplanePanel.isVisible,
-              !quotaAirplaneView.isFlying
-        else { return nil }
-        // The visible ticket is narrow at small pet sizes. This four-point
-        // halo remains deliberate without stealing clicks from the chair.
-        return quotaAirplanePanel.frame.insetBy(dx: -4, dy: -4)
+    private func startPetContextMenuEventTap() {
+        let eventMask = CGEventMask(1) << CGEventType.rightMouseDown.rawValue
+        guard let eventTap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: eventMask,
+            callback: petContextMenuEventTapCallback,
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else {
+            // A global AppKit monitor cannot consume Codex's native menu, but
+            // it can still open the Orange Bubu menu as a compatibility path.
+            // Accessibility grants the event-tap path above when available.
+            NSLog("Orange Bubu context menu is using compatibility monitoring; grant Accessibility for direct menu replacement.")
+            return
+        }
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
+        petContextMenuEventTap = eventTap
+        petContextMenuEventSource = source
+        usesPetContextMenuEventTap = true
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: eventTap, enable: true)
     }
 
-    @discardableResult
-    private func startAirplaneSingingIfNeeded(at location: NSPoint) -> Bool {
-        guard airplaneHitFrame()?.contains(location) == true else { return false }
-        startAirplaneSinging()
-        return true
+    private func stopPetContextMenuEventTap() {
+        if let source = petContextMenuEventSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        }
+        if let eventTap = petContextMenuEventTap {
+            CFMachPortInvalidate(eventTap)
+        }
+        petContextMenuEventSource = nil
+        petContextMenuEventTap = nil
+        usesPetContextMenuEventTap = false
     }
 
-    private func startAirplaneSinging() {
-        guard !quotaAirplaneView.isFlying,
-              !isAirplaneSinging
-        else { return }
-        isAirplaneSinging = true
-        // The ticket controls the music directly. We deliberately do not
-        // synthesize a drag on Codex's mascot: its renderer treats that as a
-        // real relocation, which can separate the pet from its attachments.
-        if let airplaneSongPlayer {
-            airplaneSongPlayer.currentTime = 0
-            airplaneSongPlayer.play()
+    fileprivate func reenablePetContextMenuEventTap() {
+        if let eventTap = petContextMenuEventTap {
+            CGEvent.tapEnable(tap: eventTap, enable: true)
         }
     }
 
-    private func updateAirplaneSingingHover(
-        at location: NSPoint,
-        refreshLayout: Bool = true
-    ) {
-        guard isAirplaneSinging,
-              airplaneHitFrame()?.contains(location) != true
-        else { return }
-        stopAirplaneSinging(refreshLayout: refreshLayout)
+    fileprivate func shouldShowPetContextMenu(at location: NSPoint) -> Bool {
+        guard codexDesktopRunning(at: CFAbsoluteTimeGetCurrent()),
+              let pet = lastLocatedPet
+        else { return false }
+        return pet.visibleRect.contains(location)
     }
 
-    private func stopAirplaneSinging(refreshLayout: Bool) {
-        guard isAirplaneSinging else { return }
-        isAirplaneSinging = false
-        airplaneSongPlayer?.stop()
-        airplaneSongPlayer?.currentTime = 0
-        if refreshLayout {
-            followPet()
-            scheduleNextFollow()
-        }
+    fileprivate func showPetContextMenu(at location: NSPoint) {
+        guard shouldShowPetContextMenu(at: location) else { return }
+
+        let menu = NSMenu(title: "橙色卜卜")
+        menu.autoenablesItems = false
+
+        let closePetItem = NSMenuItem(
+            title: "关闭宠物",
+            action: #selector(closePetFromContextMenu(_:)),
+            keyEquivalent: ""
+        )
+        closePetItem.target = self
+        menu.addItem(closePetItem)
+        menu.addItem(.separator())
+
+        let panelMenu = NSMenu(title: "面板")
+        let showPanelItem = NSMenuItem(
+            title: "显示",
+            action: #selector(showPanelFromStatusItem),
+            keyEquivalent: ""
+        )
+        showPanelItem.target = self
+        showPanelItem.isEnabled = isPanelHiddenByUser
+        panelMenu.addItem(showPanelItem)
+        let hidePanelItem = NSMenuItem(
+            title: "隐藏",
+            action: #selector(hidePanelFromContextMenu(_:)),
+            keyEquivalent: ""
+        )
+        hidePanelItem.target = self
+        hidePanelItem.isEnabled = !isPanelHiddenByUser
+        panelMenu.addItem(hidePanelItem)
+        let panelItem = NSMenuItem(title: "面板", action: nil, keyEquivalent: "")
+        panelItem.submenu = panelMenu
+        menu.addItem(panelItem)
+
+        let learningItem = NSMenuItem(
+            title: vocabularyProjectionRequested ? "关闭单词卡" : "学习",
+            action: #selector(toggleVocabularyFromContextMenu(_:)),
+            keyEquivalent: ""
+        )
+        learningItem.target = self
+        menu.addItem(learningItem)
+
+        let songMenu = NSMenu(title: "点歌")
+        let hanRenItem = NSMenuItem(
+            title: "憨人",
+            action: #selector(playHanRenFromContextMenu(_:)),
+            keyEquivalent: ""
+        )
+        hanRenItem.target = self
+        hanRenItem.isEnabled = hanRenSongPlayer != nil
+        songMenu.addItem(hanRenItem)
+        let bieReWoItem = NSMenuItem(title: "别惹我（音频待加入）", action: nil, keyEquivalent: "")
+        bieReWoItem.isEnabled = false
+        songMenu.addItem(bieReWoItem)
+        let sanGeShaGuaItem = NSMenuItem(title: "三个傻瓜（音频待加入）", action: nil, keyEquivalent: "")
+        sanGeShaGuaItem.isEnabled = false
+        songMenu.addItem(sanGeShaGuaItem)
+        let songItem = NSMenuItem(title: "点歌", action: nil, keyEquivalent: "")
+        songItem.submenu = songMenu
+        menu.addItem(songItem)
+
+        NSApp.activate(ignoringOtherApps: true)
+        menu.popUp(positioning: nil, at: location, in: nil)
+    }
+
+    @objc private func hidePanelFromContextMenu(_ sender: NSMenuItem) {
+        hidePanelByUser()
+    }
+
+    @objc private func closePetFromContextMenu(_ sender: NSMenuItem) {
+        guard petSelectionStore.clearSelection(for: .orange) else { return }
+        UserDefaults.standard.set(true, forKey: petClosedByUserDefaultsKey)
+        stopCurrentSong()
+        lastLocatedPet = nil
+        lastLocatedAt = 0
+        cachedSavedAnchor = nil
+        petAnchorCalibration = nil
+        hidePetAttachmentWindows(resetGestureState: true)
+        healthWriter.write(status: "pet-closed-by-user", panelVisible: false, locationSource: nil, force: true)
+    }
+
+    private func requestPetContextMenuAccessibility() {
+        let options = [
+            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true,
+        ] as CFDictionary
+        guard !AXIsProcessTrustedWithOptions(options) else { return }
+        NSLog("Orange Bubu context menu needs Accessibility permission to replace Codex's native menu.")
     }
 
     private func scheduleNextFollow() {
@@ -5025,6 +5260,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func followPet() {
         let now = CFAbsoluteTimeGetCurrent()
+        if activeSongPlayer != nil, !isSingingPresentationActive {
+            stopCurrentSong()
+        }
         guard codexDesktopRunning(at: now) else {
             lastLocatedPet = nil
             lastLocatedAt = 0
@@ -5067,7 +5305,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let located: LocatedPet?
         if let liveLocation {
-            if petAnchorCalibration == nil, let savedAnchor {
+            if petAnchorCalibration == nil, let savedAnchor,
+               PetAnchorCalibration.canUseSavedAnchor(savedAnchor, with: liveLocation)
+            {
                 petAnchorCalibration = PetAnchorCalibration(
                     savedAnchor: savedAnchor,
                     liveGeometry: liveLocation
@@ -5080,8 +5320,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                )
             {
                 located = calibrated
-            } else if let savedAnchor {
-                located = locationUsingSavedAnchor(savedAnchor, geometry: liveLocation)
             } else {
                 located = liveLocation
             }
@@ -5091,7 +5329,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             // jump away from Bubu before returning on the next Quartz read.
             located = lastLocatedPet
         } else {
-            located = savedAnchor
+            // Stored state can be from a display that no longer exists. Do not
+            // position any independent panel from it; wait for the real Codex
+            // overlay window so all companions reappear as one composition.
+            located = nil
         }
         if let located {
             lastLocatedPet = located
@@ -5123,7 +5364,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let lightstickPetScale = normalizedPanelScale(
             currentPanelScale * quotaLightstickPetRenderScaleFactor
         )
-        if shouldShowQuotaLightstick(for: quotaLightstickMode) {
+        // Singing now reuses Codex's own right-drag animation.  Do not place a
+        // second transparent pet above the real one: that was the source of
+        // visible double images while a song was playing.
+        if shouldShowQuotaLightstick(for: quotaLightstickMode), !isNativeSingingGestureActive {
             let primaryOriginX = quotaLightstickOriginXFromOverlayCenter
             quotaLightstickView.tiltDegrees = OrangeBubuRuntimeGeometry.lightstickChairTiltDegrees
             let lightstickFrame = quotaLightstickFrame(
@@ -5158,7 +5402,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let activeRewindTicketProgress = quotaLightstickMode == .rewind
             ? rewindTicketProgress(startedAt: rewindTicketStartedAt, now: now)
             : nil
-        if shouldShowQuotaAirplane(for: quotaLightstickMode)
+        if (shouldShowQuotaAirplane(for: quotaLightstickMode) && !isNativeSingingGestureActive)
             || activeRewindTicketProgress != nil
         {
             let originX = activeRewindTicketProgress.map {
@@ -5191,8 +5435,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             quotaAirplanePanel.orderOut(nil)
         }
 
-        // This remains available even when the user has hidden the quota
-        // panel: the laptop hover is a pet interaction, not a panel control.
+        // Learning remains available even when the user has hidden the quota
+        // panel because it is explicitly opened from the pet context menu.
         updateVocabularyProjection(for: pet)
 
         if isPanelHiddenByUser {
@@ -5615,6 +5859,13 @@ private func runPlacementSelfTest() -> Never {
         fputs("display topology cache invalidation failed\n", stderr)
         exit(1)
     }
+    guard hasSameDisplayID(10, 10),
+          !hasSameDisplayID(10, 11),
+          !hasSameDisplayID(nil, 10)
+    else {
+        fputs("cross-display calibration guard failed\n", stderr)
+        exit(1)
+    }
 
     guard PetAnchorCalibration.acceptsLiveGeometrySource("window-state-direct-anchor"),
           PetAnchorCalibration.acceptsLiveGeometrySource("window-visual-probe"),
@@ -5682,7 +5933,7 @@ private func runPlacementSelfTest() -> Never {
         exit(1)
     }
 
-    print("placement-self-test: 6/6 passed; realtime-follow=2/2; recent-live-hold=4/4; live-source-gate=3/3; mascot-scaling=6/6; visual-scaling=6/6; screen-topology=pass; panel-scaling=6/6; gap=14.0; centerError=0.0")
+    print("placement-self-test: 6/6 passed; realtime-follow=2/2; recent-live-hold=4/4; live-source-gate=3/3; mascot-scaling=6/6; visual-scaling=6/6; screen-topology=pass; cross-display-anchor=blocked; panel-scaling=6/6; gap=14.0; centerError=0.0")
     exit(0)
 }
 
@@ -6026,6 +6277,13 @@ private func runSkinSelectionSelfTest() -> Never {
         guard missingDesktop.contains("[desktop]\nselected-avatar-id = \"custom:bubu-orange\"") else {
             throw NSError(domain: "BubuSkinSelfTest", code: 4)
         }
+        let cleared = PetSelectionStore.updatingDesktopSelection(
+            in: orangeText,
+            avatarID: nil
+        )
+        guard !cleared.contains("selected-avatar-id") else {
+            throw NSError(domain: "BubuSkinSelfTest", code: 5)
+        }
     } catch {
         fputs("skin selection self-test failed: \(error)\n", stderr)
         exit(1)
@@ -6258,37 +6516,6 @@ private func runQuotaLightstickSelfTest() -> Never {
     }
 
     print("quota-lightstick-self-test: lightstick-materials=219x1221 airplane-material=342x284 independent-default-only=pass product-anchor-preserved=pass dynamic-glow=pass scaling=pass rewind-no-lightsticks=pass rewind-ticket-0.8s=pass chairside-live-no-external-accessories=pass")
-    exit(0)
-}
-
-private func runAirplaneSingingSelfTest() -> Never {
-    let hitFrame = NSRect(x: 140, y: 80, width: 61.23, height: 51.025)
-        .insetBy(dx: -4, dy: -4)
-    let songURL = Bundle.main.url(
-        forResource: "bubu-left-drag-song",
-        withExtension: "mp3"
-    )
-    let player = songURL.flatMap { try? AVAudioPlayer(contentsOf: $0) }
-    guard hitFrame.contains(NSPoint(x: 140, y: 80)),
-          hitFrame.contains(NSPoint(x: 171, y: 105)),
-          !hitFrame.contains(NSPoint(x: 205.5, y: 138)),
-          let player,
-          abs(player.duration - 27.533) < 0.1,
-          player.prepareToPlay(),
-          player.play()
-    else {
-        fputs("airplane singing interaction or audio resource is invalid\n", stderr)
-        exit(1)
-    }
-    // AVAudioPlayer starts asynchronously. Yield briefly, assert playback,
-    // then stop so this packaging check never leaves a sound playing.
-    RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-    guard player.isPlaying else {
-        fputs("airplane singing audio output could not start\n", stderr)
-        exit(1)
-    }
-    player.stop()
-    print("airplane-singing-self-test: double-click=pass hover-leave=stop renderer-drag=disabled pet-stability=pass audio=27.53s-loop=pass")
     exit(0)
 }
 
@@ -6572,10 +6799,6 @@ if CommandLine.arguments.contains("--self-test-quota-lightstick") {
     runQuotaLightstickSelfTest()
 }
 
-if CommandLine.arguments.contains("--self-test-airplane-singing") {
-    runAirplaneSingingSelfTest()
-}
-
 if CommandLine.arguments.contains("--self-test-runtime-geometry") {
     runRuntimeGeometryLockSelfTest()
 }
@@ -6646,6 +6869,33 @@ if let previewFlag = CommandLine.arguments.firstIndex(of: "--render-vocabulary-p
         projectionSide: CommandLine.arguments.contains("--vocabulary-left") ? .left : .right,
         expandedExample: CommandLine.arguments.contains("--vocabulary-example-expanded")
     )
+}
+
+private func petContextMenuEventTapCallback(
+    _ proxy: CGEventTapProxy,
+    _ type: CGEventType,
+    _ event: CGEvent,
+    _ userInfo: UnsafeMutableRawPointer?
+) -> Unmanaged<CGEvent>? {
+    guard let userInfo else { return Unmanaged.passUnretained(event) }
+    let delegate = Unmanaged<AppDelegate>.fromOpaque(userInfo).takeUnretainedValue()
+    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        DispatchQueue.main.async {
+            delegate.reenablePetContextMenuEventTap()
+        }
+        return Unmanaged.passUnretained(event)
+    }
+    guard type == .rightMouseDown else { return Unmanaged.passUnretained(event) }
+    let location = NSEvent.mouseLocation
+    guard delegate.shouldShowPetContextMenu(at: location) else {
+        return Unmanaged.passUnretained(event)
+    }
+    DispatchQueue.main.async {
+        delegate.showPetContextMenu(at: location)
+    }
+    // Codex's built-in context menu only contains “关闭宠物”. Consume this
+    // click so the richer Orange Bubu menu is the only menu that appears.
+    return nil
 }
 
 let application = NSApplication.shared

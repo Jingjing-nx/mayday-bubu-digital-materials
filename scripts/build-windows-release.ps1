@@ -106,6 +106,15 @@ function New-ReleasePackage {
         }
     }
 
+    # The installer verifies the versioned atlas name before copying the pet.
+    # Keep every generated package aligned with its own cache-busting atlas
+    # (in particular Ultimate v31, which must not look for the v29 file).
+    foreach ($commandFile in @(Get-ChildItem -LiteralPath $Stage -Filter "*.cmd" -File)) {
+        $commandText = [IO.File]::ReadAllText($commandFile.FullName, [Text.Encoding]::UTF8)
+        $commandText = $commandText.Replace("spritesheet-win-29.webp", $atlasName)
+        [IO.File]::WriteAllText($commandFile.FullName, $commandText, $utf8NoBom)
+    }
+
     $checksums = Get-ChildItem -LiteralPath $Stage -File -Recurse | Sort-Object FullName | ForEach-Object {
         $relative = $_.FullName.Substring($Stage.Length + 1).Replace("\", "/")
         $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()

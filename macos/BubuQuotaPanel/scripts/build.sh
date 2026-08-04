@@ -29,8 +29,7 @@ cp "$ROOT/Resources/task-running-badge.gif" "$RESOURCES/task-running-badge.gif"
 cp "$ROOT/Resources/task-waiting-icon.png" "$RESOURCES/task-waiting-icon.png"
 cp "$ROOT/Resources/task-failed-icon.png" "$RESOURCES/task-failed-icon.png"
 cp "$ROOT/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
-# The user-approved 27-second clip is intentionally bundled locally so
-# playback works after installation without a network request.
+# 点歌菜单中的“憨人”离线播放，不依赖网络。
 cp "$PROJECT_ROOT/shared/audio/bubu-left-drag-song.mp3" "$RESOURCES/bubu-left-drag-song.mp3"
 mkdir -p "$RESOURCES/Lightstick"
 for asset in lightstick-unlit.png lightstick-tube-emission.png lightstick-glow.png lightstick-specular.png lightstick-full-lit.png lightstick-tube-mask.png lightstick-layers.json; do
@@ -67,7 +66,6 @@ done
 
 "$MACOS/OrangeBubuQuotaPanel" --self-test-runtime-geometry >/dev/null
 "$MACOS/OrangeBubuQuotaPanel" --self-test-quota-lightstick >/dev/null
-"$MACOS/OrangeBubuQuotaPanel" --self-test-airplane-singing >/dev/null
 
 /usr/bin/codesign --force --deep --sign - "$APP"
 echo "$APP"
