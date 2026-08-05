@@ -1878,6 +1878,35 @@ private extension String {
     var nonEmpty: String? { isEmpty ? nil : self }
 }
 
+/// The ticket only has one deliberate word-title line.  Rather than silently
+/// replacing the end of a valid Web3 term with an ellipsis, calculate the
+/// largest readable size that lets the whole title fit.  Titles that cannot
+/// fit at the floor size are kept out of the learning queue at import time.
+private enum VocabularyCardTextLayout {
+    static let titleWidth: CGFloat = 160
+    static let preferredTitlePointSize: CGFloat = 20.5
+    static let minimumTitlePointSize: CGFloat = 12.5
+
+    static func titlePointSize(for title: String) -> CGFloat? {
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+
+        var pointSize = preferredTitlePointSize
+        while pointSize >= minimumTitlePointSize {
+            let font = NSFont.systemFont(ofSize: pointSize, weight: .semibold)
+            if normalized.size(withAttributes: [.font: font]).width <= titleWidth {
+                return pointSize
+            }
+            pointSize -= 0.5
+        }
+        return nil
+    }
+
+    static func acceptsTitle(_ title: String) -> Bool {
+        titlePointSize(for: title) != nil
+    }
+}
+
 private struct VocabularyLibraryDocument: Codable {
     let words: [VocabularyWord]
 }
@@ -2091,7 +2120,9 @@ private final class VocabularyLearningStore {
             } else {
                 imported = try decoder.decode([VocabularyWord].self, from: data)
             }
-            let unique = Dictionary(grouping: imported.filter { !$0.meaning.isEmpty }, by: \.id)
+            let unique = Dictionary(grouping: imported.filter {
+                !$0.meaning.isEmpty && VocabularyCardTextLayout.acceptsTitle($0.word)
+            }, by: \.id)
                 .compactMap { $0.value.first }
             if !unique.isEmpty {
                 words = unique.sorted { $0.word < $1.word }
@@ -2247,8 +2278,7 @@ private final class VocabularyProjectionView: NSView {
         }
 
         guard let word else { return }
-        drawFittedText(word.word, in: NSRect(x: cardRect.minX + 30, y: 30, width: 160, height: 25),
-                       preferredSize: 20.5, minimumSize: 16, weight: .semibold, color: teal, alignment: .center)
+        drawVocabularyTitle(word.word, in: NSRect(x: cardRect.minX + 30, y: 30, width: 160, height: 25), color: teal)
         drawText(word.phonetic ?? "", in: NSRect(x: cardRect.minX + 34, y: 58, width: 152, height: 15),
                  font: .systemFont(ofSize: 11, weight: .regular), color: mutedTeal, alignment: .center)
         drawFittedText(word.meaning, in: NSRect(x: cardRect.minX + 35, y: 78, width: 148, height: 16),
@@ -2577,6 +2607,18 @@ private final class VocabularyProjectionView: NSView {
         }
         drawText(text, in: rect, font: .systemFont(ofSize: pointSize, weight: weight),
                  color: color, alignment: alignment)
+    }
+
+    private func drawVocabularyTitle(_ text: String, in rect: NSRect, color: NSColor) {
+        guard let pointSize = VocabularyCardTextLayout.titlePointSize(for: text) else { return }
+        let style = NSMutableParagraphStyle()
+        style.alignment = .center
+        style.lineBreakMode = .byClipping
+        text.draw(in: rect, withAttributes: [
+            .font: NSFont.systemFont(ofSize: pointSize, weight: .semibold),
+            .foregroundColor: color,
+            .paragraphStyle: style,
+        ])
     }
 
     private func drawCenteredText(_ text: String, in rect: NSRect, font: NSFont, color: NSColor) {
@@ -5709,10 +5751,21 @@ private func runVocabularySelfTest() -> Never {
             VocabularyWord(id: "one", word: "one", meaning: "一"),
             VocabularyWord(id: "two", word: "two", meaning: "二"),
             VocabularyWord(id: "three", word: "three", meaning: "三"),
+            VocabularyWord(
+                id: "too-long",
+                word: "a deliberately oversized vocabulary title that cannot fit",
+                meaning: "过长"
+            ),
         ])
         let encoder = JSONEncoder()
         try encoder.encode(words).write(to: libraryURL, options: .atomic)
         let store = VocabularyLearningStore(stateURL: stateURL, libraryURL: libraryURL)
+        guard let projectRepositoryTitleSize = VocabularyCardTextLayout.titlePointSize(for: "project repository"),
+              projectRepositoryTitleSize >= VocabularyCardTextLayout.minimumTitlePointSize,
+              VocabularyCardTextLayout.titlePointSize(
+                  for: "a deliberately oversized vocabulary title that cannot fit"
+              ) == nil
+        else { throw NSError(domain: "Vocabulary", code: 7) }
         guard let first = store.nextWord() else { throw NSError(domain: "Vocabulary", code: 1) }
         store.remember(first)
         guard store.dailyCompletedCount == 1,

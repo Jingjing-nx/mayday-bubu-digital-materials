@@ -819,6 +819,28 @@ function Get-VocabularyValue($item, [string[]]$names) {
     return ""
 }
 
+# Keep the full word visible in the one-line ticket heading.  At import time
+# we exclude only labels that would fall below this readable floor; otherwise
+# the title uses the largest size that fits the same 160px card area as macOS.
+function Get-VocabularyTitleFontSize([string]$title) {
+    $text = $title.Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+    $measure = [System.Windows.Controls.TextBlock]::new()
+    $measure.Text = $text
+    $measure.TextWrapping = [System.Windows.TextWrapping]::NoWrap
+    $measure.TextTrimming = [System.Windows.TextTrimming]::None
+    $measure.FontFamily = [System.Windows.Media.FontFamily]::new("Segoe UI")
+    $measure.FontWeight = [System.Windows.FontWeights]::SemiBold
+    for ($fontSize = 20.5; $fontSize -ge 12.5; $fontSize -= 0.5) {
+        $measure.FontSize = $fontSize
+        $measure.Measure([System.Windows.Size]::new(10000.0, 10000.0))
+        if ([double]$measure.DesiredSize.Width -le 160.0) {
+            return [double]$fontSize
+        }
+    }
+    return $null
+}
+
 function ConvertTo-VocabularyWord($item) {
     if (-not $item) { return $null }
     $word = Get-VocabularyValue $item @("word", "Word")
@@ -845,7 +867,8 @@ function Import-VocabularyLibrary([bool]$force = $false) {
         $unique = @{}
         foreach ($item in $items) {
             $word = ConvertTo-VocabularyWord $item
-            if ($word -and -not $unique.ContainsKey([string]$word.Id)) {
+            if ($word -and (Get-VocabularyTitleFontSize ([string]$word.Word)) -and
+                -not $unique.ContainsKey([string]$word.Id)) {
                 $unique[[string]$word.Id] = $word
             }
         }
@@ -1387,7 +1410,7 @@ $vocabularyXaml = @"
         <TextBlock x:Name="VocabularyDailyText" Canvas.Left="44" Canvas.Top="12" Width="130" Height="14" Text="✿  今日已学 0 / 10" TextAlignment="Center"
                    FontFamily="Microsoft YaHei UI" FontSize="8.5" FontWeight="Medium" Foreground="#DE308F96"/>
         <TextBlock x:Name="VocabularyWordText" Canvas.Left="30" Canvas.Top="30" Width="160" Height="25" Text="serendipity"
-                   TextAlignment="Center" TextTrimming="CharacterEllipsis" FontFamily="Segoe UI" FontSize="20.5" FontWeight="SemiBold" Foreground="#F0128A91"/>
+                   TextAlignment="Center" TextTrimming="None" FontFamily="Segoe UI" FontSize="20.5" FontWeight="SemiBold" Foreground="#F0128A91"/>
         <TextBlock x:Name="VocabularyPhoneticText" Canvas.Left="34" Canvas.Top="58" Width="152" Height="15" Text="/ˌserənˈdɪpəti/"
                    TextAlignment="Center" TextTrimming="CharacterEllipsis" FontFamily="Segoe UI" FontSize="11" Foreground="#E42F9299"/>
         <TextBlock x:Name="VocabularyMeaningText" Canvas.Left="35" Canvas.Top="78" Width="148" Height="16" Text="意外发现的美好"
@@ -3474,6 +3497,18 @@ function Update-VocabularyProjectionText {
     $script:VocabularyProjection.LaterButton.Visibility = [Windows.Visibility]::Visible
     $script:VocabularyProjection.ExampleLabel.Visibility = [Windows.Visibility]::Visible
     $script:VocabularyProjection.ExampleText.Visibility = [Windows.Visibility]::Visible
+    $titleFontSize = Get-VocabularyTitleFontSize ([string]$script:VocabularyCurrentWord.Word)
+    if (-not $titleFontSize) {
+        # The library filter normally makes this unreachable.  Keep the card
+        # stable if a file is swapped underneath a live session.
+        $script:VocabularyCurrentWord = Get-NextVocabularyWord ([string]$script:VocabularyCurrentWord.Id)
+        if (-not $script:VocabularyCurrentWord) {
+            Hide-VocabularyProjectionWindow
+            return
+        }
+        $titleFontSize = Get-VocabularyTitleFontSize ([string]$script:VocabularyCurrentWord.Word)
+    }
+    $script:VocabularyProjection.WordText.FontSize = [double]$titleFontSize
     $script:VocabularyProjection.WordText.Text = [string]$script:VocabularyCurrentWord.Word
     $script:VocabularyProjection.PhoneticText.Text = [string]$script:VocabularyCurrentWord.Phonetic
     $script:VocabularyProjection.MeaningText.Text = [string]$script:VocabularyCurrentWord.Meaning
@@ -4538,9 +4573,15 @@ if ($ValidateVocabulary) {
         @(
             [PSCustomObject]@{ id = "one"; word = "one"; meaning = "一" },
             [PSCustomObject]@{ id = "two"; word = "two"; definition = "二" },
-            [PSCustomObject]@{ id = "three"; word = "three"; meaning = "三" }
+            [PSCustomObject]@{ id = "three"; word = "three"; meaning = "三" },
+            [PSCustomObject]@{ id = "too-long"; word = "a deliberately oversized vocabulary title that cannot fit"; meaning = "过长" }
         ) | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $script:VocabularyLibraryPath -Encoding UTF8
         Import-VocabularyLibrary $true
+        $projectRepositoryTitleSize = Get-VocabularyTitleFontSize "project repository"
+        $oversizedTitleSize = Get-VocabularyTitleFontSize "a deliberately oversized vocabulary title that cannot fit"
+        if (-not $projectRepositoryTitleSize -or $projectRepositoryTitleSize -lt 12.5 -or $oversizedTitleSize) {
+            throw "Vocabulary title fitting failed."
+        }
         $first = Get-NextVocabularyWord
         if (-not $first) { throw "Vocabulary library did not supply a first word." }
         Remember-VocabularyWord $first
