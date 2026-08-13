@@ -129,12 +129,12 @@
   <tbody>
     <tr>
       <td rowspan="2"><strong>千问版（需搭配千问办公使用）</strong></td>
-      <td>Windows 版</td>
-      <td><a href="dist/Qwen-Bubu-Desk-Pet-Windows-v1.0.2.zip?raw=1">Windows 压缩包下载</a></td>
+      <td>Windows 版 v1.0.2</td>
+      <td><a href="dist/Qwen-Bubu-Desk-Pet-Windows-v1.0.2.zip?raw=1">Windows v1.0.2 压缩包下载</a></td>
     </tr>
     <tr>
-      <td>macOS 版</td>
-      <td><a href="dist/Qwen-Bubu-Desk-Pet-macOS-v1.0.0.zip?raw=1">macOS 压缩包下载</a></td>
+      <td>macOS 版 v1.0.0</td>
+      <td><a href="dist/Qwen-Bubu-Desk-Pet-macOS-v1.0.0.zip?raw=1">macOS v1.0.0 压缩包下载</a></td>
     </tr>
   </tbody>
 </table>
