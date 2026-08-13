@@ -31,13 +31,6 @@
 
 请按皮肤、功能和系统选择版本：
 
-<h2>
-  必须搭配codex使用！！！<br>
-  必须搭配codex使用！！！<br>
-  必须搭配codex使用！！！<br>
-  没有codex用不了！！！
-</h2>
-
 <!-- DOWNLOAD_TABLE:START -->
 <table>
   <thead>
@@ -122,6 +115,29 @@
 - **会唱歌、也会背单词终极版**：同时提供本地 27.5 秒音乐与 Web3 3000 词学习卡，保留完整 BTC 面板。当前为 **31** 版。
 - 蓝色卜卜当前正式版为 **46**；橙色卜卜基础版为 **29**，两套项目和安装目录彼此隔离。
 <!-- DOWNLOAD_TABLE:END -->
+
+### 千问版下载
+
+<table>
+  <thead>
+    <tr>
+      <th>版本</th>
+      <th>系统</th>
+      <th>压缩包下载</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td rowspan="2"><strong>千问版（需搭配千问办公使用）</strong></td>
+      <td>Windows 版</td>
+      <td><a href="dist/Qwen-Bubu-Desk-Pet-Windows-v1.0.2.zip?raw=1">Windows 压缩包下载</a></td>
+    </tr>
+    <tr>
+      <td>macOS 版</td>
+      <td><a href="dist/Qwen-Bubu-Desk-Pet-macOS-v1.0.0.zip?raw=1">macOS 压缩包下载</a></td>
+    </tr>
+  </tbody>
+</table>
 
 macOS 支持 12.3+、Apple 芯片与 Intel Mac；Windows 支持 Windows 10/11、x64 与 ARM64。压缩包的系统和版本不能混用。
 
